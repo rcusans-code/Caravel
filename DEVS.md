@@ -17,6 +17,30 @@ Deadline: submit **Mon 11:30**, feature freeze **Mon 08:00**.
 
 ---
 
+## Status at Sun 18:20 (checked against `main` 0c284f0)
+
+**Done and live on testnet** (redeployed Sun 18:00: repo `CCFP3L7T…`, oracle `CAQK3QD4…`, tSAFO `CA75VXSU…`; full IDs in `deployments/testnet.json`)
+
+- **Contract:** every flow is implemented, no stubs: create, cancel, take (DvP), repay, `top_up`, `check_margin`, `default`, `liquidate`, plus `auto_repay` (#27). 160 tests across the workspace. Per-asset NAV staleness (#25), compliance-agnostic SEP-41 tests (#24, `test_allowlist.rs`, `test_spiko.rs`), token decimals (#28), tSAFO as collateral #2 (#29).
+- **Integration:** mock SEP-40 oracle, one-command deploy (`scripts/deploy.sh`, demo time profile as its defaults), TS bindings in `packages/caravel-repo` and `packages/caravel-oracle`, keeper (`auto_repay`, `check_margin`, `default`, `liquidate`, holds on a NAV jump), `set-nav` CLI, seed script, live SEP-40 feed read (`scripts/keeper/src/feeds.ts`).
+- **App** (https://caravel-repo.pages.dev/app/, landing at `/`): offers board, create and take with the DvP collateral preview, positions with countdown and Top up, admin NAV slider, liquidator view, stellar.expert links. Spiko and weekend copy is on the landing and in the app.
+- **Pitch:** deck PDF in `docs/caravel-pitch.pdf`; README has architecture, states, methods and parameters.
+
+**Still open**
+
+| Owner | Item | State |
+|---|---|---|
+| Den | Hardening sign-off | Auth on every mutating call, status checks, take-once (the offer is removed on take) and TTL bumps on read/write are in the code. Missing: a take-twice test and a sign-off. |
+| Den + Misha | `liquidate` on stale NAV | The code blocks it (test `liquidate_rejects_stale_nav`); DECISIONS → Open is still undecided. Close it as "blocked" or change the code. |
+| Den / Bohdan Che | Open PRs #33–#36 (pause flags #28, NAV band #26, exposure cap #29, Settle now #31) | Opened 18:10–18:20, not reviewed. Merge before the 08:00 freeze or cut. |
+| Misha | README contract IDs | The repo and oracle rows still read "final deploy, Mon 06:00"; add one `take_offer` DvP tx link. |
+| Bohdan Che | Live feed in the app | Read by the keeper only; the app does not show it next to the mock NAV. |
+| Bohdan Che | G5 polish | Empty states exist; loading states, number formatting and the copy pass are not checked. |
+| Bohdan Koldun | Lock-in, mentor round 1 | Not recorded anywhere. |
+| Bohdan Koldun | Video script, submission answers, deck v1 sign-off, README final (3 REVIEW notes left), rehearsals, submit | Nothing in the repo yet. |
+
+---
+
 ## Update Sun 16:35: Spiko, compliance, weekends
 
 - **Pitch:** Spiko is the largest RWA issuer on Stellar ($1.97B across 9 funds vs BENJI $434.7M; DefiLlama, 25 Oct 2026; details in [docs/numbers.md](docs/numbers.md)). It sits next to BENJI at the center of the deck and the landing. Deck: 11 slides, [docs/pitch-deck.md](docs/pitch-deck.md); Teo drafts, Den owns the narrative and the final read. All numbers from [docs/numbers.md](docs/numbers.md), dated.
@@ -24,7 +48,7 @@ Deadline: submit **Mon 11:30**, feature freeze **Mon 08:00**.
 - **Den:** compliance-agnostic test (DECISIONS #24) with a Spiko-style permissioned SEP-41 token that has no `approve`; decide with Misha whether `liquidate` stays blocked on stale NAV.
 - **Bohdan Che:** landing and app copy updated for Spiko, compliance-agnostic and the weekend policy.
 
-## Status at Sun 14:05, and what each of you does right now
+## Status at Sun 14:05, and what each of you does right now (superseded by Sun 18:20 above)
 
 **Done on `main`**
 - AUTH_REQUIRED spike: **GO**. The issuer can authorize a contract on tBENJI, and the freeze works (`spikes/auth/README.md`).
@@ -84,7 +108,7 @@ Work in `contracts/repo/src/lib.rs`. `math.rs` already has the formulas and test
 - [x] `default` / `liquidate`: anyone can call `default` after maturity + grace, or once `margin_call_deadline` (set by Misha's `check_margin`) has passed; only whitelisted liquidators can `liquidate`; pays NAV × (1 − discount); waterfall; `Shortfall` event when proceeds fall short (#4). *Done when: made-whole, surplus and shortfall tests pass.*
 
 **G4 · by Mon 06:00**
-- [ ] Hardening: auth on every state-changing call, no double take, only valid status transitions, TTL bumps on offers and repos.
+- [ ] 🔄 Hardening: auth on every state-changing call, no double take, only valid status transitions, TTL bumps on offers and repos. In the code; missing a take-twice test and a sign-off.
 
 **→ Bohdan Koldun** by Sun 20:00: five lines on the state machine (which call moves a repo from which status to which), for the README diagram.
 
@@ -95,22 +119,22 @@ Work in `contracts/repo/src/lib.rs`. `math.rs` already has the formulas and test
 You own the price path end to end: oracle → NAV client → margin call → keeper, plus everything that turns the contract into something the app and the demo can use. The AUTH_REQUIRED spike, accounts and funding are done (see the status log in TASKS.md).
 
 **G1 · by Sun 16:00**
-- [ ] `contracts/repo/src/oracle.rs` **by 14:45**: SEP-40 client, `fresh_nav` with the staleness check (#6, #17), test-only mock. *Done when: Den can call it from `take_offer` in a test.*
-- [ ] Mock SEP-40 oracle contract in `contracts/oracle`: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) plus admin `set_price`. Same `Asset` shape as Reflector (#22). Deploy it and put the ID in `.env`. *Done when: `lastprice(tBENJI)` returns price + timestamp.*
-- [ ] Deploy script v0 + TS bindings (see "Right now").
+- [x] `contracts/repo/src/oracle.rs` **by 14:45**: SEP-40 client, `fresh_nav` with the staleness check (#6, #17), test-only mock. *Done when: Den can call it from `take_offer` in a test.*
+- [x] Mock SEP-40 oracle contract in `contracts/oracle`: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) plus admin `set_price`. Same `Asset` shape as Reflector (#22). Deploy it and put the ID in `.env`. *Done when: `lastprice(tBENJI)` returns price + timestamp.*
+- [x] Deploy script v0 + TS bindings (see "Right now").
 
 **G2 · by Sun 19:30**
-- [ ] `contracts/repo/src/margin.rs`, by 18:30: `check_margin` (stale NAV blocks it (#17); a breach (#14) sets `margin_call_deadline` once and moves the repo to `MarginCall`; emits `MarginCall`) and `top_up` (works with stale NAV (#6); clears the call only at initial margin (#20)). *Done when: breach, clear, no-double-call and stale-block tests pass.*
-- [ ] One-command deploy: build, deploy oracle + repo, `set_asset(tBENJI)` with the demo haircut, `set_liquidator`, authorize the repo contract and liquidator on tBENJI, mint demo balances, write every ID to `.env`. *Done when: a clean deploy takes under 5 minutes.*
-- [ ] TS bindings: `stellar contract bindings typescript` for the repo and the oracle, committed where Bohdan Che imports them. Regenerate after every contract change and tell him.
-- [ ] Keeper script (TS): call `check_margin` on open repos every 10 s, then `default` once the margin window or maturity + grace passes; plus a NAV setter CLI (`set-nav 0.97`). *Done when: a margin call fires with nobody touching anything.*
+- [x] `contracts/repo/src/margin.rs`, by 18:30: `check_margin` (stale NAV blocks it (#17); a breach (#14) sets `margin_call_deadline` once and moves the repo to `MarginCall`; emits `MarginCall`) and `top_up` (works with stale NAV (#6); clears the call only at initial margin (#20)). *Done when: breach, clear, no-double-call and stale-block tests pass.*
+- [x] One-command deploy: build, deploy oracle + repo, `set_asset(tBENJI)` with the demo haircut, `set_liquidator`, authorize the repo contract and liquidator on tBENJI, mint demo balances, write every ID to `.env`. *Done when: a clean deploy takes under 5 minutes.*
+- [x] TS bindings: `stellar contract bindings typescript` for the repo and the oracle, committed where Bohdan Che imports them. Regenerate after every contract change and tell him.
+- [x] Keeper script (TS): call `check_margin` on open repos every 10 s, then `default` once the margin window or maturity + grace passes; plus a NAV setter CLI (`set-nav 0.97`). *Done when: a margin call fires with nobody touching anything.*
 
 **G3 · by Sun 23:30**
-- [ ] Read one live Reflector or RedStone testnet SEP-40 feed through the same client, to prove swapping feeds is config only (#2). *Done when: the live price shows next to the mock NAV.*
+- [x] Read one live Reflector or RedStone testnet SEP-40 feed through the same client, to prove swapping feeds is config only (#2). *Done when: the live price shows next to the mock NAV.* Read by `scripts/keeper/src/feeds.ts`; not shown in the app yet.
 
 **G4 · by Mon 06:00**
-- [ ] Reset and seed script: 2 open offers + 1 repo close to maturity, so a demo restarts in under 2 minutes.
-- [ ] Demo time profile in the deploy config (#5): 1 day = 60 s, margin window 120 s, grace 60 s, NAV age 180 s.
+- [x] Reset and seed script: 2 open offers + 1 repo close to maturity, so a demo restarts in under 2 minutes.
+- [x] Demo time profile in the deploy config (#5): 1 day = 60 s, margin window 120 s, grace 60 s, NAV age 180 s.
 
 **→ Bohdan Koldun** by Mon 06:00: final contract IDs and the run instructions for the README.
 
@@ -123,21 +147,21 @@ Use the design system in [design/](design/README.md): import `design/tokens.css`
 Until Misha's 16:30 handoff, build against mock data shaped like the contract types (`Offer`, `Repo`, `Status` in `contracts/repo/src/types.rs`), then swap in the bindings.
 
 **G0 · now**
-- [ ] Scaffold: Next.js or Vite + `@stellar/stellar-sdk` + Freighter, testnet, a role switcher (lender / borrower / liquidator / admin) and the design system wired in. *Done when: the wallet connects and USDC + tBENJI balances show.*
+- [x] Scaffold: Next.js or Vite + `@stellar/stellar-sdk` + Freighter, testnet, a role switcher (lender / borrower / liquidator / admin) and the design system wired in. *Done when: the wallet connects and USDC + tBENJI balances show.*
 
 **G1 · by Sun 16:00**
-- [ ] Offers board: amount, term, APR (also as "T-bill + x%"), asset, haircut from the asset config. *Done when: it reads testnet (mock until 16:30).*
+- [x] Offers board: amount, term, APR (also as "T-bill + x%"), asset, haircut from the asset config. *Done when: it reads testnet (mock until 16:30).*
 
 **G2 · by Sun 19:30**
-- [ ] Create offer (lender) and take offer (borrower) flows. The take screen previews the collateral before signing: `debt = principal × (1 + apr × term / 365 days)`, `collateral = debt / (NAV × (1 − haircut))`, rounded up. *Done when: both transactions succeed from the UI.*
+- [x] Create offer (lender) and take offer (borrower) flows. The take screen previews the collateral before signing: `debt = principal × (1 + apr × term / 365 days)`, `collateral = debt / (NAV × (1 − haircut))`, rounded up. *Done when: both transactions succeed from the UI.*
 
 **G3 · by Sun 23:30**
-- [ ] My positions: maturity countdown, collateral cover bar, status pill, Repay and Top up buttons.
-- [ ] Admin NAV slider that calls the oracle's `set_price` and shows the feed timestamp. This is how we trigger the margin call on camera.
+- [x] My positions: maturity countdown, collateral cover bar, status pill, Repay and Top up buttons.
+- [x] Admin NAV slider that calls the oracle's `set_price` and shows the feed timestamp. This is how we trigger the margin call on camera.
 
 **G4 · by Mon 06:00**
-- [ ] Liquidator view: repos in default, Liquidate button. (Fallback: Misha liquidates from a script on camera.)
-- [ ] A stellar.expert link on every transaction, especially the `take_offer` DvP.
+- [x] Liquidator view: repos in default, Liquidate button. (Fallback: Misha liquidates from a script on camera.)
+- [x] A stellar.expert link on every transaction, especially the `take_offer` DvP.
 
 **G5 · by Mon 08:00**
 - [ ] Polish: empty and loading states, number formatting (7 decimals in, 2 shown for USDC), copy pass with Bohdan Koldun.
@@ -156,7 +180,7 @@ You own everything judges see besides the app, and you are the team's first user
 - [ ] Deck outline (9 slides), every number sourced from `docs/collateral-research.md`.
 
 **Sun 16:00 → 23:30**
-- [ ] README core: architecture diagram, state machine (from Den's five lines), method table, parameters.
+- [x] README core: architecture diagram, state machine (from Den's five lines), method table, parameters.
 - [ ] Video script v1 (6 beats, target 2:30) and submission answers draft, one per rubric line.
 
 **Sun 19:30 → Mon 06:00 · QA**
