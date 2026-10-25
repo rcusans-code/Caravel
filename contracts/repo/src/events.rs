@@ -1,7 +1,7 @@
 //! Events the frontend and keeper index. Ids are topics so they can be
 //! filtered; amounts go in the data map.
 
-use soroban_sdk::{contractevent, Address};
+use soroban_sdk::{contractevent, Address, Symbol};
 
 /// Admin added or re-tiered a collateral asset (DECISIONS.md #13).
 #[contractevent]
@@ -23,6 +23,53 @@ pub struct PauseSet {
     pub asset: Address,
     pub no_new_repos: bool,
     pub no_seize: bool,
+}
+
+/// Admin queued an asset change behind the timelock (DECISIONS.md #32).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetChangeProposed {
+    #[topic]
+    pub asset: Address,
+    pub eta: u64,
+    pub haircut_bps: u32,
+    pub enabled: bool,
+    pub max_nav_age_secs: u64,
+    pub max_open_debt: i128,
+}
+
+/// Admin queued a pause change behind the timelock (DECISIONS.md #32).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseChangeProposed {
+    #[topic]
+    pub asset: Address,
+    pub eta: u64,
+    pub no_new_repos: bool,
+    pub no_seize: bool,
+}
+
+/// A proposal took effect. `kind` is `asset` or `pause`; the matching
+/// `AssetConfigured` / `PauseSet` follows.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalExecuted {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub kind: Symbol,
+}
+
+/// A proposal was dropped: cancelled by admin or guardian, or superseded
+/// by an instant change to the same asset (`by` made that change).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalCancelled {
+    #[topic]
+    pub asset: Address,
+    #[topic]
+    pub kind: Symbol,
+    pub by: Address,
 }
 
 #[contractevent]

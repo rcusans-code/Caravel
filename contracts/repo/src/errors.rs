@@ -29,4 +29,13 @@ pub enum Error {
     Paused = 17,
     /// `take_offer` would push the asset's open debt past `max_open_debt`.
     CapExceeded = 18,
+    /// The change loosens risk: it must go through `propose_*`, wait out
+    /// `timelock_secs`, then `execute_*` (#32).
+    Loosens = 19,
+    /// `execute_*` before the proposal's `eta`.
+    TimelockNotDone = 20,
+    /// `execute_*` or `cancel_*` with no pending proposal for the asset.
+    NoProposal = 21,
+    /// `cancel_*` by someone who is neither admin nor guardian.
+    NotAdminOrGuardian = 22,
 }

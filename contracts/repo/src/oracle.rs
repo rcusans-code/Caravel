@@ -228,6 +228,8 @@ mod test {
             day_secs: 60,
             margin_window_secs: 120,
             grace_secs: 60,
+            guardian: Address::generate(&env),
+            timelock_secs: 120,
         };
         let repo = env.register(CaravelRepo, (cfg.clone(),));
         let asset = AssetConfig {

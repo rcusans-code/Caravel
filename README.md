@@ -130,10 +130,14 @@ stateDiagram-v2
 | `check_margin(repo_id) → Status` | anyone | Open → MarginCall on breach; deadline set once | **yes** | none |
 | `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull | no | none, or as `auto_repay` |
 | `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → lender, treasury, borrower; collateral → liquidator |
-| `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness and exposure cap; DECISIONS #31) |
+| `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness and exposure cap; DECISIONS #31). Instant for a first listing or a change that only tightens; a loosening fails with `Loosens` (DECISIONS #32) |
 | `set_liquidator(who, allowed)` | admin | — | — | — |
-| `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
+| `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — (instant for switching on; clearing fails with `Loosens`) |
+| `guardian_set_asset(asset, config)`, `guardian_set_pause(asset, pause)` | guardian | — | — | — (tighten only, instant: disable, raise haircut, lower cap or NAV age, switch a pause on) |
+| `propose_asset(asset, config) → eta`, `propose_pause(asset, pause) → eta` | admin | — | — | — (queues any change, loosening included, for `timelock_secs`) |
+| `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` | — | — | — |
+| `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin or guardian, any time | — | — | — |
+| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
 
 <!-- REVIEW (Misha): check_margin and top_up rows follow DECISIONS #14, #17 and #20; confirm they match margin.rs once it merges. -->
 
@@ -145,6 +149,10 @@ Every state-changing call checks status first and fails with a named error other
 |---|---|---|
 | `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs, max_open_debt |
 | `PauseSet` | asset | no_new_repos, no_seize |
+| `AssetChangeProposed` | asset | eta, haircut_bps, enabled, max_nav_age_secs, max_open_debt |
+| `PauseChangeProposed` | asset | eta, no_new_repos, no_seize |
+| `ProposalExecuted` | asset, kind (`asset` / `pause`) | — (followed by `AssetConfigured` / `PauseSet`) |
+| `ProposalCancelled` | asset, kind | by (cancelled, or superseded by an instant change) |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
 | `RepoOpened` | repo_id, offer_id | lender, borrower, collateral_asset, collateral_amount, principal, interest, haircut_bps, maturity_ts |
@@ -169,8 +177,9 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
 - **Exposure is capped per asset.** `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
+- **Risk goes up only through a timelock** (DECISIONS #32). The guardian can only tighten, instantly; every loosening is `propose_*`, then `execute_*` from `eta`, and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 167 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 182 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -188,6 +197,7 @@ All durations are configuration, so the demo compresses time without touching co
 | `max_open_debt` | per asset | 100,000 USDC (tBENJI), 50,000 USDC (tSAFO) | BENJI/USTBL/USDY $2M, EUTBL $1M, CETES $0.5M, SAFO 0 ([DECISIONS #31](DECISIONS.md)) |
 | `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
 | `fee_bps` | global | 1,000 (10% of interest) | illustrative |
+| `timelock_secs` | global | 120 (2 demo days) | 172,800 (2 days), so lenders and borrowers see a loosening coming ([DECISIONS #32](DECISIONS.md)) |
 
 <!-- REVIEW (team): production values follow docs/mechanics.md §7 and are intent, not decisions. Confirm or cut. -->
 
@@ -253,14 +263,14 @@ scripts/deploy.sh
 - **Negative carry.** A passive holder pays 5% to borrow against a fund yielding 3.87%. Caravel's target borrower is a trader or market maker whose USDC earns more than the repo costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (6.69% on Blend), in exchange for a fixed term, a fixed rate and T-bill collateral.
 - **Dividends.** Real BENJI pays its yield as new tokens to the holder of record, which during a repo is the contract. Passing them back to the borrower is on the roadmap; the demo token pays none.
 - **Liquidators.** Liquidators must be issuer-approved, and nothing obliges one to buy, so a defaulted repo can wait. A liquidation sells all the collateral, so defaulting at NAV 1.00 costs the borrower about 21.60 USDC per 1,000 against 0.96 of interest for repaying. Once a repo is Defaulted the borrower can no longer repay.
-- **One admin key.** The admin sets the asset list and the liquidator whitelist, and the feed is only as good as whoever writes it. A wrong but fresh price plus a friendly liquidator could cost the lender principal. Target: split keys and a timelock.
+- **One admin key.** The admin sets the asset list and the liquidator whitelist, and the feed is only as good as whoever writes it. A wrong but fresh price plus a friendly liquidator could cost the lender principal. Risk settings are split (DECISIONS #32): a guardian can only tighten them, instantly, and any loosening (enable an asset, lower a haircut, raise a cap or NAV age, clear a pause) waits out `timelock_secs` in public, where admin or guardian can cancel it. Still one key, with no delay: the liquidator whitelist, the oracle's prices and listing a new asset (no offer can exist on it yet). Guardian and timelock are fixed at deploy.
 - **Push payouts.** Repay and liquidation pay lender, treasury and borrower directly. An account that removes its USDC trustline can make those payments fail. Target: hold payouts in the contract for each party to claim.
 - **Staleness means feed liveness.** The rule catches a feed that stopped updating, not a fund that stopped publishing.
 - **Regulatory scope.** This is a testnet demo, not a public offer. Tokenized fund shares are financial instruments and USDC is an e-money token under MiCA; a live deployment needs a legal analysis per issuer and jurisdiction.
 
 <!-- REVIEW (team): docs/mechanics.md §14 proposes an earlier margin trigger (2.5%) that would leave a cushion between the call and any lender loss. If the team adopts it before freeze, rewrite the Shortfall bullet; if not, it stays as written. -->
 
-**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; per-asset NAV bounds; split admin keys; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
+**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; per-asset NAV bounds; timelock the liquidator whitelist and a guardian rotation; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
 
 ## Built during HackMeridian
 

@@ -22,10 +22,12 @@ mod test_allowlist;
 #[cfg(test)]
 mod test_spiko;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
 
 pub use errors::Error;
-pub use types::{Asset, AssetConfig, Config, Offer, Pause, Repo, Status};
+pub use types::{
+    Asset, AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo, Status,
+};
 
 #[contract]
 pub struct CaravelRepo;
@@ -72,6 +74,18 @@ impl CaravelRepo {
         storage::read_pause(&env, &asset)
     }
 
+    /// The admin asset change waiting out the timelock, if any (#32).
+    pub fn pending_asset(env: Env, asset: Address) -> Option<PendingAsset> {
+        storage::extend_instance(&env);
+        storage::read_pending_asset(&env, &asset)
+    }
+
+    /// The admin pause change waiting out the timelock, if any (#32).
+    pub fn pending_pause(env: Env, asset: Address) -> Option<PendingPause> {
+        storage::extend_instance(&env);
+        storage::read_pending_pause(&env, &asset)
+    }
+
     /// Debt (principal + interest) of live repos on `asset`, the amount
     /// counted against `AssetConfig.max_open_debt` (#31). 0 for an unknown asset.
     pub fn open_debt(env: Env, asset: Address) -> i128 {
@@ -92,28 +106,25 @@ impl CaravelRepo {
     /// haircut means a take at max LTV opens strictly below the margin trigger.
     /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25) and
     /// `max_open_debt ≥ 0` (#31). Re-setting an asset keeps its open debt;
-    /// a cap below it only stops new takes. Plain admin setter for now: the
-    /// guardian (lower instantly, raise behind a timelock) is GitHub issue #27.
+    /// a cap below it only stops new takes.
+    ///
+    /// Instant only for a first listing (no offer can exist on an unlisted
+    /// asset) or a change that only tightens (#32: disable, raise the
+    /// haircut, lower the NAV age or the cap). Anything that loosens fails
+    /// with `Loosens`: use `propose_asset`. An instant change drops a
+    /// pending proposal for the asset, so it cannot undo the change later.
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
-        if config.haircut_bps <= protocol.liquidation_discount_bps
-            || config.haircut_bps as i128 >= math::BPS
-            || config.max_nav_age_secs == 0
-            || config.max_open_debt < 0
-        {
-            return Err(Error::InvalidConfig);
+        validate_asset(&protocol, &config)?;
+        if let Some(old) = storage::read_asset(&env, &asset) {
+            if !asset_tightens(&old, &config) {
+                return Err(Error::Loosens);
+            }
         }
         storage::extend_instance(&env);
-        storage::write_asset(&env, &asset, &config);
-        events::AssetConfigured {
-            asset,
-            haircut_bps: config.haircut_bps,
-            enabled: config.enabled,
-            max_nav_age_secs: config.max_nav_age_secs,
-            max_open_debt: config.max_open_debt,
-        }
-        .publish(&env);
+        drop_pending_asset(&env, &asset, &protocol.admin);
+        apply_asset(&env, asset, &config);
         Ok(())
     }
 
@@ -121,21 +132,156 @@ impl CaravelRepo {
     /// action: `no_new_repos` blocks `create_offer` / `take_offer`,
     /// `no_seize` blocks `default` and `liquidate`. Nothing pauses `repay`
     /// or `top_up`. Stored apart from `AssetConfig`, so `set_asset` never
-    /// clears a pause. Plain admin setter for now; the guardian (set
-    /// instantly, clear through a timelock) builds on it.
+    /// clears a pause. Instant only for switching on (#32); clearing a
+    /// switch fails with `Loosens`: use `propose_pause`.
     pub fn set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
-        storage::read_config(&env).admin.require_auth();
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        tighten_pause(&env, &protocol.admin, asset, &pause)
+    }
+
+    // --- guardian (#32): instant, tighten only ----------------------------
+
+    /// The guardian's instant `set_asset` on a listed asset: disable it,
+    /// raise the haircut, lower the NAV age or the cap. Fails with
+    /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
+    pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.guardian.require_auth();
+        validate_asset(&protocol, &config)?;
+        let old = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
+        if !asset_tightens(&old, &config) {
+            return Err(Error::Loosens);
+        }
+        storage::extend_instance(&env);
+        drop_pending_asset(&env, &asset, &protocol.guardian);
+        apply_asset(&env, asset, &config);
+        Ok(())
+    }
+
+    /// The guardian's instant `set_pause`: can switch on, never off.
+    pub fn guardian_set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.guardian.require_auth();
+        tighten_pause(&env, &protocol.guardian, asset, &pause)
+    }
+
+    // --- admin, timelocked (#32): every change that adds risk -------------
+
+    /// Queues `config` for `asset`; `execute_asset` applies it from the
+    /// returned `eta` (now + `timelock_secs`). A new proposal replaces the
+    /// pending one and restarts the clock.
+    pub fn propose_asset(env: Env, asset: Address, config: AssetConfig) -> Result<u64, Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        validate_asset(&protocol, &config)?;
+        let eta = eta(&env, &protocol)?;
+        storage::extend_instance(&env);
+        storage::write_pending_asset(
+            &env,
+            &asset,
+            &PendingAsset {
+                config: config.clone(),
+                eta,
+            },
+        );
+        events::AssetChangeProposed {
+            asset,
+            eta,
+            haircut_bps: config.haircut_bps,
+            enabled: config.enabled,
+            max_nav_age_secs: config.max_nav_age_secs,
+            max_open_debt: config.max_open_debt,
+        }
+        .publish(&env);
+        Ok(eta)
+    }
+
+    /// Applies the pending asset change once its `eta` has passed.
+    pub fn execute_asset(env: Env, asset: Address) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        let pending = storage::read_pending_asset(&env, &asset).ok_or(Error::NoProposal)?;
+        if env.ledger().timestamp() < pending.eta {
+            return Err(Error::TimelockNotDone);
+        }
+        validate_asset(&protocol, &pending.config)?;
+        storage::extend_instance(&env);
+        storage::remove_pending_asset(&env, &asset);
+        events::ProposalExecuted {
+            asset: asset.clone(),
+            kind: symbol_short!("asset"),
+        }
+        .publish(&env);
+        apply_asset(&env, asset, &pending.config);
+        Ok(())
+    }
+
+    /// Drops the pending asset change. Admin or guardian, any time.
+    pub fn cancel_asset(env: Env, caller: Address, asset: Address) -> Result<(), Error> {
+        admin_or_guardian(&env, &caller)?;
+        if storage::read_pending_asset(&env, &asset).is_none() {
+            return Err(Error::NoProposal);
+        }
+        storage::extend_instance(&env);
+        drop_pending_asset(&env, &asset, &caller);
+        Ok(())
+    }
+
+    /// Queues pause switches for `asset` (typically clearing one);
+    /// `execute_pause` applies them from the returned `eta`.
+    pub fn propose_pause(env: Env, asset: Address, pause: Pause) -> Result<u64, Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
         if storage::read_asset(&env, &asset).is_none() {
             return Err(Error::AssetNotSupported);
         }
+        let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
-        storage::write_pause(&env, &asset, &pause);
-        events::PauseSet {
+        storage::write_pending_pause(
+            &env,
+            &asset,
+            &PendingPause {
+                pause: pause.clone(),
+                eta,
+            },
+        );
+        events::PauseChangeProposed {
             asset,
+            eta,
             no_new_repos: pause.no_new_repos,
             no_seize: pause.no_seize,
         }
         .publish(&env);
+        Ok(eta)
+    }
+
+    /// Applies the pending pause change once its `eta` has passed.
+    pub fn execute_pause(env: Env, asset: Address) -> Result<(), Error> {
+        storage::read_config(&env).admin.require_auth();
+        let pending = storage::read_pending_pause(&env, &asset).ok_or(Error::NoProposal)?;
+        if env.ledger().timestamp() < pending.eta {
+            return Err(Error::TimelockNotDone);
+        }
+        storage::extend_instance(&env);
+        storage::remove_pending_pause(&env, &asset);
+        events::ProposalExecuted {
+            asset: asset.clone(),
+            kind: symbol_short!("pause"),
+        }
+        .publish(&env);
+        apply_pause(&env, asset, &pending.pause);
+        Ok(())
+    }
+
+    /// Drops the pending pause change. Admin or guardian, any time.
+    pub fn cancel_pause(env: Env, caller: Address, asset: Address) -> Result<(), Error> {
+        admin_or_guardian(&env, &caller)?;
+        if storage::read_pending_pause(&env, &asset).is_none() {
+            return Err(Error::NoProposal);
+        }
+        storage::extend_instance(&env);
+        drop_pending_pause(&env, &asset, &caller);
         Ok(())
     }
 
@@ -581,9 +727,117 @@ fn seize_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+// --- risk-parameter changes (#32) ---------------------------------------------
+
+fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> {
+    if config.haircut_bps <= protocol.liquidation_discount_bps
+        || config.haircut_bps as i128 >= math::BPS
+        || config.max_nav_age_secs == 0
+        || config.max_open_debt < 0
+    {
+        return Err(Error::InvalidConfig);
+    }
+    Ok(())
+}
+
+/// True when `new` adds no risk over `old`: same oracle mapping, not
+/// re-enabled, haircut not lower, NAV age and cap not higher.
+fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
+    new.oracle_asset == old.oracle_asset
+        && (old.enabled || !new.enabled)
+        && new.haircut_bps >= old.haircut_bps
+        && new.max_nav_age_secs <= old.max_nav_age_secs
+        && new.max_open_debt <= old.max_open_debt
+}
+
+/// True when `new` only switches pauses on.
+fn pause_tightens(old: &Pause, new: &Pause) -> bool {
+    (new.no_new_repos || !old.no_new_repos) && (new.no_seize || !old.no_seize)
+}
+
+fn tighten_pause(env: &Env, by: &Address, asset: Address, pause: &Pause) -> Result<(), Error> {
+    if storage::read_asset(env, &asset).is_none() {
+        return Err(Error::AssetNotSupported);
+    }
+    if !pause_tightens(&storage::read_pause(env, &asset), pause) {
+        return Err(Error::Loosens);
+    }
+    storage::extend_instance(env);
+    drop_pending_pause(env, &asset, by);
+    apply_pause(env, asset, pause);
+    Ok(())
+}
+
+fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
+    storage::write_asset(env, &asset, config);
+    events::AssetConfigured {
+        asset,
+        haircut_bps: config.haircut_bps,
+        enabled: config.enabled,
+        max_nav_age_secs: config.max_nav_age_secs,
+        max_open_debt: config.max_open_debt,
+    }
+    .publish(env);
+}
+
+fn apply_pause(env: &Env, asset: Address, pause: &Pause) {
+    storage::write_pause(env, &asset, pause);
+    events::PauseSet {
+        asset,
+        no_new_repos: pause.no_new_repos,
+        no_seize: pause.no_seize,
+    }
+    .publish(env);
+}
+
+/// Removes a pending asset proposal, if any, with a `ProposalCancelled`.
+fn drop_pending_asset(env: &Env, asset: &Address, by: &Address) {
+    if storage::read_pending_asset(env, asset).is_some() {
+        storage::remove_pending_asset(env, asset);
+        events::ProposalCancelled {
+            asset: asset.clone(),
+            kind: symbol_short!("asset"),
+            by: by.clone(),
+        }
+        .publish(env);
+    }
+}
+
+fn drop_pending_pause(env: &Env, asset: &Address, by: &Address) {
+    if storage::read_pending_pause(env, asset).is_some() {
+        storage::remove_pending_pause(env, asset);
+        events::ProposalCancelled {
+            asset: asset.clone(),
+            kind: symbol_short!("pause"),
+            by: by.clone(),
+        }
+        .publish(env);
+    }
+}
+
+fn eta(env: &Env, protocol: &Config) -> Result<u64, Error> {
+    env.ledger()
+        .timestamp()
+        .checked_add(protocol.timelock_secs)
+        .ok_or(Error::MathOverflow)
+}
+
+fn admin_or_guardian(env: &Env, caller: &Address) -> Result<(), Error> {
+    caller.require_auth();
+    let protocol = storage::read_config(env);
+    if *caller != protocol.admin && *caller != protocol.guardian {
+        return Err(Error::NotAdminOrGuardian);
+    }
+    Ok(())
+}
+
 fn validate_config(config: &Config) -> Result<(), Error> {
     let bps = math::BPS as u32;
-    if config.fee_bps > bps || config.liquidation_discount_bps >= bps || config.day_secs == 0 {
+    if config.fee_bps > bps
+        || config.liquidation_discount_bps >= bps
+        || config.day_secs == 0
+        || config.timelock_secs == 0
+    {
         return Err(Error::InvalidConfig);
     }
     Ok(())
