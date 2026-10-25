@@ -19,13 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: env.HAS_TOKEN == 'true'
-      - name: Deploy site/ to Cloudflare Pages (project caravel-site)
+      - name: Deploy site/ to Cloudflare Pages (project caravel-landing)
         if: env.HAS_TOKEN == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name caravel-site --branch main --commit-dirty=true
+          command: pages deploy site --project-name caravel-landing --branch main --commit-dirty=true
       - name: Skipped
         if: env.HAS_TOKEN != 'true'
         run: echo "CLOUDFLARE_API_TOKEN is not set; add it to deploy the landing (see the comment at the top of this file)."
