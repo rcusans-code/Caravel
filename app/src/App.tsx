@@ -1202,7 +1202,11 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                             title={defaultable ? "" : "Before maturity plus grace, and no missed margin call"}
                             onClick={async () => {
                               const out = await ctx.run(`default-${r.id}`, `Repo #${r.id} not defaulted`, () => chain.declareDefault(signer!, r.id));
-                              if (out) setNotice({ text: `Repo #${r.id} defaulted`, hash: out.hash });
+                              if (out)
+                                setNotice({
+                                  text: out.value === "Open" ? `Repo #${r.id} margin call cleared: NAV back above the margin line` : `Repo #${r.id} defaulted`,
+                                  hash: out.hash,
+                                });
                             }}
                           >
                             Declare default

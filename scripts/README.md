@@ -98,7 +98,7 @@ Each repo is priced and labelled by its own collateral (tBENJI or tSAFO); `--ref
 Each tick the keeper:
 
 1. Walks repo ids `1, 2, …` via the `repo(id)` view until `RepoNotFound`. Only `Repaid` and `Liquidated` repos are remembered and not read again; `Defaulted` stays live because the lender is not paid until `liquidate`.
-2. `default(id)` once the margin window has passed (`MarginCall` and now > `margin_call_deadline`) or now > maturity + grace, then `liquidate` in the same tick. Needs no NAV. Ledger time can lag the wall clock by a few seconds; a `NotDefaultable` simulation just means "next tick".
+2. `default(id)` once the margin window has passed (`MarginCall` and now > `margin_call_deadline`) or now > maturity + grace, then `liquidate` in the same tick. A maturity default needs no NAV. On a missed margin call the contract first re-checks the breach at a fresh NAV (DECISIONS #20): if the loan is back above the trigger, `default` clears the call and returns `Open`, the keeper logs `CLEARED` and liquidates nothing. An opted-in auto-repay repo with a missed call goes to `default` too, so the clear comes before the pull. Ledger time can lag the wall clock by a few seconds; a `NotDefaultable` simulation just means "next tick".
 3. `liquidate(LIQUIDATOR, id)` on every `Defaulted` repo (defaulted by the keeper or by anyone else). The liquidator pays collateral × NAV × (1 − 2%) in USDC; the lender gets principal + interest − fee first, the treasury the fee, the borrower any rest. Before sending it checks NAV age ≤ tBENJI's `max_nav_age_secs` and the liquidator's USDC ≥ proceeds; if either fails it logs one line (with the `buy-usdc.sh` command to top up) and retries every tick.
 4. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` is logged once and skipped (#17).
 5. `MarginCall` repos wait for a top-up, repay or the deadline.
@@ -174,7 +174,7 @@ The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), 
 4. **Re-enable**, only after step 3 shows the right price: run step 2 again with `true`/`false` swapped (or with `$CFG` as read before step 2), then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
 
 What this does not undo:
-- A margin call raised at the bad price stays (#20). An absent borrower still defaults and loses the 2% discount: -20.02 USDC on a 970 USDC repo (S2b).
+- A margin call raised at the bad price stays open until its deadline. Once the price is corrected, `default` after the deadline clears it instead of defaulting (#20), so an absent borrower no longer loses the 2% discount (S2b). If the price is still wrong at the deadline (or stale), the default goes ahead: -20.02 USDC on a 970 USDC repo.
 - A take that landed at an inflated price leaves the lender short: -872.74 of 970.84 at a 10× push (S6). Only step 2 before the take prevents it.
 
 Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1, 2 (disable) and the `set_price_at` overwrite all simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026.

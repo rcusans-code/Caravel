@@ -80,6 +80,15 @@ pub struct MarginCall {
     pub deadline: u64,
 }
 
+/// `default` on a missed margin call found the loan out of breach at a fresh
+/// NAV and cleared the call instead (DECISIONS.md #20). The repo is `Open`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarginCleared {
+    #[topic]
+    pub repo_id: u64,
+}
+
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToppedUp {

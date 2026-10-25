@@ -221,10 +221,12 @@ async function tick(cfg: Cfg) {
       continue;
     }
 
-    // 1. auto-repay (DECISIONS.md #27): opted in and due, i.e. at maturity or
-    //    with the margin window missed. A failed pull leaves the repo live; the
-    //    borrower can still repay by hand and `default` below tries once more.
-    if (r.auto_repay && !matured && (t >= r.maturity_ts || marginMissed)) {
+    // 1. auto-repay (DECISIONS.md #27): opted in and at maturity. A failed
+    //    pull leaves the repo live; the borrower can still repay by hand and
+    //    `default` below tries once more. A missed margin call goes straight
+    //    to `default`, which first clears it if the NAV has recovered (#20)
+    //    and only then tries auto-repay itself.
+    if (r.auto_repay && !matured && !marginMissed && t >= r.maturity_ts) {
       try {
         const { hash } = await invoke(signer, REPO_ID, "auto_repay", [u64(r.id)]);
         log(`AUTO-REPAID  ${desc}  ${txLink(hash)}`);
@@ -233,12 +235,15 @@ async function tick(cfg: Cfg) {
       } catch (e) {
         if (e instanceof ContractError && e.code === Err.AutoRepayFailed) {
           note(next, r.id, "short", `auto-repay   ${desc}: borrower USDC or allowance short of the debt, waiting for grace`);
-          if (!marginMissed) continue;
+          continue;
         } else log(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
       }
     }
 
-    // 2. default: margin window missed, or past maturity + grace. Needs no NAV.
+    // 2. default: margin window missed, or past maturity + grace. A maturity
+    //    default needs no NAV. On a missed margin call the contract re-checks
+    //    the breach at a fresh NAV and returns Open when the loan recovered
+    //    (#20): the call is cleared, nothing to liquidate.
     //    An opted-in repo that can pay settles as Repaid here instead;
     //    otherwise liquidate in the same tick. A missed margin call is held
     //    on a NAV jump, so a call from a bad price can still be topped up
@@ -250,7 +255,13 @@ async function tick(cfg: Cfg) {
     if (matured || marginMissed) {
       try {
         const { hash, result } = await invoke(signer, REPO_ID, "default", [u64(r.id)]);
-        if (statusOf(result) === "Repaid") {
+        const st = statusOf(result);
+        if (st === "Open") {
+          log(`CLEARED      ${desc} (margin call cleared at default: fresh NAV back above the trigger, #20)  ${txLink(hash)}`);
+          next.set(r.id, "cleared");
+          continue;
+        }
+        if (st === "Repaid") {
           log(`AUTO-REPAID  ${desc} (at default, ${marginMissed ? "margin window missed" : "matured + grace"})  ${txLink(hash)}`);
           settled.add(r.id);
           continue;
