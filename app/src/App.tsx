@@ -228,9 +228,6 @@ export default function App() {
           </a>
           <span className="caption app-net">Stellar testnet</span>
           <div className="app-header__end">
-          <a className="caption app-landing" href={LANDING_URL}>
-            About Caravel
-          </a>
           {config && assets[COLLATERAL[0].sac] && <DemoInfo config={config} asset={assets[COLLATERAL[0].sac]!} />}
           <div className="app-header__account">
             {signer ? (
