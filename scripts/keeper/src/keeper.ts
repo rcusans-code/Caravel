@@ -6,6 +6,7 @@
 //   npm run keeper                   # every 10 s
 //   npm run keeper -- --refresh-nav  # also re-post the last NAV every ~120 s
 //   npm run keeper -- --once         # one tick, then exit
+//   npm run keeper -- --once --dry-run  # same, simulate only: never sends a tx
 //
 // Signs check_margin / default with KEEPER_SECRET from .env (falls back to
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
@@ -13,10 +14,14 @@
 // Covers every collateral asset: tBENJI, and tSAFO when TSAFO_ID is set.
 // A NAV that just jumped holds check_margin, missed-margin default and
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
+// A state that blocks a payout (liquidator short of USDC, NAV stale or out of
+// band at liquidation, issuer pause, contract or liquidator off the token
+// allowlist) fails and sends an ALERT once it lasts > 2 ticks (alert.ts).
 import { readFileSync } from "node:fs";
-import { Address, nativeToScVal } from "@stellar/stellar-sdk";
+import { Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
-import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
+import { alertDue, sendAlert, StuckTracker, stuckFails } from "./alert.js";
+import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, outcomeOf, stellarAsset, txLink, u64, view } from "./chain.js";
 import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
 import { onceExitCode } from "./once.js";
 import { setNav } from "./set-nav.js";
@@ -46,6 +51,9 @@ const INTERVAL_MS = opt("--interval", 10) * 1000;
 const REFRESH_NAV = flag("--refresh-nav");
 const REFRESH_SECS = opt("--refresh-secs", 120);
 const ONCE = flag("--once");
+const DRY = flag("--dry-run");
+// A stuck ALERT repeats every ALERT_REPEAT_SECS (default 30 min) while it lasts.
+const ALERT_REPEAT_TICKS = Math.round((Number(process.env.ALERT_REPEAT_SECS || 1800) * 1000) / INTERVAL_MS);
 
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
@@ -138,9 +146,78 @@ async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): 
   return g;
 }
 
+/** --dry-run: the tx the keeper would have sent, not sent. */
+class DryRun extends Error {}
+
+/** invoke(), or under --dry-run a log line and a DryRun throw (callers skip on it). */
+const send: typeof invoke = DRY
+  ? async (_signer, _contract, method, a = []) => {
+      log(`dry-run      would send ${method}(${a.length ? "repo " + String(scValToNative(a[a.length - 1])) : ""})`);
+      throw new DryRun(method);
+    }
+  : invoke;
+
+/** Consecutive ticks per repo / issuer check in a stuck state. */
+const tracker = new StuckTracker();
+/** ALERT_CMD runs still going; --once waits for them before exiting. */
+const pendingAlerts: Promise<void>[] = [];
+
+/**
+ * A state that blocks a payout. Logs `line` on the first tick (repos log
+ * through `note` instead and pass none); after more than 2 ticks in a row, or
+ * at once with --once, counts a failure and sends `alert` (journal ALERT line
+ * + ALERT_CMD), repeated every ALERT_REPEAT_SECS.
+ */
+function stuck(key: string, state: string, alert: string, line?: string) {
+  const ticks = tracker.see(key, state);
+  if (ticks === 1 && line) log(line);
+  if (stuckFails(ticks, ONCE)) failures++;
+  if (alertDue(ticks, ONCE, ALERT_REPEAT_TICKS)) {
+    const msg = `${alert} (${ONCE ? "keeper --once" : `stuck ${ticks} ticks, ~${Math.round((ticks * INTERVAL_MS) / 1000)}s`})`;
+    log(`ALERT        ${msg}`);
+    pendingAlerts.push(sendAlert(`caravel-keeper ${REPO_ID.slice(0, 6)}…: ${msg}`, log));
+  }
+}
+
 /** Log a held action once per state change and skip it. */
 function held(next: Map<bigint, string>, r: Repo, action: string, g: NonNullable<Guard>) {
   note(next, r.id, `hold ${action} ${g.kind}`, `hold         repo ${r.id} ${action}: ${g.why}`);
+}
+
+/**
+ * Issuer-side blocks the contract cannot prevent (CMP-02/03/04, #24): the
+ * token paused (tSAFO `paused()`), the repo contract or the liquidator off
+ * the token's allowlist (tSAFO `is_whitelisted`, tBENJI `authorized`). Each
+ * is a stuck state: logged once, ALERT after 2 ticks, with the runbook to run
+ * (scripts/README.md "Issuer pause or de-allowlist"). A failed read is skipped.
+ */
+async function issuerWatch() {
+  const repoAddr = new Address(REPO_ID).toScVal();
+  const liqAddr = new Address(liquidator.publicKey()).toScVal();
+  for (const a of ASSETS) {
+    const spiko = a.id === process.env.TSAFO_ID;
+    const holderOk = (who: ReturnType<Address["toScVal"]>) =>
+      view<boolean>(a.id, spiko ? "is_whitelisted" : "authorized", [who]).catch(() => null);
+    const [paused, repoOk, liqOk, pause] = await Promise.all([
+      spiko ? view<boolean>(a.id, "paused").catch(() => null) : Promise.resolve(false),
+      holderOk(repoAddr),
+      holderOk(liqAddr),
+      view<{ no_seize: boolean }>(REPO_ID, "pause", [new Address(a.id).toScVal()]).catch(() => null),
+    ]);
+    const runbook = `guardian: guardian_set_pause ${a.label} {no_new_repos,no_seize} + guardian_set_asset enabled:false (scripts/README.md "Issuer pause or de-allowlist")`;
+    if (paused && !pause?.no_seize) {
+      const why = `issuer paused ${a.label}: top_up / repay fail, defaults would seize at the discount; ${runbook}`;
+      stuck(`issuer:${a.label}:paused`, "paused", why, `issuer       ${why}`);
+    }
+    if (repoOk === false) {
+      const why = `repo contract is off the ${a.label} ${spiko ? "allowlist" : "authorization"}: repay / top_up / liquidate fail; ${runbook}`;
+      stuck(`issuer:${a.label}:repo`, "off", why, `issuer       ${why}`);
+    }
+    if (liqOk === false) {
+      const why = `liquidator ${liquidator.publicKey().slice(0, 6)}… is off the ${a.label} ${spiko ? "allowlist" : "authorization"}: ${a.label} liquidations fail (scripts/README.md "Liquidator checklist")`;
+      stuck(`issuer:${a.label}:liquidator`, "off", why, `issuer       ${why}`);
+    }
+  }
 }
 
 async function readRepo(id: bigint): Promise<Repo | null> {
@@ -183,7 +260,9 @@ async function tick(cfg: Cfg) {
     const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [stellarAsset(a.id)]).catch(() => null);
     navs.set(a.id, last);
     const age = last ? t - last.timestamp : null;
-    if (REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+    if (REFRESH_NAV && DRY && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+      log(`dry-run      would re-post ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)`);
+    } else if (REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS)) {
       try {
         const { hash } = await setNav(last.price, a.id);
         log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
@@ -192,6 +271,8 @@ async function tick(cfg: Cfg) {
       }
     }
   }
+
+  await issuerWatch();
 
   // NAV jump hold per asset, read once per tick.
   const acks = navAcks();
@@ -231,13 +312,19 @@ async function tick(cfg: Cfg) {
     //    and only then tries auto-repay itself.
     if (r.auto_repay && !matured && !marginMissed && t >= r.maturity_ts) {
       try {
-        const { hash } = await invoke(signer, REPO_ID, "auto_repay", [u64(r.id)]);
+        const { hash } = await send(signer, REPO_ID, "auto_repay", [u64(r.id)]);
         log(`AUTO-REPAID  ${desc}  ${txLink(hash)}`);
         settled.add(r.id);
         continue;
       } catch (e) {
-        if (e instanceof ContractError && e.code === Err.AutoRepayFailed) {
+        if (e instanceof DryRun) continue;
+        const out = e instanceof ContractError ? outcomeOf(e.code) : "fail";
+        if (out === "short") {
           note(next, r.id, "short", `auto-repay   ${desc}: borrower USDC or allowance short of the debt, waiting for grace`);
+          continue;
+        } else if (out === "pending") {
+          // NotDue: ledger time lags the wall clock by a few seconds.
+          note(next, r.id, "pending", `auto-repay   repo ${r.id} not yet due on-chain (ledger clock lag), retrying`);
           continue;
         } else fail(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
       }
@@ -257,7 +344,7 @@ async function tick(cfg: Cfg) {
     }
     if (matured || marginMissed) {
       try {
-        const { hash, result } = await invoke(signer, REPO_ID, "default", [u64(r.id)]);
+        const { hash, result } = await send(signer, REPO_ID, "default", [u64(r.id)]);
         const st = statusOf(result);
         if (st === "Open") {
           log(`CLEARED      ${desc} (margin call cleared at default: fresh NAV back above the trigger, #20)  ${txLink(hash)}`);
@@ -271,9 +358,14 @@ async function tick(cfg: Cfg) {
         }
         log(`DEFAULT      ${desc} (${marginMissed ? "margin window missed" : "matured + grace"})  ${txLink(hash)}`);
       } catch (e) {
+        if (e instanceof DryRun) continue;
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
-        if (e instanceof ContractError && e.code === Err.NotDefaultable) note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
-        else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-default", `skip         repo ${r.id} default: asset paused (no_seize), skipping until cleared`);
+        const out = e instanceof ContractError ? outcomeOf(e.code) : "fail";
+        if (out === "pending") note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
+        else if (out === "paused") note(next, r.id, "paused-default", `skip         repo ${r.id} default: asset paused (no_seize), skipping until cleared`);
+        // A missed-call default re-checks the NAV (#20): stale or out of band waits for a good price.
+        else if (out === "stale") note(next, r.id, "stale-default", `skip         repo ${r.id} default: StaleNav (NAV ${navAge}s old > ${asset.maxAge}s), retrying`);
+        else if (out === "out-of-band") note(next, r.id, "band-default", `skip         repo ${r.id} default: NavOutOfBand (NAV outside the ${asset.label} sanity band, #31), retrying`);
         else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
@@ -294,16 +386,21 @@ async function tick(cfg: Cfg) {
       if (st === "MarginCall" && guard) {
         held(next, r, "check_margin", guard);
       } else if (st === "MarginCall") {
-        const { hash } = await invoke(signer, REPO_ID, "check_margin", [u64(r.id)]);
+        const { hash } = await send(signer, REPO_ID, "check_margin", [u64(r.id)]);
         log(`MARGIN CALL  ${desc} (trigger ${(100 - Number(cfg.discountBps) / 100).toFixed(2)}%)  ${txLink(hash)}`);
         next.set(r.id, "called");
       } else {
         note(next, r.id, "healthy", `healthy      ${desc}`);
       }
     } catch (e) {
-      if (e instanceof ContractError && e.code === Err.StaleNav) {
+      const out = e instanceof ContractError ? outcomeOf(e.code) : "fail";
+      if (e instanceof DryRun) {
+        next.set(r.id, "dry-run");
+      } else if (out === "stale") {
         note(next, r.id, "stale", `skip         repo ${r.id} check_margin: StaleNav (NAV ${navAge}s old > ${asset.maxAge}s)`);
-      } else if (e instanceof ContractError && e.code === Err.NotImplemented) {
+      } else if (out === "out-of-band") {
+        note(next, r.id, "out-of-band", `skip         repo ${r.id} check_margin: NavOutOfBand (NAV outside the ${asset.label} sanity band, #31)`);
+      } else if (out === "no-margin") {
         // Contract deployed before the margin code: margin calls cannot fire,
         // maturity default + liquidate still do.
         note(next, r.id, "no-margin", `skip         repo ${r.id} check_margin: NotImplemented on the deployed contract (redeploy from main); maturity default still runs`);
@@ -347,7 +444,8 @@ async function liquidateRepo(
   if (guard) return held(next, r, "liquidate", guard); // fix #2
   if (!last || navAge === null || navAge > asset.maxAge) {
     const why = last ? `NAV ${navAge}s old > ${asset.maxAge}s` : "no NAV";
-    return note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: ${why}, retrying each tick`);
+    note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: ${why}, retrying each tick`);
+    return stuck(`repo:${r.id}`, "liq-stale", `repo ${r.id} Defaulted, liquidate blocked: ${asset.label} ${why} (check caravel-nav-keeper)`);
   }
   // Same rounding as math::liquidation_proceeds (ceil), with the token's
   // decimals folded into the NAV scale like oracle::scale_for_token (#28).
@@ -356,22 +454,27 @@ async function liquidateRepo(
   const who = liquidator.publicKey();
   const have = await view<bigint>(USDC_SAC, "balance", [new Address(who).toScVal()]);
   if (have < proceeds) {
-    return note(
-      next,
-      r.id,
-      "liq-usdc",
-      `skip         repo ${r.id} liquidate: liquidator USDC ${fmt(have)} < proceeds ${fmt(proceeds)} (top up: scripts/buy-usdc.sh ${Math.ceil(Number(proceeds - have) / 1e7) + 1} ${who}), retrying each tick`,
-    );
+    const topUp = `scripts/buy-usdc.sh ${Math.ceil(Number(proceeds - have) / 1e7) + 1} ${who}`;
+    note(next, r.id, "liq-usdc", `skip         repo ${r.id} liquidate: liquidator USDC ${fmt(have)} < proceeds ${fmt(proceeds)} (top up: ${topUp}), retrying each tick`);
+    return stuck(`repo:${r.id}`, "liq-usdc", `repo ${r.id} Defaulted, liquidator USDC ${fmt(have)} < proceeds ${fmt(proceeds)}: lender unpaid; top up: ${topUp}`);
   }
   try {
-    const { hash } = await invoke(liquidator, REPO_ID, "liquidate", [new Address(who).toScVal(), u64(r.id)]);
+    const { hash } = await send(liquidator, REPO_ID, "liquidate", [new Address(who).toScVal(), u64(r.id)]);
     log(`LIQUIDATE    repo ${r.id} Defaulted debt ${fmt(r.principal + r.interest)} coll ${fmt(r.collateral_amount, asset.decimals)} ${asset.label} proceeds ${fmt(proceeds)} USDC -> lender ${r.lender.slice(0, 6)}…  ${txLink(hash)}`);
     settled.add(r.id);
     next.delete(r.id);
   } catch (e) {
-    if (e instanceof ContractError && e.code === Err.StaleNav) note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: StaleNav on-chain, retrying each tick`);
-    else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-liquidate", `skip         repo ${r.id} liquidate: asset paused (no_seize), skipping until cleared`);
-    else {
+    if (e instanceof DryRun) return;
+    const out = e instanceof ContractError ? outcomeOf(e.code) : "fail";
+    if (out === "stale") {
+      note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: StaleNav on-chain, retrying each tick`);
+      stuck(`repo:${r.id}`, "liq-stale", `repo ${r.id} Defaulted, liquidate blocked: StaleNav on-chain (check caravel-nav-keeper)`);
+    } else if (out === "out-of-band") {
+      note(next, r.id, "liq-band", `skip         repo ${r.id} liquidate: NavOutOfBand on-chain (#31), retrying each tick`);
+      stuck(`repo:${r.id}`, "liq-band", `repo ${r.id} Defaulted, liquidate blocked: ${asset.label} NAV outside the sanity band (#31); check the oracle price`);
+    } else if (out === "paused") {
+      note(next, r.id, "paused-liquidate", `skip         repo ${r.id} liquidate: asset paused (no_seize), skipping until cleared`);
+    } else {
       note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
       failures++;
     }
@@ -399,21 +502,28 @@ async function main() {
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
-    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
+    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} env ${ENV_FILE} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}${DRY ? " DRY-RUN (no tx sent)" : ""}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})` +
-      `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps`,
+      `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps` +
+      `, alerts ${process.env.ALERT_CMD ? `via ${process.env.ALERT_CMD}` : "journal only (no ALERT_CMD)"}`,
   );
   for (;;) {
     let failed = false;
     failures = 0;
     try {
       await tick(cfg);
+      tracker.end();
     } catch (e) {
       failed = true;
+      tracker.skipTick(); // a failed read is not a recovery: keep the stuck counts
       log(`tick failed: ${(e as Error).message}`);
     }
-    if (ONCE) process.exit(onceExitCode(failed, failures));
+    if (ONCE) {
+      await Promise.all(pendingAlerts);
+      process.exit(onceExitCode(failed, failures));
+    }
+    pendingAlerts.length = 0;
     await new Promise((r) => setTimeout(r, INTERVAL_MS));
   }
 }

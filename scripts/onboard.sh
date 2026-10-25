@@ -16,6 +16,10 @@
 #      too little USDC it first buys more on the DEX (scripts/buy-usdc.sh).
 #   6. TSAFO_ID set -> issuer allowlists the wallet on tSAFO (Spiko-style, no
 #      trustline) and mints it up to TSAFO_AMOUNT (default = tbenji_amount).
+#   7. Liquidator checklist (read only): tBENJI authorized, tSAFO allowlisted,
+#      USDC vs the funding floor, set_liquidator on REPO_ID. set_liquidator
+#      checks none of these, so check them before whitelisting a liquidator.
+#      LIQUIDATOR=1 makes a missing item exit 3.
 # Amounts are targets, not increments: a re-run tops up to them, never beyond.
 # Keys come from <repo>/.env and reach the CLI via STELLAR_ACCOUNT (not argv).
 set -euo pipefail
@@ -154,4 +158,23 @@ for b in acc["balances"]:
     auth = "" if name == "XLM" else ("  authorized" if b.get("is_authorized") else "  NOT authorized")
     bal = b["balance"]
     print(f"  {name:7} {bal:>20}{auth}")' "$ACC" >&2
+
+# 7. liquidator checklist (read only: set_liquidator checks nothing, CMP-05) -------
+if [[ -n "${REPO_ID:-}" ]]; then
+  rview() { "$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no "$@" 2>/dev/null; }
+  yn() { [[ "$1" == true ]] && echo yes || echo NO; }
+  c_auth=$(yn "$(rview --id "$TBENJI_SAC" -- authorized --id "$ADDR")")
+  c_tsafo=n/a; [[ -n "${TSAFO_ID:-}" ]] && c_tsafo=$(yn "$(rview --id "$TSAFO_ID" -- is_whitelisted --account "$ADDR")")
+  c_liq=$(yn "$(rview --id "$REPO_ID" -- is_liquidator --who "$ADDR")")
+  c_usdc=$(balance_of "$ACC" "$USDC_ASSET")
+  log "liquidator checklist: tBENJI authorized $c_auth, tSAFO allowlisted $c_tsafo, USDC $c_usdc (needs >= the funding floor: cd scripts/keeper && npm run repos), set_liquidator $c_liq"
+  missing=0
+  if [[ "$c_auth" == NO || "$c_tsafo" == NO ]]; then missing=1; fi
+  if [[ "$c_liq" == yes && $missing == 1 ]]; then
+    log "WARN: $ADDR is a whitelisted liquidator but cannot receive every collateral token: those liquidations will fail"
+  elif [[ "$c_liq" == NO ]]; then
+    log "to make it a liquidator: admin set_liquidator --liquidator $ADDR --allowed true on $REPO_ID, once every item above is yes and USDC covers the floor"
+  fi
+  if [[ -n "${LIQUIDATOR:-}" && $missing == 1 ]]; then exit 3; fi
+fi
 log "done: $ADDR can use the app"

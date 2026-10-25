@@ -1,6 +1,9 @@
 // Seed a demo state on the deployed repo contract:
 //   2 open tBENJI offers from LENDER (+ 1 tSAFO offer when TSAFO_ID is set)
-//   + 1 repo taken by BORROWER that matures soon.
+//   + 1 repo taken by BORROWER that matures soon (default -> liquidation demo)
+//   + 1 long auto-repay repo (30 demo days), so the positions table is never empty.
+// Then it funds LIQUIDATOR up to the funding floor (funding.ts) of every live
+// repo plus the open offers, so a default can always be liquidated.
 //
 //   npm run seed              # seed the contract in .env
 //   npm run seed -- --reset   # scripts/deploy.sh --fresh first (new oracle + repo), then seed
@@ -11,7 +14,9 @@
 // NAV 1.00 (fresh, so take_offer passes the staleness check).
 //
 // Overrides: SEED_PRINCIPAL (USDC per offer, default 100),
-// SEED_NEAR_DAYS (term of the taken repo in demo days, default 3).
+// SEED_NEAR_DAYS (term of the taken repo in demo days, default 3),
+// SEED_LONG_DAYS (term of the auto-repay repo, default 30),
+// LIQ_FLOOR_MARGIN_BPS (margin over the liquidator floor, default 1000).
 import { spawn } from "node:child_process";
 import path from "node:path";
 import {
@@ -23,7 +28,8 @@ import {
   TransactionBuilder,
   nativeToScVal,
 } from "@stellar/stellar-sdk";
-import { NETWORK, PASSPHRASE, ROOT, env, i128, invoke, keypair, reloadEnv, txLink, u64, view } from "./chain.js";
+import { ContractError, Err, NETWORK, PASSPHRASE, ROOT, env, i128, invoke, keypair, reloadEnv, txLink, u64, view } from "./chain.js";
+import { type Exposure, FLOOR_STATUSES, liquidatorFloor, marginFromEnv } from "./funding.js";
 import { setNav, toUnits } from "./set-nav.js";
 
 const RESET = process.argv.includes("--reset");
@@ -40,6 +46,9 @@ const OPEN_OFFERS = [
   { days: 30, aprBps: 600 },
 ];
 const TAKEN = { days: NEAR_DAYS, aprBps: 500 };
+// Taken with auto-repay on: repaid by the keeper at maturity from the
+// borrower's USDC, so a live position stays on screen for the whole demo.
+const LONG = { days: Number(process.env.SEED_LONG_DAYS ?? "30"), aprBps: 500 };
 
 const horizon = new Horizon.Server(env("HORIZON_URL", "https://horizon-testnet.stellar.org"));
 const CLASSIC_FEE = "100000"; // 0.01 XLM, testnet fees spike
@@ -177,10 +186,46 @@ async function createOffer(
   return { kind: "offer", id, principal: PRINCIPAL, aprBps, termSecs, days, note: tsafo ? "open (tSAFO)" : "open", hash };
 }
 
+/** Walk repo ids until RepoNotFound; the live ones as funding-floor exposures. */
+async function liveExposures(repoId: string): Promise<Exposure[]> {
+  const out: Exposure[] = [];
+  for (let id = 1n; ; id++) {
+    let r: { status: unknown; principal: bigint; interest: bigint; collateral_asset: string; haircut_bps: number };
+    try {
+      r = await view(repoId, "repo", [u64(id)]);
+    } catch (e) {
+      if (e instanceof ContractError && e.code === Err.RepoNotFound) return out;
+      throw e;
+    }
+    const status = String(Array.isArray(r.status) ? r.status[0] : r.status);
+    if (FLOOR_STATUSES.includes(status)) out.push({ asset: r.collateral_asset, debt: r.principal + r.interest, haircutBps: r.haircut_bps });
+  }
+}
+
+/** Buy USDC for LIQUIDATOR up to the floor of every live repo plus the open offers (as if taken at max LTV). */
+async function fundLiquidator(repoId: string, offers: Row[], discountBps: bigint) {
+  const tsafo = process.env.TSAFO_ID;
+  const haircut = async (token: string) =>
+    (await view<{ haircut_bps: number }>(repoId, "asset", [addr(token)])).haircut_bps;
+  const tbenjiHaircut = await haircut(env("TBENJI_SAC"));
+  const tsafoHaircut = tsafo ? await haircut(tsafo) : 0;
+  const exposures = [
+    ...(await liveExposures(repoId)),
+    ...offers.map((o) =>
+      o.note.includes("tSAFO") && tsafo
+        ? { asset: tsafo, debt: o.principal, haircutBps: tsafoHaircut }
+        : { asset: env("TBENJI_SAC"), debt: o.principal, haircutBps: tbenjiHaircut },
+    ),
+  ];
+  const floor = liquidatorFloor(exposures, discountBps, marginFromEnv(process.env.LIQ_FLOOR_MARGIN_BPS));
+  say(`liquidator funding floor ${fmt(floor.total)} USDC (${exposures.length} live repos + open offers)`);
+  await ensureUsdc("LIQUIDATOR", Math.ceil(Number(floor.total) / Number(UNIT)));
+}
+
 async function main() {
-  const totalUsdc = Number(PRINCIPAL / UNIT) * (OPEN_OFFERS.length + 1 + (process.env.TSAFO_ID ? 1 : 0));
-  // ~debt / (NAV × (1 − haircut)) for the taken repo, plus room for a top-up demo.
-  const needTbenji = Math.ceil((Number(PRINCIPAL / UNIT) * 1.02) / 0.97) + 100;
+  const totalUsdc = Number(PRINCIPAL / UNIT) * (OPEN_OFFERS.length + 2 + (process.env.TSAFO_ID ? 1 : 0));
+  // ~debt / (NAV × (1 − haircut)) for the two taken repos, plus room for a top-up demo.
+  const needTbenji = Math.ceil((2 * Number(PRINCIPAL / UNIT) * 1.02) / 0.97) + 100;
 
   // 1. deploy (optional) while the lender/borrower buy USDC (different signers).
   await Promise.all([
@@ -192,7 +237,7 @@ async function main() {
   reloadEnv();
   const REPO_ID = env("REPO_ID");
   const ORACLE_ID = env("ORACLE_ID");
-  const cfg = await view<{ day_secs: bigint; grace_secs: bigint }>(REPO_ID, "config");
+  const cfg = await view<{ day_secs: bigint; grace_secs: bigint; liquidation_discount_bps: number }>(REPO_ID, "config");
   const daySecs = Number(cfg.day_secs);
   say(`repo ${REPO_ID}, 1 day = ${daySecs} s`);
 
@@ -205,13 +250,14 @@ async function main() {
   ]);
   say(`NAV 1.00 posted  ${txLink(navTx.hash)}`);
 
-  // 3. borrower takes it while the lender posts the two open offers.
+  // 3. borrower takes it while the lender posts the long offer and the open ones.
   // Auto-repay off: this repo exists to show default → liquidation on camera.
   const takeP = invoke(keypair("BORROWER"), REPO_ID, "take_offer", [
     addr(env("BORROWER_ADDRESS")),
     u64(near.id),
     nativeToScVal(false),
   ]);
+  const longOffer = await createOffer(REPO_ID, LONG.days, LONG.aprBps, daySecs);
   const open: Row[] = [];
   for (const o of OPEN_OFFERS) open.push(await createOffer(REPO_ID, o.days, o.aprBps, daySecs));
   // Collateral #2 (issue #20): one open tSAFO offer, priced fresh. deploy.sh
@@ -224,15 +270,29 @@ async function main() {
   }
   const take = await takeP;
   const repoId = take.result as bigint;
-  const repo = await view<{ collateral_amount: bigint; interest: bigint; maturity_ts: bigint }>(REPO_ID, "repo", [
-    u64(repoId),
+  say(`repo ${repoId} taken (offer ${near.id})`);
+  // Same signer as the first take, so only after it landed. Auto-repay on: the
+  // contract sets the borrower's USDC allowance to the debt (DECISIONS #27).
+  const longTake = await invoke(keypair("BORROWER"), REPO_ID, "take_offer", [
+    addr(env("BORROWER_ADDRESS")),
+    u64(longOffer.id),
+    nativeToScVal(true),
+  ]);
+  const longId = longTake.result as bigint;
+  say(`repo ${longId} taken with auto-repay (offer ${longOffer.id})`);
+  type RepoView = { collateral_amount: bigint; interest: bigint; maturity_ts: bigint };
+  const [repo, longRepo] = await Promise.all([
+    view<RepoView>(REPO_ID, "repo", [u64(repoId)]),
+    view<RepoView>(REPO_ID, "repo", [u64(longId)]),
   ]);
   const maturity = Number(repo.maturity_ts);
   const inSecs = maturity - Math.floor(Date.now() / 1000);
   const hhmmss = (t: number) => new Date(t * 1000).toISOString().slice(11, 19);
-  say(`repo ${repoId} taken (offer ${near.id})`);
 
-  // 4. summary.
+  // 4. liquidator funded for every live repo and every open offer.
+  await fundLiquidator(REPO_ID, open, BigInt(cfg.liquidation_discount_bps));
+
+  // 5. summary.
   const rows: Row[] = [
     ...open,
     {
@@ -243,6 +303,15 @@ async function main() {
         `coll ${fmt(repo.collateral_amount)} tBENJI, debt ${fmt(PRINCIPAL + repo.interest)}; ` +
         `matures ${hhmmss(maturity)}Z (in ${inSecs}s), defaultable after ${hhmmss(maturity + Number(cfg.grace_secs))}Z`,
       hash: take.hash,
+    },
+    {
+      ...longOffer,
+      kind: "repo",
+      id: longId,
+      note:
+        `coll ${fmt(longRepo.collateral_amount)} tBENJI, debt ${fmt(PRINCIPAL + longRepo.interest)}; ` +
+        `auto-repay at ${hhmmss(Number(longRepo.maturity_ts))}Z`,
+      hash: longTake.hash,
     },
   ];
   const elapsed = ((Date.now() - T0) / 1000).toFixed(1);
