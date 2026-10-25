@@ -44,7 +44,7 @@ export const networks = {
  */
 export interface Repo {
   /**
- * Borrower opted in to auto-repay (DECISIONS.md #24): from maturity the
+ * Borrower opted in to auto-repay (DECISIONS.md #27): from maturity the
  * debt is pulled from their USDC allowance instead of defaulting.
  */
 auto_repay: boolean;
@@ -268,7 +268,7 @@ export interface Client {
    * Anyone can call it (#7); it needs no NAV (#17). Both deadlines are
    * strict: at the exact second the borrower can still repay or top up.
    * 
-   * An opted-in repo tries auto-repay first (#24) and settles as `Repaid`
+   * An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
    * when the pull succeeds. Returns the resulting status.
    */
   default: ({repo_id}: {repo_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Result<Status>>>
@@ -293,7 +293,7 @@ export interface Client {
 
   /**
    * Construct and simulate a auto_repay transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Repays an opted-in repo from the borrower's USDC allowance (#24).
+   * Repays an opted-in repo from the borrower's USDC allowance (#27).
    * Anyone can call it from maturity, or once a margin call's deadline has
    * passed. On success the repo is `Repaid` exactly as if the borrower had
    * called `repay`. If the pull fails the repo is untouched and the call
@@ -313,7 +313,7 @@ export interface Client {
    * Rejects stale NAV (#6) and an asset disabled since the offer was
    * posted (#23). The haircut is snapshotted on the repo (#19).
    * 
-   * `auto_repay` opts in to auto-repay (#24): the same signature also
+   * `auto_repay` opts in to auto-repay (#27): the same signature also
    * approves this contract to pull the debt in USDC from maturity.
    */
   take_offer: ({borrower, offer_id, auto_repay}: {borrower: string, offer_id: u64, auto_repay: boolean}, options?: MethodOptions) => Promise<AssembledTransaction<Result<u64>>>
@@ -347,7 +347,7 @@ export interface Client {
 
   /**
    * Construct and simulate a set_auto_repay transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Turns auto-repay on or off for a live repo (#24). On approves this
+   * Turns auto-repay on or off for a live repo (#27). On approves this
    * contract to pull the debt in USDC from maturity; off takes that
    * approval back. Borrower only; setting the current value is a no-op.
    */

@@ -1,4 +1,4 @@
-//! Auto-repay (DECISIONS.md #24): a borrower who forgets to press Repay is not
+//! Auto-repay (DECISIONS.md #27): a borrower who forgets to press Repay is not
 //! defaulted as long as the USDC is in their wallet.
 //!
 //! - Opt in at `take_offer(.., auto_repay = true)` or later with

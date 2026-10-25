@@ -103,8 +103,8 @@ Each mechanic has the rule, why it exists, what breaks without it, and its owner
 - **Rule.** `default` for non-payment can't run before `maturity + grace_secs` (demo 60 s = 1 day; D#5). It needs no NAV (D#17). `[v2 F-48 deferred]` Debt does not grow during grace, so grace is a free extra day; the README says a 7-day term is in effect "7 + 1 days" and a late fee per grace day is on the roadmap.
 - **Why.** The borrower's repayment USDC may come off-chain on business-day rails (A2). Grace also keeps a keeper from racing the borrower at maturity + 1 second.
 - **Without it.** A single late block turns a solvent borrower into a defaulter and costs them 2% of the whole collateral (§6.5). `[v2 F-10]` With repay allowed in Defaulted, the late borrower's loss is bounded by whether a liquidator acts first, not by the grace clock alone.
-- **Auto-repay (D#24).** A borrower can opt in at `take_offer` or later with `set_auto_repay`; the app opts in by default. The borrower signs a USDC allowance for the debt, and from maturity anyone (the keeper) can call `auto_repay`, which pulls the debt and settles exactly as `repay`. `default` tries the same pull first, so nobody can race an opted-in, solvent borrower into default. A borrower who is short of USDC still defaults.
-- **Owner.** D#5, D#17, D#7, D#24.
+- **Auto-repay (D#27).** A borrower can opt in at `take_offer` or later with `set_auto_repay`; the app opts in by default. The borrower signs a USDC allowance for the debt, and from maturity anyone (the keeper) can call `auto_repay`, which pulls the debt and settles exactly as `repay`. `default` tries the same pull first, so nobody can race an opted-in, solvent borrower into default. A borrower who is short of USDC still defaults.
+- **Owner.** D#5, D#17, D#7, D#27.
 
 ### 4.9 Default
 - **Rule.** Anyone may call `default` (D#7) when (a) `now > maturity + grace` (no NAV needed, D#17) or (b) the repo is in MarginCall, `now > margin_call_deadline` and `collateral < required_collateral` (no NAV needed). Status moves to Defaulted. No funds move. `[v2 F-10]` In Defaulted, `repay` at the same `debt` is still allowed until `liquidate` lands; it returns all collateral and pays the lender full terms, so the lender is better off than with a discounted sale. The remaining race is a liquidator landing in the same ledger as a late repay; a `liq_delay_secs` after default (demo 0, production 1 day) is the roadmap fix.
@@ -198,9 +198,9 @@ Terminal states: Cancelled, Repaid, Liquidated. Defaulted is not terminal: it ex
 | `top_up(repo, amount)` | payer auth: borrower, or anyone under O23's default | Open / MarginCall → Open when C ≥ `required_collateral` | no | borrower collateral → contract | D#6; F-09 |
 | `required_top_up(repo)` (read) | anyone | — | no | none | F-09 |
 | `check_margin(repo)` | anyone, no auth | Open → MarginCall (deadline and `required_collateral` set once); MarginCall → Open when healthy | **yes** | none | D#7, D#14, D#17; F-12, F-20 |
-| `set_auto_repay(repo, enabled)` | borrower auth | — | no | USDC allowance for `debt` granted / withdrawn | D#24 |
-| `auto_repay(repo)` | anyone, no auth, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, via the allowance; nothing on failure | D#24 |
-| `default(repo)` | anyone, no auth | Open / MarginCall → Defaulted, or → Repaid when an auto-repay pull succeeds | no | none, or as `auto_repay` | D#7, D#17, D#24 |
+| `set_auto_repay(repo, enabled)` | borrower auth | — | no | USDC allowance for `debt` granted / withdrawn | D#27 |
+| `auto_repay(repo)` | anyone, no auth, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, via the allowance; nothing on failure | D#27 |
+| `default(repo)` | anyone, no auth | Open / MarginCall → Defaulted, or → Repaid when an auto-repay pull succeeds | no | none, or as `auto_repay` | D#7, D#17, D#27 |
 | `liquidate(repo)` | whitelisted liquidator auth, ≠ borrower | Defaulted → Liquidated | **yes** | liquidator USDC → lender / fee address / borrower; collateral → liquidator | D#4, D#6, D#7; F-11 |
 | `claim()` (roadmap, F-26) | lender auth | — | no | contract USDC → lender | — |
 

@@ -304,7 +304,7 @@ export async function cancelOffer(signer: Signer, offerId: bigint): Promise<TxOu
   return { hash: out.hash, value: null };
 }
 
-/** `autoRepay` also signs a USDC allowance so the debt is pulled at maturity (DECISIONS.md #24). */
+/** `autoRepay` also signs a USDC allowance so the debt is pulled at maturity (DECISIONS.md #27). */
 export async function takeOffer(signer: Signer, offerId: bigint, autoRepay: boolean): Promise<TxOutcome<bigint>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
   const out = await submit(await c.take_offer({ borrower: signer.address, offer_id: offerId, auto_repay: autoRepay }));

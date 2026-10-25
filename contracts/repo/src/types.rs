@@ -104,7 +104,7 @@ pub struct Repo {
     /// Set once on the first margin breach; cleared by a healthy top-up.
     pub margin_call_deadline: Option<u64>,
     pub status: Status,
-    /// Borrower opted in to auto-repay (DECISIONS.md #24): from maturity the
+    /// Borrower opted in to auto-repay (DECISIONS.md #27): from maturity the
     /// debt is pulled from their USDC allowance instead of defaulting.
     pub auto_repay: bool,
 }

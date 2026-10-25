@@ -87,7 +87,7 @@ pub struct Repaid {
     pub automatic: bool,
 }
 
-/// Borrower turned auto-repay on or off for a live repo (#24).
+/// Borrower turned auto-repay on or off for a live repo (#27).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoRepaySet {

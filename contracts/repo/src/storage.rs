@@ -29,7 +29,7 @@ pub enum DataKey {
     Offer(u64),
     Repo(u64),
     Liquidator(Address),
-    /// Last ledger of the borrower's USDC allowance to this contract (#24).
+    /// Last ledger of the borrower's USDC allowance to this contract (#27).
     AllowanceUntil(Address),
 }
 

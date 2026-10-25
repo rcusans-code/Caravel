@@ -853,7 +853,7 @@ fn defaulted_repo_cannot_be_repaid() {
     assert_eq!(w.repo.try_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
 }
 
-// --- auto-repay (#24) ----------------------------------------------------------
+// --- auto-repay (#27) ----------------------------------------------------------
 
 impl World<'_> {
     fn take_auto(&self) -> u64 {
