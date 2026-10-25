@@ -473,7 +473,10 @@ function DemoInfo({ config, asset }: { config: ProtocolConfig; asset: AssetConfi
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        i
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 7.5V12l3 2" />
+        </svg>
       </button>
       {open && (
         <div className="app-pop" role="dialog" aria-label="About this demo">
