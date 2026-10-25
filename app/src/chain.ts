@@ -421,15 +421,20 @@ export async function checkMargin(signer: Signer, repoId: bigint): Promise<TxOut
   return { hash: out.hash, value: typeof status === "string" ? status : status.tag };
 }
 
-export async function declareDefault(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {
+/**
+ * `default` on a missed margin call or past maturity + grace. On a missed call
+ * the contract first re-checks the breach at a fresh NAV: a recovered repo
+ * comes back `Open` with the call cleared (#20). Returns the resulting status.
+ */
+export async function declareDefault(signer: Signer, repoId: bigint): Promise<TxOutcome<Status>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
   // The SDK's Client appends "_" to JS reserved words when it registers spec
   // methods (stellar-sdk bindings sanitizeIdentifier), so the runtime method is
   // `default_` even though the generated typings still say `default`.
   const callDefault = (c as unknown as { default_: RepoClient["default"] }).default_.bind(c);
   const out = await submit(await callDefault({ repo_id: repoId }));
-  unwrapResult(out.value);
-  return { hash: out.hash, value: null };
+  const status = unwrapResult<{ tag: Status } | Status>(out.value);
+  return { hash: out.hash, value: typeof status === "string" ? status : status.tag };
 }
 
 /**

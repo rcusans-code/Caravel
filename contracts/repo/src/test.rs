@@ -1562,6 +1562,127 @@ fn missed_margin_call_defaults() {
     );
 }
 
+// --- #20: a NAV recovery clears a missed margin call at `default` -------------
+
+#[test]
+fn missed_call_clears_when_fresh_nav_recovered() {
+    // Back above the trigger, though still under initial margin: the
+    // `check_margin` test decides, not the top-up one.
+    let w = world();
+    let repo_id = w.breached();
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(DIPPED_NAV, at);
+    assert!(!crate::math::ltv_ok(DEBT, TAKE_COLLATERAL, DIPPED_NAV, 14, 300).unwrap());
+
+    w.env.set_auths(&[]); // anyone, no signature (#7)
+    assert_eq!(w.repo.default(&repo_id), Status::Open);
+    assert_eq!(
+        w.repo_events(),
+        [events::MarginCleared { repo_id }.to_xdr(&w.env, &w.repo.address)]
+    );
+    assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+
+    // An ordinary open repo again: no deadline to default on, healthy.
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+    assert_eq!(w.repo.check_margin(&repo_id), Status::Open);
+}
+
+#[test]
+fn missed_call_still_breached_defaults() {
+    let w = world();
+    let repo_id = w.breached();
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(BREACH_NAV, at); // fresh, still past the trigger
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(
+        w.repo_events(),
+        [events::Defaulted { repo_id }.to_xdr(&w.env, &w.repo.address)]
+    );
+}
+
+#[test]
+fn missed_call_with_stale_recovery_defaults() {
+    // A recovered price older than max_nav_age cannot clear the call.
+    let w = world();
+    let repo_id = w.breached();
+    w.set_nav(ONE, NOW + 1);
+    let at = NOW + 1 + DEMO_NAV_AGE + 1;
+    w.set_time(at);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+}
+
+#[test]
+fn missed_call_with_out_of_band_recovery_defaults() {
+    // A recovery the sanity band rejects (#31) cannot clear the call.
+    let w = world();
+    let repo_id = w.breached();
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(ONE, at); // +1.52% on the 0.985 record
+    w.set_band(100, None, None);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+}
+
+#[test]
+fn missed_call_without_price_defaults() {
+    let w = world();
+    let repo_id = w.breached();
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(0, at);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+}
+
+#[test]
+fn matured_repo_defaults_even_with_recovered_nav() {
+    // Maturity + grace is unchanged: a healthy NAV never saves an unpaid repo,
+    // missed margin call or not.
+    let w = world();
+    let called = w.take();
+    w.margin_call(called, NOW + 200);
+    w.set_time(MATURED);
+    w.set_nav(ONE, MATURED);
+    assert_eq!(w.repo.default(&called), Status::Defaulted);
+}
+
+#[test]
+fn recovered_missed_call_clears_under_no_seize() {
+    // Clearing seizes nothing, so the `no_seize` switch (#30) does not block it.
+    let w = world();
+    let repo_id = w.breached();
+    w.repo.set_pause(
+        &w.tbenji,
+        &Pause {
+            no_new_repos: false,
+            no_seize: true,
+        },
+    );
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(ONE, at);
+    assert_eq!(w.repo.default(&repo_id), Status::Open);
+}
+
+#[test]
+fn recovered_missed_call_clears_before_auto_repay() {
+    // An opted-in borrower keeps the loan: clearing wins over the pull.
+    let w = world();
+    let offer_id = w.offer();
+    let repo_id = w.repo.take_offer(&w.borrower, &offer_id, &true);
+    w.set_nav(BREACH_NAV, NOW);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+    let at = NOW + MARGIN_WINDOW + 1;
+    w.set_time(at);
+    w.set_nav(ONE, at);
+    assert_eq!(w.repo.default(&repo_id), Status::Open);
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::Open);
+    assert_eq!(repo.margin_call_deadline, None);
+}
+
 #[test]
 fn top_up_partial_keeps_margin_call() {
     let w = world();

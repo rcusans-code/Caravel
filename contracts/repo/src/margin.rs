@@ -5,7 +5,9 @@
 //!   #31). The first breach sets
 //!   `margin_call_deadline = now + margin_window_secs` and moves the repo to
 //!   `MarginCall`; later checks never move the deadline or re-emit.
-//!   A margin call is never cleared by NAV recovering, only by a top-up (#20).
+//!   `check_margin` itself never clears a call. Two things do: a top-up to
+//!   initial margin, or `default` after the deadline when a fresh NAV shows
+//!   the loan no longer past the trigger ([`recovered`], #20).
 //! - `top_up` never needs a fresh NAV (#6). It clears a margin call only once
 //!   the initial margin holds again: `ltv_ok` at the repo's snapshotted
 //!   haircut (#19, #20). The clear decision uses the last known NAV, stale or
@@ -14,7 +16,11 @@
 
 use soroban_sdk::{token, Env};
 
-use crate::{errors::Error, events, math, oracle, storage, types::Status};
+use crate::{
+    errors::Error,
+    events, math, oracle, storage,
+    types::{Config, Repo, Status},
+};
 
 /// Returns the repo's status after the check.
 ///
@@ -103,6 +109,29 @@ pub fn top_up(env: &Env, repo_id: u64, amount: i128) -> Result<(), Error> {
     }
     .publish(env);
     Ok(())
+}
+
+/// For `default` on a missed call (#20): true when a fresh, in-band NAV shows
+/// the loan no longer past the trigger, the same test `check_margin` uses. No
+/// asset config, no price, a stale NAV or one outside the sanity band means
+/// "cannot tell": false, and the default goes ahead.
+pub fn recovered(env: &Env, config: &Config, repo: &Repo) -> Result<bool, Error> {
+    let Some(asset) = storage::read_asset(env, &repo.collateral_asset) else {
+        return Ok(false);
+    };
+    let Ok((nav, nav_decimals)) =
+        oracle::fresh_collateral_nav(env, config, &repo.collateral_asset, &asset)
+    else {
+        return Ok(false);
+    };
+    let debt = math::debt(repo.principal, repo.interest)?;
+    Ok(!math::margin_breached(
+        debt,
+        repo.collateral_amount,
+        nav,
+        nav_decimals,
+        config.liquidation_discount_bps,
+    )?)
 }
 
 /// `ltv_ok` at the snapshotted haircut, on the last known NAV (no staleness

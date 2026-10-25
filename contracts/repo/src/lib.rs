@@ -460,8 +460,13 @@ impl CaravelRepo {
 
     /// Moves a repo to `Defaulted` once it is past maturity + grace, or in
     /// `MarginCall` past its `margin_call_deadline` (set by `check_margin`).
-    /// Anyone can call it (#7); it needs no NAV (#17). Both deadlines are
-    /// strict: at the exact second the borrower can still repay or top up.
+    /// Anyone can call it (#7); a maturity default needs no NAV (#17). Both
+    /// deadlines are strict: at the exact second the borrower can still repay
+    /// or top up.
+    ///
+    /// A missed call first re-checks the breach at a fresh, in-band NAV
+    /// (#20): no longer past the trigger, it returns to `Open` and emits
+    /// `MarginCleared`. A stale or out-of-band NAV defaults as before.
     ///
     /// An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
     /// when the pull succeeds. Returns the resulting status.
@@ -479,8 +484,19 @@ impl CaravelRepo {
         let config = storage::read_config(&env);
         let now = env.ledger().timestamp();
         let matured = now > repo.maturity_ts.saturating_add(config.grace_secs);
-        if !matured && !autorepay::margin_missed(&repo, now) {
+        let missed = autorepay::margin_missed(&repo, now);
+        if !matured && !missed {
             return Err(Error::NotDefaultable);
+        }
+        // #20: a missed call on a loan a fresh NAV shows out of breach clears
+        // instead of defaulting. Maturity defaults never look at the NAV.
+        if !matured && missed && margin::recovered(&env, &config, &repo)? {
+            repo.status = Status::Open;
+            repo.margin_call_deadline = None;
+            storage::write_repo(&env, &repo);
+            storage::extend_instance(&env);
+            events::MarginCleared { repo_id }.publish(&env);
+            return Ok(repo.status);
         }
         if repo.auto_repay && autorepay::try_settle(&env, &mut repo, &config)? {
             return Ok(Status::Repaid);
