@@ -278,6 +278,7 @@ dependencies = [
 name = "caravel-repo"
 version = "0.1.0"
 dependencies = [
+ "caravel-oracle",
  "caravel-spiko-mock",
  "soroban-sdk",
 ]

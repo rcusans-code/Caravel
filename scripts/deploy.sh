@@ -48,6 +48,8 @@ MARGIN_WINDOW_SECS="${MARGIN_WINDOW_SECS:-120}"
 GRACE_SECS="${GRACE_SECS:-60}"
 MAX_NAV_AGE_SECS="${MAX_NAV_AGE_SECS:-180}"     # tBENJI NAV staleness, per asset (#25)
 SAFO_MAX_NAV_AGE_SECS="${SAFO_MAX_NAV_AGE_SECS:-$MAX_NAV_AGE_SECS}" # tSAFO NAV staleness (#25)
+NAV_MOVE_BPS="${NAV_MOVE_BPS:-2500}"             # tBENJI NAV sanity band; demo wide enough for the 0.90-1.10 slider (#30)
+SAFO_NAV_MOVE_BPS="${SAFO_NAV_MOVE_BPS:-$NAV_MOVE_BPS}" # tSAFO NAV sanity band (#30)
 ORACLE_DECIMALS=14                               # same as Reflector
 ORACLE_RESOLUTION=60
 ORACLE_BASE='{"Other":"USD"}'
@@ -222,8 +224,8 @@ PY
     as_admin --id "$REPO_ID" -- set_asset --asset "$token" --config "$want" >/dev/null
   fi
 }
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS}"
-TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS}"
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null}"
+TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null}"
 ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 

@@ -1,14 +1,16 @@
 //! NAV client: reads collateral prices from a SEP-40 feed (DECISIONS.md #2, #22).
 //!
-//! Flows read NAV only through [`fresh_collateral_nav`] (or [`collateral_nav`]
-//! where staleness must not block, e.g. `top_up`, DECISIONS.md #6), which also
-//! fold in the collateral token's decimals (#28). Never call the oracle
+//! Flows read NAV only through [`fresh_collateral_nav`] (or
+//! [`banded_collateral_nav`] where staleness must not block, e.g. `top_up`,
+//! DECISIONS.md #6), which also fold in the collateral token's decimals
+//! (#28). Both apply the NAV sanity band (#30). Never call the oracle
 //! directly from `lib.rs`.
 
-use soroban_sdk::{contractclient, contracttype, token, Address, Env};
+use soroban_sdk::{contractclient, contracttype, token, Address, Env, Vec};
 
 use crate::{
     errors::Error,
+    math,
     types::{Asset, AssetConfig, Config},
 };
 
@@ -23,12 +25,18 @@ pub struct PriceData {
     pub timestamp: u64,
 }
 
+/// Oracle records the NAV sanity band reads back (`prices(asset, 20)`,
+/// DECISIONS.md #30). Same depth as the mock oracle's history.
+pub const NAV_BAND_RECORDS: u32 = 20;
+
 /// The subset of the SEP-40 interface Caravel uses.
 #[allow(dead_code)]
 #[contractclient(name = "PriceFeedClient")]
 pub trait PriceFeed {
     /// Latest price for `asset`, or `None` if the feed has none.
     fn lastprice(env: Env, asset: Asset) -> Option<PriceData>;
+    /// Up to `records` most recent prices for `asset`, newest first.
+    fn prices(env: Env, asset: Asset, records: u32) -> Option<Vec<PriceData>>;
     /// Decimals the feed's prices are scaled by.
     fn decimals(env: Env) -> u32;
     /// Base asset prices are quoted in.
@@ -52,7 +60,8 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
     Ok((data.price, feed.decimals(), data.timestamp))
 }
 
-/// Latest NAV for `asset` as `(price, decimals)`, rejecting old prices.
+/// Latest NAV for `asset` as `(price, decimals)`, rejecting old and
+/// implausible prices.
 ///
 /// Used by `take_offer`, `check_margin` and `liquidate` (DECISIONS.md #6, #17).
 ///
@@ -62,13 +71,60 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
 ///   fresh. The feed is trusted; this only absorbs clock skew between the
 ///   feed's timestamp and the ledger close time.
 /// - `NoPrice` if the feed has no price for the asset or it is `<= 0`.
+/// - `NavOutOfBand` if the price fails [`check_band`] (DECISIONS.md #30).
 pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32), Error> {
     let (price, decimals, timestamp) = nav(env, cfg, asset)?;
     let age = env.ledger().timestamp().saturating_sub(timestamp);
     if age > asset.max_nav_age_secs {
         return Err(Error::StaleNav);
     }
+    check_band(env, cfg, asset, price)?;
     Ok((price, decimals))
+}
+
+/// NAV sanity band (DECISIONS.md #30). `price` is the latest NAV in the
+/// feed's own scale. `NavOutOfBand` if it is below `nav_floor`, above
+/// `nav_ceiling`, or more than `max_nav_move_bps` away from any positive
+/// record in the feed's last [`NAV_BAND_RECORDS`] (`prices`, newest first).
+///
+/// Every record in the window counts, not only the newest different one:
+/// re-posts of a bad price (nav-keeper re-posts every 60 s) cannot push the
+/// last good price out of view, and a second push next to a bad one cannot
+/// pass by comparing against the first. A jump is accepted once every record
+/// in the window is within the band of it, i.e. after the window has rolled
+/// over, or at once if the admin widens the band with `set_asset`.
+///
+/// With a single record (no history) only `nav_floor` / `nav_ceiling` apply.
+/// Records `<= 0` are skipped (no price, not a reference). Reads storage
+/// only; writes nothing.
+pub fn check_band(env: &Env, cfg: &Config, asset: &AssetConfig, price: i128) -> Result<(), Error> {
+    if asset.nav_floor.is_some_and(|floor| price < floor)
+        || asset.nav_ceiling.is_some_and(|ceiling| price > ceiling)
+    {
+        return Err(Error::NavOutOfBand);
+    }
+    let history = PriceFeedClient::new(env, &cfg.oracle)
+        .prices(&asset.oracle_asset, &NAV_BAND_RECORDS)
+        .unwrap_or_else(|| Vec::new(env));
+    for record in history.iter() {
+        if record.price > 0 && !within_bps(price, record.price, asset.max_nav_move_bps)? {
+            return Err(Error::NavOutOfBand);
+        }
+    }
+    Ok(())
+}
+
+/// `|price − reference| ≤ reference × max_bps / 10_000`, exact integer math.
+fn within_bps(price: i128, reference: i128, max_bps: u32) -> Result<bool, Error> {
+    let diff = price
+        .checked_sub(reference)
+        .and_then(i128::checked_abs)
+        .ok_or(Error::MathOverflow)?;
+    let lhs = diff.checked_mul(math::BPS).ok_or(Error::MathOverflow)?;
+    let rhs = reference
+        .checked_mul(max_bps as i128)
+        .ok_or(Error::MathOverflow)?;
+    Ok(lhs <= rhs)
 }
 
 /// Decimals of every USDC amount and collateral value in `math.rs`.
@@ -109,21 +165,27 @@ pub fn fresh_collateral_nav(
     scale_for_token(price, decimals, token::Client::new(env, token).decimals())
 }
 
-/// [`nav`] (no staleness check) for the collateral token `token`, scaled
-/// like [`fresh_collateral_nav`]: `(price, decimals, timestamp)`.
-pub fn collateral_nav(
+/// [`nav`] for the collateral token `token`, scaled like
+/// [`fresh_collateral_nav`], with the sanity band ([`check_band`]) but no
+/// staleness check. For `top_up`'s clear decision: an old price may clear a
+/// margin call (#6), an implausible one may not (#30).
+pub fn banded_collateral_nav(
     env: &Env,
     cfg: &Config,
     token: &Address,
     asset: &AssetConfig,
-) -> Result<(i128, u32, u64), Error> {
-    let (price, decimals, timestamp) = nav(env, cfg, asset)?;
-    let (price, decimals) =
-        scale_for_token(price, decimals, token::Client::new(env, token).decimals())?;
-    Ok((price, decimals, timestamp))
+) -> Result<(i128, u32), Error> {
+    let (price, decimals, _) = nav(env, cfg, asset)?;
+    check_band(env, cfg, asset, price)?;
+    scale_for_token(price, decimals, token::Client::new(env, token).decimals())
 }
 
 /// Test-only SEP-40 mock with an admin-free `set_price`.
+///
+/// Keeps the last [`super::NAV_BAND_RECORDS`] records per asset in write
+/// order (`lastprice` = the last write, `prices` = newest write first). A
+/// write with the same timestamp as the newest record replaces it, like the
+/// real mock oracle (`contracts/oracle`).
 ///
 /// ```ignore
 /// let oracle = oracle::mock::setup_mock_oracle(&env);
@@ -133,9 +195,9 @@ pub fn collateral_nav(
 /// ```
 #[cfg(test)]
 pub mod mock {
-    use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
+    use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
-    use super::PriceData;
+    use super::{PriceData, NAV_BAND_RECORDS};
     use crate::types::Asset;
 
     /// Same as Reflector.
@@ -145,22 +207,48 @@ pub mod mock {
 
     #[contracttype]
     enum Key {
-        Price(Asset),
+        /// Oldest first.
+        History(Asset),
     }
 
     #[contract]
     pub struct MockOracle;
 
+    fn history(env: &Env, asset: &Asset) -> Vec<PriceData> {
+        env.storage()
+            .instance()
+            .get(&Key::History(asset.clone()))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
     #[contractimpl]
     impl MockOracle {
         pub fn set_price(env: Env, asset: Asset, price: i128, timestamp: u64) {
-            env.storage()
-                .instance()
-                .set(&Key::Price(asset), &PriceData { price, timestamp });
+            let mut history = history(&env, &asset);
+            if history.last().is_some_and(|r| r.timestamp == timestamp) {
+                history.pop_back();
+            }
+            history.push_back(PriceData { price, timestamp });
+            while history.len() > NAV_BAND_RECORDS {
+                history.pop_front();
+            }
+            env.storage().instance().set(&Key::History(asset), &history);
         }
 
         pub fn lastprice(env: Env, asset: Asset) -> Option<PriceData> {
-            env.storage().instance().get(&Key::Price(asset))
+            history(&env, &asset).last()
+        }
+
+        pub fn prices(env: Env, asset: Asset, records: u32) -> Option<Vec<PriceData>> {
+            let history = history(&env, &asset);
+            if history.is_empty() || records == 0 {
+                return None;
+            }
+            let mut out = Vec::new(&env);
+            for record in history.iter().rev().take(records as usize) {
+                out.push_back(record);
+            }
+            Some(out)
         }
 
         pub fn decimals(_env: Env) -> u32 {
@@ -234,6 +322,9 @@ mod test {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: MAX_AGE,
+            max_nav_move_bps: crate::test::WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         };
         Setup {
             env,
@@ -342,5 +433,117 @@ mod test {
         assert_eq!(scale_for_token(100, 2, 0), Ok((10_000_000, 0)));
         assert_eq!(scale_for_token(i128::MAX, 0, 0), Err(Error::MathOverflow));
         assert_eq!(scale_for_token(ONE, u32::MAX, 1), Err(Error::MathOverflow));
+    }
+
+    // --- NAV sanity band (DECISIONS.md #30) ------------------------------------
+
+    /// 0.5% of NAV 1.00: exactly a 50 bps move.
+    const FIFTY_BPS: i128 = ONE / 200;
+
+    fn banded(max_nav_move_bps: u32) -> Setup {
+        let mut s = setup();
+        s.asset.max_nav_move_bps = max_nav_move_bps;
+        s
+    }
+
+    #[test]
+    fn band_edge_is_inclusive() {
+        let s = banded(50);
+        s.set_price(ONE, NOW - 60);
+        s.set_price(ONE + FIFTY_BPS, NOW);
+        assert_eq!(s.fresh(), Ok((ONE + FIFTY_BPS, MOCK_DECIMALS)));
+
+        let s = banded(50);
+        s.set_price(ONE, NOW - 60);
+        s.set_price(ONE + FIFTY_BPS + 1, NOW);
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
+
+        let s = banded(50);
+        s.set_price(ONE, NOW - 60);
+        s.set_price(ONE - FIFTY_BPS - 1, NOW);
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
+    }
+
+    #[test]
+    fn band_checks_every_record_in_the_window() {
+        // Two pushes of 0.4% each: each is within 50 bps of the one before,
+        // but the second is 0.8% from the first record still in the window.
+        let s = banded(50);
+        s.set_price(ONE, NOW - 120);
+        s.set_price(ONE + ONE * 4 / 1_000, NOW - 60);
+        s.set_price(ONE + ONE * 8 / 1_000, NOW);
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
+    }
+
+    #[test]
+    fn band_skips_non_positive_records() {
+        let s = banded(50);
+        s.set_price(0, NOW - 60);
+        s.set_price(ONE, NOW);
+        assert_eq!(s.fresh(), Ok((ONE, MOCK_DECIMALS)));
+    }
+
+    #[test]
+    fn band_floor_and_ceiling_are_inclusive() {
+        let mut s = banded(50);
+        s.set_price(ONE, NOW);
+        s.asset.nav_floor = Some(ONE);
+        s.asset.nav_ceiling = Some(ONE);
+        assert_eq!(s.fresh(), Ok((ONE, MOCK_DECIMALS)));
+        s.asset.nav_floor = Some(ONE + 1);
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
+        s.asset.nav_floor = None;
+        s.asset.nav_ceiling = Some(ONE - 1);
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
+    }
+
+    #[test]
+    fn staleness_is_checked_before_the_band() {
+        let s = banded(50);
+        s.set_price(ONE, NOW - MAX_AGE - 61);
+        s.set_price(ONE / 2, NOW - MAX_AGE - 1);
+        assert_eq!(s.fresh(), Err(Error::StaleNav));
+    }
+
+    /// The flash-crash QA case (issue #26 comment) on the real mock oracle
+    /// (`contracts/oracle`), not the test mock: a bad push re-posted once by
+    /// nav-keeper fills both of the two newest records, so a
+    /// `prices(asset, 2)` check would pass it. The band still sees the good
+    /// record behind them.
+    #[test]
+    fn nav_keeper_reposts_cannot_hide_a_jump_on_the_real_oracle() {
+        let mut s = banded(50);
+        s.env.mock_all_auths();
+        let oracle = s.env.register(
+            caravel_oracle::MockOracle,
+            (
+                Address::generate(&s.env),
+                caravel_oracle::Asset::Other(Symbol::new(&s.env, "USD")),
+                MOCK_DECIMALS,
+                300u32,
+            ),
+        );
+        let feed = caravel_oracle::MockOracleClient::new(&s.env, &oracle);
+        let token = Address::generate(&s.env);
+        s.asset.oracle_asset = Asset::Stellar(token.clone());
+        s.cfg.oracle = oracle;
+        let real_asset = caravel_oracle::Asset::Stellar(token);
+
+        for (ts, price) in [(1_005, ONE), (1_065, ONE / 2), (1_125, ONE / 2)] {
+            s.env.ledger().set_timestamp(ts);
+            feed.set_price(&real_asset, &price);
+        }
+        s.env.ledger().set_timestamp(1_130);
+
+        let two = feed.prices(&real_asset, &2).unwrap();
+        assert_eq!(
+            (two.get_unchecked(0).price, two.get_unchecked(0).timestamp),
+            (ONE / 2, 1_125)
+        );
+        assert_eq!(
+            (two.get_unchecked(1).price, two.get_unchecked(1).timestamp),
+            (ONE / 2, 1_065)
+        );
+        assert_eq!(s.fresh(), Err(Error::NavOutOfBand));
     }
 }

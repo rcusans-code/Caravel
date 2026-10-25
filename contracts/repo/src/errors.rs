@@ -25,4 +25,7 @@ pub enum Error {
     NotDue = 15,
     /// The USDC pull failed: short balance, allowance too small or expired.
     AutoRepayFailed = 16,
+    /// NAV outside the asset's sanity band: beyond `nav_floor` / `nav_ceiling`,
+    /// or more than `max_nav_move_bps` from a recent oracle record (#30).
+    NavOutOfBand = 17,
 }

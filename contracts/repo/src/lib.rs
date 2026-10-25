@@ -77,13 +77,16 @@ impl CaravelRepo {
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
     /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
     /// haircut means a take at max LTV opens strictly below the margin trigger.
-    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25).
+    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25) and a
+    /// valid NAV sanity band (#30): `max_nav_move_bps > 0`, each bound > 0 if
+    /// set, and `nav_floor <= nav_ceiling`.
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         if config.haircut_bps <= protocol.liquidation_discount_bps
             || config.haircut_bps as i128 >= math::BPS
             || config.max_nav_age_secs == 0
+            || !band_ok(&config)
         {
             return Err(Error::InvalidConfig);
         }
@@ -94,6 +97,9 @@ impl CaravelRepo {
             haircut_bps: config.haircut_bps,
             enabled: config.enabled,
             max_nav_age_secs: config.max_nav_age_secs,
+            max_nav_move_bps: config.max_nav_move_bps,
+            nav_floor: config.nav_floor,
+            nav_ceiling: config.nav_ceiling,
         }
         .publish(&env);
         Ok(())
@@ -188,8 +194,9 @@ impl CaravelRepo {
     /// auth on the SAC transfer pins the exact amount, so if NAV moves between
     /// simulate and submit the tx fails instead of overcharging (#21).
     ///
-    /// Rejects stale NAV (#6) and an asset disabled since the offer was
-    /// posted (#23). The haircut is snapshotted on the repo (#19).
+    /// Rejects stale NAV (#6), NAV outside the asset's sanity band (#30) and
+    /// an asset disabled since the offer was posted (#23). The haircut is
+    /// snapshotted on the repo (#19).
     ///
     /// `auto_repay` opts in to auto-repay (#27): the same signature also
     /// approves this contract to pull the debt in USDC from maturity.
@@ -357,7 +364,9 @@ impl CaravelRepo {
 
     /// Adds collateral. Clears a margin call once
     /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds, i.e. the
-    /// initial margin is restored (TradFi convention). Works with stale NAV.
+    /// initial margin is restored (TradFi convention). Works with stale NAV
+    /// and with NAV outside the sanity band; an out-of-band NAV never clears
+    /// a call (#30).
     pub fn top_up(env: Env, repo_id: u64, amount: i128) -> Result<(), Error> {
         margin::top_up(&env, repo_id, amount)
     }
@@ -388,7 +397,8 @@ impl CaravelRepo {
     }
 
     /// Sets `margin_call_deadline` on the first `margin_breached`. Returns the
-    /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17).
+    /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17), NAV outside
+    /// the asset's sanity band `NavOutOfBand` (#30).
     pub fn check_margin(env: Env, repo_id: u64) -> Result<Status, Error> {
         margin::check_margin(&env, repo_id)
     }
@@ -429,7 +439,8 @@ impl CaravelRepo {
     /// NAV × (1 − discount), rounded up. The USDC goes lender first (capped at
     /// principal + interest − fee), then the fee, then the borrower (#3, #4).
     /// If proceeds fall short of what the lender is owed, the lender takes
-    /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6).
+    /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6),
+    /// NAV outside the asset's sanity band `NavOutOfBand` (#30).
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -498,4 +509,17 @@ fn validate_config(config: &Config) -> Result<(), Error> {
         return Err(Error::InvalidConfig);
     }
     Ok(())
+}
+
+/// NAV sanity band settings for `set_asset` (DECISIONS.md #30).
+fn band_ok(config: &AssetConfig) -> bool {
+    let positive = |bound: Option<i128>| bound.is_none_or(|b| b > 0);
+    let ordered = match (config.nav_floor, config.nav_ceiling) {
+        (Some(floor), Some(ceiling)) => floor <= ceiling,
+        _ => true,
+    };
+    config.max_nav_move_bps > 0
+        && positive(config.nav_floor)
+        && positive(config.nav_ceiling)
+        && ordered
 }
