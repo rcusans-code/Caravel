@@ -3,7 +3,10 @@
 //! Caravel: fixed-term, fixed-rate USDC repo against tokenized Treasuries.
 //!
 //! State machine: Open → MarginCall → Open (top-up) | Repaid | Defaulted → Liquidated.
+//! An opted-in repo settles as Repaid instead of Defaulted when its USDC
+//! allowance covers the debt (auto-repay, DECISIONS.md #27).
 
+mod autorepay;
 mod errors;
 mod events;
 mod margin;
@@ -180,7 +183,15 @@ impl CaravelRepo {
     ///
     /// Rejects stale NAV (#6) and an asset disabled since the offer was
     /// posted (#23). The haircut is snapshotted on the repo (#19).
-    pub fn take_offer(env: Env, borrower: Address, offer_id: u64) -> Result<u64, Error> {
+    ///
+    /// `auto_repay` opts in to auto-repay (#27): the same signature also
+    /// approves this contract to pull the debt in USDC from maturity.
+    pub fn take_offer(
+        env: Env,
+        borrower: Address,
+        offer_id: u64,
+        auto_repay: bool,
+    ) -> Result<u64, Error> {
         borrower.require_auth();
         let offer = storage::read_offer(&env, offer_id).ok_or(Error::OfferNotFound)?;
         let asset = match storage::read_asset(&env, &offer.collateral_asset) {
@@ -220,6 +231,7 @@ impl CaravelRepo {
                 .ok_or(Error::MathOverflow)?,
             margin_call_deadline: None,
             status: Status::Open,
+            auto_repay,
         };
         // The offer is gone once taken: no double take, no cancel after take.
         storage::remove_offer(&env, offer_id);
@@ -233,6 +245,15 @@ impl CaravelRepo {
             &collateral,
         );
         token::Client::new(&env, &config.usdc).transfer(&this, &repo.borrower, &repo.principal);
+        if auto_repay {
+            autorepay::adjust_allowance(
+                &env,
+                &config.usdc,
+                &repo.borrower,
+                debt,
+                repo.maturity_ts.saturating_add(config.grace_secs),
+            )?;
+        }
 
         events::RepoOpened {
             repo_id: repo.id,
@@ -245,6 +266,7 @@ impl CaravelRepo {
             interest,
             haircut_bps: repo.haircut_bps,
             maturity_ts: repo.maturity_ts,
+            auto_repay,
         }
         .publish(&env);
         Ok(repo.id)
@@ -279,13 +301,49 @@ impl CaravelRepo {
             &repo.borrower,
             &repo.collateral_amount,
         );
+        // Paid by hand: this repo no longer needs its share of the allowance.
+        if repo.auto_repay {
+            autorepay::adjust_allowance(&env, &config.usdc, &repo.borrower, -debt, 0)?;
+        }
 
         events::Repaid {
             repo_id,
             lender_amount: split.lender,
             fee: split.fee,
+            automatic: false,
         }
         .publish(&env);
+        Ok(())
+    }
+
+    /// Turns auto-repay on or off for a live repo (#27). On approves this
+    /// contract to pull the debt in USDC from maturity; off takes that
+    /// approval back. Borrower only; setting the current value is a no-op.
+    pub fn set_auto_repay(env: Env, repo_id: u64, enabled: bool) -> Result<(), Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if !matches!(repo.status, Status::Open | Status::MarginCall) {
+            return Err(Error::InvalidStatus);
+        }
+        repo.borrower.require_auth();
+        if repo.auto_repay == enabled {
+            return Ok(());
+        }
+
+        let config = storage::read_config(&env);
+        let debt = math::debt(repo.principal, repo.interest)?;
+        repo.auto_repay = enabled;
+        storage::write_repo(&env, &repo);
+        storage::extend_instance(&env);
+
+        autorepay::adjust_allowance(
+            &env,
+            &config.usdc,
+            &repo.borrower,
+            if enabled { debt } else { -debt },
+            repo.maturity_ts.saturating_add(config.grace_secs),
+        )?;
+
+        events::AutoRepaySet { repo_id, enabled }.publish(&env);
         Ok(())
     }
 
@@ -298,6 +356,29 @@ impl CaravelRepo {
 
     // --- keeper (anyone) --------------------------------------------------
 
+    /// Repays an opted-in repo from the borrower's USDC allowance (#27).
+    /// Anyone can call it from maturity, or once a margin call's deadline has
+    /// passed. On success the repo is `Repaid` exactly as if the borrower had
+    /// called `repay`. If the pull fails the repo is untouched and the call
+    /// returns `AutoRepayFailed`; the borrower can still repay by hand.
+    pub fn auto_repay(env: Env, repo_id: u64) -> Result<(), Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if !matches!(repo.status, Status::Open | Status::MarginCall) {
+            return Err(Error::InvalidStatus);
+        }
+        if !repo.auto_repay {
+            return Err(Error::AutoRepayOff);
+        }
+        if !autorepay::due(&repo, env.ledger().timestamp()) {
+            return Err(Error::NotDue);
+        }
+        let config = storage::read_config(&env);
+        if !autorepay::try_settle(&env, &mut repo, &config)? {
+            return Err(Error::AutoRepayFailed);
+        }
+        Ok(())
+    }
+
     /// Sets `margin_call_deadline` on the first `margin_breached`. Returns the
     /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17).
     pub fn check_margin(env: Env, repo_id: u64) -> Result<Status, Error> {
@@ -308,7 +389,10 @@ impl CaravelRepo {
     /// `MarginCall` past its `margin_call_deadline` (set by `check_margin`).
     /// Anyone can call it (#7); it needs no NAV (#17). Both deadlines are
     /// strict: at the exact second the borrower can still repay or top up.
-    pub fn default(env: Env, repo_id: u64) -> Result<(), Error> {
+    ///
+    /// An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
+    /// when the pull succeeds. Returns the resulting status.
+    pub fn default(env: Env, repo_id: u64) -> Result<Status, Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         if !matches!(repo.status, Status::Open | Status::MarginCall) {
             return Err(Error::InvalidStatus);
@@ -316,12 +400,11 @@ impl CaravelRepo {
         let config = storage::read_config(&env);
         let now = env.ledger().timestamp();
         let matured = now > repo.maturity_ts.saturating_add(config.grace_secs);
-        let margin_missed = repo.status == Status::MarginCall
-            && repo
-                .margin_call_deadline
-                .is_some_and(|deadline| now > deadline);
-        if !matured && !margin_missed {
+        if !matured && !autorepay::margin_missed(&repo, now) {
             return Err(Error::NotDefaultable);
+        }
+        if repo.auto_repay && autorepay::try_settle(&env, &mut repo, &config)? {
+            return Ok(Status::Repaid);
         }
 
         repo.status = Status::Defaulted;
@@ -329,7 +412,7 @@ impl CaravelRepo {
         storage::extend_instance(&env);
 
         events::Defaulted { repo_id }.publish(&env);
-        Ok(())
+        Ok(repo.status)
     }
 
     // --- liquidator (whitelisted) -----------------------------------------

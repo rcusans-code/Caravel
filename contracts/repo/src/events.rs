@@ -54,6 +54,7 @@ pub struct RepoOpened {
     /// Asset haircut snapshotted at take time.
     pub haircut_bps: u32,
     pub maturity_ts: u64,
+    pub auto_repay: bool,
 }
 
 #[contractevent]
@@ -82,6 +83,17 @@ pub struct Repaid {
     pub repo_id: u64,
     pub lender_amount: i128,
     pub fee: i128,
+    /// True when the debt was pulled by auto-repay, not paid by the borrower.
+    pub automatic: bool,
+}
+
+/// Borrower turned auto-repay on or off for a live repo (#27).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoRepaySet {
+    #[topic]
+    pub repo_id: u64,
+    pub enabled: bool,
 }
 
 #[contractevent]

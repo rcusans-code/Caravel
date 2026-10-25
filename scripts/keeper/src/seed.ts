@@ -198,7 +198,12 @@ async function main() {
   say(`NAV 1.00 posted  ${txLink(navTx.hash)}`);
 
   // 3. borrower takes it while the lender posts the two open offers.
-  const takeP = invoke(keypair("BORROWER"), REPO_ID, "take_offer", [addr(env("BORROWER_ADDRESS")), u64(near.id)]);
+  // Auto-repay off: this repo exists to show default → liquidation on camera.
+  const takeP = invoke(keypair("BORROWER"), REPO_ID, "take_offer", [
+    addr(env("BORROWER_ADDRESS")),
+    u64(near.id),
+    nativeToScVal(false),
+  ]);
   const open: Row[] = [];
   for (const o of OPEN_OFFERS) open.push(await createOffer(REPO_ID, o.days, o.aprBps, daySecs));
   const take = await takeP;

@@ -1,6 +1,6 @@
 //! Storage layout: instance = config, counters and asset configs (few
 //! entries, they share the instance TTL), persistent = offers,
-//! repos and the liquidator whitelist. Every read or write of a persistent
+//! repos, the liquidator whitelist and auto-repay allowance expiries. Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
 use soroban_sdk::{contracttype, Address, Env};
@@ -29,6 +29,8 @@ pub enum DataKey {
     Offer(u64),
     Repo(u64),
     Liquidator(Address),
+    /// Last ledger of the borrower's USDC allowance to this contract (#27).
+    AllowanceUntil(Address),
 }
 
 pub fn extend_instance(env: &Env) {
@@ -141,4 +143,24 @@ pub fn set_liquidator(env: &Env, who: &Address, allowed: bool) {
     } else {
         env.storage().persistent().remove(&key);
     }
+}
+
+// --- auto-repay allowances --------------------------------------------------
+
+pub fn read_allowance_until(env: &Env, borrower: &Address) -> Option<u32> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AllowanceUntil(borrower.clone()))
+}
+
+pub fn write_allowance_until(env: &Env, borrower: &Address, ledger: u32) {
+    let key = DataKey::AllowanceUntil(borrower.clone());
+    env.storage().persistent().set(&key, &ledger);
+    extend_persistent(env, &key);
+}
+
+pub fn remove_allowance_until(env: &Env, borrower: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::AllowanceUntil(borrower.clone()));
 }
