@@ -30,7 +30,7 @@ import {
 } from "./format";
 import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
 import { onPhase } from "./txphase";
-import { connectWallet, demoSigner, disconnectWallet, type Signer } from "./wallet";
+import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 
 type Tab = "offers" | "lend" | "positions" | "admin";
 type Flash = { tone: "info" | "error" | "margin"; title: string; body: string } | null;
@@ -122,6 +122,11 @@ export default function App() {
   }, [refreshAccount]);
 
   // --- session ------------------------------------------------------------------
+  // Page reload: pick the last wallet or demo account back up without a popup.
+  useEffect(() => {
+    restoreSession().then((s) => s && setSigner((cur) => cur ?? s));
+  }, []);
+
   const onConnect = async () => {
     setFlash(null);
     setBusy("connect");
