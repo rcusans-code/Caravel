@@ -236,7 +236,7 @@ scripts/deploy.sh
 | Price feed (mock SEP-40) | _final deploy, Mon 06:00_ |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
-| tSAFO (Spiko-style mock, 5 decimals) | _deployed by `scripts/deploy.sh` with the redeploy (#18)_ |
+| tSAFO (Spiko-style mock, 5 decimals) | [`CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y`](https://stellar.expert/explorer/testnet/contract/CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y) (live since the Sun 18:00 redeploy) |
 
 <!-- REVIEW (Misha): fill repo and oracle IDs after the final deploy, plus a stellar.expert link to one take_offer DvP transaction. -->
 
