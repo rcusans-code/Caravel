@@ -28,12 +28,13 @@ import {
   protocolFee,
   requiredCollateral,
 } from "./format";
-import { Alert, DvpReceipt, Field, StatusPill, TxHash, type Leg } from "./ui";
+import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
+import { onPhase } from "./txphase";
 import { connectWallet, demoSigner, disconnectWallet, type Signer } from "./wallet";
 
 type Tab = "offers" | "lend" | "positions" | "admin";
 type Flash = { tone: "info" | "error" | "margin"; title: string; body: string } | null;
-type Receipt = { left: Leg; right: Leg; sentence: string; hash: string } | null;
+type Receipt = { left: Leg; right: Leg; sentence: string; hash: string; stamp?: Stamp } | null;
 
 const nowSecs = () => Math.floor(Date.now() / 1000);
 const fmtAge = (s: number) => {
@@ -63,6 +64,13 @@ export default function App() {
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(nowSecs());
+  const [tx, setTx] = useState<TxState | null>(null);
+
+  // TxProgress: chain.ts reports sign / submit; prepare is set when a write starts.
+  useEffect(() => {
+    onPhase((p) => setTx((t) => (t ? { ...t, step: p === "sign" ? 1 : p === "submit" ? 2 : 0 } : t)));
+    return () => onPhase(null);
+  }, []);
 
   // --- data ---------------------------------------------------------------------
   const refreshMarket = useCallback(async () => {
@@ -143,11 +151,15 @@ export default function App() {
   const run = async <T,>(key: string, title: string, fn: () => Promise<T>): Promise<T | null> => {
     setBusy(key);
     setFlash(null);
+    setTx({ key, step: 0, failed: false });
     try {
       const out = await fn();
+      setTx(null); // the result (receipt, seal, pill) replaces the stepper
       return out;
     } catch (e) {
       console.error(e);
+      setTx((t) => (t && t.key === key ? { ...t, failed: true } : t));
+      setTimeout(() => setTx((t) => (t && t.key === key && t.failed ? null : t)), 6000);
       setFlash({ tone: "error", title, body: explain(e) });
       return null;
     } finally {
@@ -176,6 +188,7 @@ export default function App() {
     navStale,
     balances,
     busy,
+    tx,
     now,
     run,
     setFlash,
@@ -235,7 +248,7 @@ export default function App() {
           <BalancesBar signer={signer} balances={balances} run={run} refresh={refreshAccount} />
         )}
 
-        <NavStrip nav={nav} config={config} now={now} stale={navStale} />
+        <NavStrip nav={nav} config={config} now={now} stale={navStale} loaded={loaded} />
 
         {config && (
           <Alert tone="info" title="Demo time is on">
@@ -309,6 +322,8 @@ interface Ctx {
   navStale: boolean;
   balances: Balances | null;
   busy: string | null;
+  /** Live transaction steps for the action with this key (TxProgress). */
+  tx: TxState | null;
   now: number;
   run: <T>(key: string, title: string, fn: () => Promise<T>) => Promise<T | null>;
   setFlash: (f: Flash) => void;
@@ -353,11 +368,11 @@ function BalancesBar({
   return (
     <section className="cv-card app-balances" aria-label="Balances">
       <div className="app-balances__grid">
-        <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : "—"} />
-        <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : "—"} />
+        <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : null} />
+        <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : null} />
         <Figure
           label="tBENJI"
-          value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : "—"}
+          value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : null}
           hint={balances?.tbenji !== null && balances && !balances.tbenjiAuthorized ? "Not authorized by the issuer" : undefined}
         />
       </div>
@@ -423,26 +438,64 @@ function BalancesBar({
   );
 }
 
-function Figure({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Figure({ label, value, hint }: { label: string; value: string | null; hint?: string }) {
+  // null = first load: show a skeleton; afterwards flash the figure when it changes.
+  const ref = useFlash(value);
   return (
-    <div className="app-figure">
+    <div className="app-figure" aria-busy={value === null ? "true" : undefined}>
       <span className="cv-eyebrow">{label}</span>
-      <span className="figure" data-balance={label}>
-        {value}
-      </span>
+      {value === null ? (
+        <Skel w={120} h={22} />
+      ) : (
+        <span className="figure app-flashable" data-balance={label} ref={ref}>
+          {value}
+        </span>
+      )}
       {hint && <span className="cv-field__hint">{hint}</span>}
     </div>
   );
 }
 
-function NavStrip({ nav, config, now, stale }: { nav: Nav | null; config: ProtocolConfig | null; now: number; stale: boolean }) {
+const navDir = (a: string, b: string) => (BigInt(b) > BigInt(a) ? "up" : BigInt(b) < BigInt(a) ? "down" : undefined);
+
+function NavStrip({
+  nav,
+  config,
+  now,
+  stale,
+  loaded,
+}: {
+  nav: Nav | null;
+  config: ProtocolConfig | null;
+  now: number;
+  stale: boolean;
+  loaded: boolean;
+}) {
   const age = nav ? now - Number(nav.timestamp) : null;
+  const navRef = useFlash(nav ? String(nav.price) : null, navDir);
+  if (!loaded)
+    return (
+      <section className="cv-card app-nav" aria-label="tBENJI NAV" aria-busy="true">
+        <div className="app-figure">
+          <span className="cv-eyebrow">tBENJI NAV · SEP-40 mock feed</span>
+          <Skel kind="figure" />
+        </div>
+        <div className="app-figure">
+          <span className="cv-eyebrow">Feed timestamp</span>
+          <Skel w={110} h={22} />
+        </div>
+        <div className="app-figure">
+          <span className="cv-eyebrow">Feed state</span>
+          <Skel w={90} h={20} />
+        </div>
+      </section>
+    );
   return (
     <section className="cv-card app-nav" aria-label="tBENJI NAV">
       <div className="app-figure">
         <span className="cv-eyebrow">tBENJI NAV · SEP-40 mock feed</span>
         <span>
-          <span className="cv-figure-xl" data-testid="nav">
+          <span className="cv-figure-xl app-flashable" data-testid="nav" ref={navRef}>
             {nav ? fmtNav(nav.price, nav.decimals) : "—"}
           </span>
           <span className="cv-unit">USD</span>
@@ -460,12 +513,12 @@ function NavStrip({ nav, config, now, stale }: { nav: Nav | null; config: Protoc
         <span className="cv-eyebrow">Feed state</span>
         {nav ? (
           stale ? (
-            <span className="cv-pill cv-pill--defaulted">Stale</span>
+            <Live state="stale" word="Delayed" meta="takes paused" />
           ) : (
-            <span className="cv-pill cv-pill--open">Fresh</span>
+            <Live state="on" word="Live" meta="fresh NAV" />
           )
         ) : (
-          <span className="cv-pill cv-pill--margin">No price</span>
+          <Live state="off" word="No price" meta="push one from Admin" />
         )}
       </div>
     </section>
@@ -494,7 +547,7 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
       )}
 
       <div className="cv-table-wrap">
-        <table className="cv-table" data-testid="offers-table">
+        <table className="cv-table" data-testid="offers-table" aria-busy={loaded ? undefined : "true"}>
           <thead>
             <tr>
               <th>Offer</th>
@@ -509,10 +562,24 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
             </tr>
           </thead>
           <tbody>
-            {offers.length === 0 && (
+            {!loaded &&
+              [0, 1, 2].map((i) => (
+                <tr key={`skel-${i}`} aria-hidden="true">
+                  <td><Skel w={36} h={14} /></td>
+                  <td className="r"><Skel w={80} h={14} /></td>
+                  <td className="r"><Skel w={48} h={14} /></td>
+                  <td className="r"><Skel w={40} h={14} /></td>
+                  <td className="r"><Skel w={36} h={14} /></td>
+                  <td><Skel w={52} h={14} /></td>
+                  <td><Skel w={90} h={14} /></td>
+                  <td><Skel w={52} h={18} /></td>
+                  <td></td>
+                </tr>
+              ))}
+            {loaded && offers.length === 0 && (
               <tr>
                 <td colSpan={9} className="app-empty">
-                  {loaded ? "No open offers. Post one from Lend." : "Reading offers from testnet…"}
+                  No open offers. Post one from Lend.
                 </td>
               </tr>
             )}
@@ -582,6 +649,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         right: { eyebrow: "Borrower receives", amount: fmtAmount(offer.principal), unit: "USDC", hint: `from Offer #${offer.id}` },
         sentence: `Repo #${out.value} opened. Settled atomically in one transaction`,
         hash: out.hash,
+        stamp: { word: "Settled", sub: `Repo ${String(out.value).padStart(3, "0")}` },
       });
   };
 
@@ -625,7 +693,12 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         <span className="cv-field__hint">
           {nav
             ? `Debt ${fmtAmount(debt)} USDC ÷ (NAV ${fmtNav(nav.price, nav.decimals)} × (1 − ${fmtPct(asset.haircut_bps, 1)})), rounded up. Haircut is a safety margin: ${fmtPct(asset.haircut_bps, 1)} means you borrow up to ${fmtPct(BPS - asset.haircut_bps, 1)} of collateral value. The contract computes the exact amount at the NAV when the tx lands.`
-            : "Waiting for NAV."}
+            : (
+              <span className="cv-wait">
+                Waiting for NAV
+                <span className="cv-wait__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              </span>
+            )}
         </span>
       </div>
       {block && <p className="cv-field__hint app-block">{block}</p>}
@@ -633,12 +706,12 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         type="button"
         className="cv-btn cv-btn--primary"
         disabled={!!block || !!busy}
-        aria-busy={busy === "take" ? "true" : undefined}
         onClick={take}
         data-action="take"
       >
-        {busy === "take" ? "Signing…" : "Take offer"}
+        {busy === "take" ? "Taking offer" : "Take offer"}
       </button>
+      {ctx.tx?.key === "take" && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
     </article>
   );
 }
@@ -742,11 +815,11 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
             type="submit"
             className="cv-btn cv-btn--primary"
             disabled={!!block || !!errAmount || !!errDays || !!errApr || !!busy}
-            aria-busy={busy === "post" ? "true" : undefined}
             data-action="post"
           >
-            {busy === "post" ? "Signing…" : "Post offer"}
+            {busy === "post" ? "Posting offer" : "Post offer"}
           </button>
+          {ctx.tx?.key === "post" && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
           {posted && (
             <p className="cv-row small" data-testid="posted">
               Offer #{String(posted.id)} posted <TxHash kind="TX" value={posted.hash} />
@@ -838,7 +911,17 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
         </p>
       )}
       {!signer && <p className="app-empty">{CONNECT} to see positions.</p>}
-      {signer && mine.length === 0 && <p className="app-empty">{loaded ? "No repos for this account yet." : "Reading repos…"}</p>}
+      {signer && !loaded && (
+        <div className="app-cards" aria-busy="true" aria-label="Loading repos">
+          <div className="cv-card">
+            <div className="cv-card__head"><Skel kind="short" /><Skel w={60} h={22} /></div>
+            <Skel kind="figure" />
+            <Skel kind="line" />
+            <Skel kind="short" />
+          </div>
+        </div>
+      )}
+      {signer && loaded && mine.length === 0 && <p className="app-empty">No repos for this account yet.</p>}
       <div className="app-cards">
         {config &&
           mine.map((r) => (
@@ -915,6 +998,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                                   right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount), unit: "tBENJI", hint: `from Repo #${r.id}` },
                                   sentence: `Repo #${r.id} liquidated in one transaction`,
                                   hash: out.hash,
+                                  stamp: { word: "Liquidated", sub: `Repo ${String(r.id).padStart(3, "0")}` },
                                 });
                             }}
                           >
@@ -945,6 +1029,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
     const v = collateralValue(repo.collateral_amount, nav.price, nav.decimals);
     return Number((v * (BPS - config.liquidation_discount_bps) * 10_000n) / (debt * BPS)) / 100;
   }, [nav, config, repo, debt]);
+  const coverRef = useFlash(cover, (a, b) => (b > a ? "up" : b < a ? "down" : undefined));
   if (!config) return null;
   const live = repo.status === "Open" || repo.status === "MarginCall";
   const fill = cover === null ? 0 : Math.min(100, Math.max(0, ((cover - 90) / 20) * 100));
@@ -961,6 +1046,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         right: { eyebrow: "Borrower receives", amount: fmtAmount(repo.collateral_amount), unit: "tBENJI", hint: `from Repo #${repo.id}` },
         sentence: `Repo #${repo.id} repaid. Settled atomically in one transaction`,
         hash: out.hash,
+        stamp: { word: "Repaid", sub: fmtAmount(debt), repaid: true },
       });
   };
 
@@ -994,7 +1080,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         <div className={`cv-health${repo.status === "MarginCall" ? " cv-health--margin" : ""}`}>
           <div className="cv-health__legend">
             <span>Collateral cover</span>
-            <span className="cv-num">{cover !== null ? `${cover.toFixed(1)}%` : "—"}</span>
+            <span className="cv-num app-flashable" ref={coverRef}>{cover !== null ? `${cover.toFixed(1)}%` : "—"}</span>
           </div>
           <div className="cv-health__bar" role="meter" aria-valuemin={90} aria-valuemax={110} aria-valuenow={cover ?? undefined} aria-label="Collateral cover">
             <div className="cv-health__fill" style={{ width: `${fill}%` }} />
@@ -1023,14 +1109,14 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             className={`cv-btn ${primary ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
             disabled={!!busy || !!short || !ctx.approved}
             title={ctx.approved ? "" : ACCESS_LIMITED}
-            aria-busy={busy === `repay-${repo.id}` ? "true" : undefined}
             onClick={doRepay}
             data-action="repay"
           >
-            {busy === `repay-${repo.id}` ? "Signing…" : "Repay"}
+            {busy === `repay-${repo.id}` ? "Repaying" : "Repay"}
           </button>
         )}
       </div>
+      {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {canRepay && (
         <p className="cv-field__hint">
           {short
@@ -1100,12 +1186,12 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
           type="button"
           className="cv-btn cv-btn--primary"
           disabled={!isAdmin || !!busy}
-          aria-busy={busy === "nav" ? "true" : undefined}
           onClick={push}
           data-action="push-nav"
         >
-          {busy === "nav" ? "Signing…" : "Push NAV"}
+          {busy === "nav" ? "Pushing NAV" : "Push NAV"}
         </button>
+        {ctx.tx?.key === "nav" && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
         {last && (
           <p className="cv-row small">
             NAV set to {last.nav} <TxHash kind="TX" value={last.hash} />

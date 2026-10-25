@@ -1,0 +1,23 @@
+{
+  "name": "caravel-keeper",
+  "version": "0.1.0",
+  "description": "Caravel keeper (check_margin / default), set-nav and seed CLIs",
+  "scripts": {
+    "keeper": "tsx src/keeper.ts",
+    "set-nav": "tsx src/set-nav.ts",
+    "feeds": "tsx src/feeds.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.4.1",
+    "dotenv": "^18.0.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "type": "module"
+}
