@@ -6,7 +6,7 @@ As of 25 Oct 2026. Full evidence, with a source and quote for every figure:
 
 Items marked **Proposal** are team suggestions, not sourced facts. Per DECISIONS.md, agree on them in team chat before changing that file.
 
-> **Updated Sun 16:35.** Market figures now come from DefiLlama, dated: see [numbers.md](numbers.md) (Spiko ≈$1.78B on Stellar, BENJI $475M, Stellar ≈$2.4B). Launch haircuts are decided in [DECISIONS #26](../DECISIONS.md). The rwa.xyz figures and tier proposal below are kept as research history.
+> **Updated Sun 16:35.** Market figures now come from DefiLlama, dated: see [numbers.md](numbers.md) (Stellar RWA Active AUM $3.03B, Spiko $1.965B, BENJI $434.68M; corrected 25 Oct). Launch haircuts are decided in [DECISIONS #26](../DECISIONS.md). The rwa.xyz figures and tier proposal below are kept as research history.
 
 ## 1. The lens: every dollar token ends in T-bills, and the weak link is exit, not the asset
 
