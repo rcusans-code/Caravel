@@ -57,6 +57,20 @@ pub struct AssetConfig {
     pub max_nav_age_secs: u64,
 }
 
+/// Per-asset emergency switches (DECISIONS.md #30), stored apart from
+/// `AssetConfig` so re-tiering an asset never clears a pause. Each switch
+/// stops one action and nothing else; `repay` and `top_up` have no switch.
+#[contracttype]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Pause {
+    /// Blocks `create_offer` and `take_offer`, like `AssetConfig.enabled =
+    /// false` (an alias). `cancel_offer` still works.
+    pub no_new_repos: bool,
+    /// Blocks `default` (except an auto-repay settle) and `liquidate`. The
+    /// default clock keeps running; seizure waits until this clears.
+    pub no_seize: bool,
+}
+
 /// A lender's standing offer. The lender sets only asset, principal, APR and
 /// term; the haircut comes from the asset's `AssetConfig`. The principal is escrowed in the contract
 /// from `create_offer` until it is taken or cancelled.

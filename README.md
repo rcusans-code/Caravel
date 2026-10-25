@@ -132,7 +132,8 @@ stateDiagram-v2
 | `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → lender, treasury, borrower; collateral → liquidator |
 | `set_asset(asset, config)` | admin | — | — | — |
 | `set_liquidator(who, allowed)` | admin | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
+| `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — |
+| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
 
 <!-- REVIEW (Misha): check_margin and top_up rows follow DECISIONS #14, #17 and #20; confirm they match margin.rs once it merges. -->
 
@@ -143,6 +144,7 @@ Every state-changing call checks status first and fails with a named error other
 | Event | Topics | Data |
 |---|---|---|
 | `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs |
+| `PauseSet` | asset | no_new_repos, no_seize |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
 | `RepoOpened` | repo_id, offer_id | lender, borrower, collateral_asset, collateral_amount, principal, interest, haircut_bps, maturity_ts |
@@ -165,8 +167,9 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **The haircut is snapshotted at take.** Re-tiering an asset changes new takes only.
 - **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
+- **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
 
-`cargo test --workspace` runs 160 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 167 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 

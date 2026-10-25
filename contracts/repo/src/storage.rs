@@ -5,7 +5,7 @@
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::{AssetConfig, Config, Offer, Repo};
+use crate::types::{AssetConfig, Config, Offer, Pause, Repo};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
                                     // Extending the instance also extends the contract code entry. On testnet,
@@ -25,6 +25,8 @@ pub enum DataKey {
     NextOfferId,
     NextRepoId,
     Asset(Address),
+    /// Per-asset pause switches (#30). Absent = nothing paused.
+    Pause(Address),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -68,6 +70,22 @@ pub fn write_asset(env: &Env, asset: &Address, config: &AssetConfig) {
     env.storage()
         .instance()
         .set(&DataKey::Asset(asset.clone()), config);
+}
+
+pub fn read_pause(env: &Env, asset: &Address) -> Pause {
+    env.storage()
+        .instance()
+        .get(&DataKey::Pause(asset.clone()))
+        .unwrap_or_default()
+}
+
+pub fn write_pause(env: &Env, asset: &Address, pause: &Pause) {
+    let key = DataKey::Pause(asset.clone());
+    if *pause == Pause::default() {
+        env.storage().instance().remove(&key);
+    } else {
+        env.storage().instance().set(&key, pause);
+    }
 }
 
 // --- ids ------------------------------------------------------------------

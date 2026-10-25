@@ -14,6 +14,16 @@ pub struct AssetConfigured {
     pub max_nav_age_secs: u64,
 }
 
+/// Admin set an asset's pause switches (DECISIONS.md #30).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseSet {
+    #[topic]
+    pub asset: Address,
+    pub no_new_repos: bool,
+    pub no_seize: bool,
+}
+
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OfferCreated {

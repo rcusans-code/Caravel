@@ -25,4 +25,6 @@ pub enum Error {
     NotDue = 15,
     /// The USDC pull failed: short balance, allowance too small or expired.
     AutoRepayFailed = 16,
+    /// The asset's `no_new_repos` or `no_seize` switch blocks this call (#30).
+    Paused = 17,
 }
