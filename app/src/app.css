@@ -138,3 +138,10 @@ body {
 }
 .app-footer .cv-hash { margin: 0 var(--space-2); }
 .app-motto { font-style: italic; font-family: var(--font-display); }
+
+/* Settlement receipt with its seal (SealStamp sits beside the DvP receipt). */
+.app-receipt { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
+.app-receipt > .cv-dvp { flex: 1 1 420px; }
+/* ValueFlash needs a little room for its glow. */
+.app-flashable { padding: 0 4px; margin: 0 -4px; }
+.cv-table td.r .cv-skel { margin-left: auto; }

@@ -1,5 +1,5 @@
 // Thin React wrappers over the design system markup (design/components/*/preview.html).
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { EXPLORER } from "./config";
 import type { Status } from "./chain";
 import { short } from "./format";
@@ -112,6 +112,88 @@ export function Field({
   );
 }
 
+declare global {
+  interface Window {
+    Caravel?: {
+      flash(el: Element | null, dir?: "up" | "down"): void;
+      stamp(el: Element | null): void;
+      live(el: Element | null, state: "on" | "stale" | "off", word?: string): void;
+    };
+  }
+}
+
+/** ValueFlash: glow a figure once when its value changes (design/components/ValueFlash).
+ *  `dir` turns the glow healthy (up) or defaulted (down) when direction matters. */
+export function useFlash<T, E extends HTMLElement = HTMLSpanElement>(
+  value: T | null | undefined,
+  dir?: (prev: T, next: T) => "up" | "down" | undefined,
+) {
+  const ref = useRef<E>(null);
+  const prev = useRef(value);
+  useEffect(() => {
+    const p = prev.current;
+    if (p !== null && p !== undefined && value !== null && value !== undefined && p !== value) {
+      window.Caravel?.flash(ref.current, dir?.(p, value));
+    }
+    prev.current = value;
+  }, [value, dir]);
+  return ref;
+}
+
+/** Skeleton block shaped like the content it stands in for (design/components/Skeleton). */
+export function Skel({ kind, w, h }: { kind?: "figure" | "line" | "short"; w?: number | string; h?: number }) {
+  return <span className={`cv-skel${kind ? ` cv-skel--${kind}` : ""}`} style={w || h ? { width: w, height: h } : undefined} />;
+}
+
+/** LiveIndicator for a data feed: on (wave), stale (amber), off (hollow). */
+export function Live({ state, word, meta }: { state: "on" | "stale" | "off"; word: string; meta?: string }) {
+  return (
+    <span className={`cv-live cv-live--${state}`} role="status">
+      <span className="cv-live__dot" aria-hidden="true" />
+      <span className="cv-live__word">{word}</span>
+      {meta && <span className="cv-live__meta">{meta}</span>}
+    </span>
+  );
+}
+
+/** Transaction steps, in order. Index = TxState.step. */
+export const TX_STEPS = ["Prepare", "Sign", "Submit", "Settled"] as const;
+export interface TxState {
+  key: string;
+  step: number;
+  failed: boolean;
+}
+
+/** TxProgress: Prepare → Sign → Submit → Settled, with the active step carrying the tide. */
+export function TxProgress({ tx, demo }: { tx: TxState; demo: boolean }) {
+  const meta = ["simulating", demo ? "in browser" : "in wallet", "to Stellar", "≈5 s"];
+  return (
+    <ol className="cv-txprog" style={{ ["--steps" as string]: TX_STEPS.length }} aria-label="Transaction progress" data-testid="txprog">
+      {TX_STEPS.map((label, i) => {
+        const cls = i < tx.step ? " is-done" : i === tx.step ? (tx.failed ? " is-failed" : " is-active") : "";
+        return (
+          <li key={label} className={`cv-txprog__step${cls}`} aria-current={i === tx.step ? "step" : undefined}>
+            <span className="cv-txprog__label">{label}</span>
+            <span className="cv-txprog__meta">{i === tx.step && tx.failed ? "failed" : meta[i]}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** SealStamp, pressed once when a settlement lands. */
+export function Seal({ word, sub, repaid }: { word: string; sub: string; repaid?: boolean }) {
+  return (
+    <span className={`cv-stamp${repaid ? " cv-stamp--repaid" : ""}`} role="status" data-testid="seal">
+      <span>
+        <b>{word}</b>
+        {sub}
+      </span>
+    </span>
+  );
+}
+
 export interface Leg {
   eyebrow: string;
   amount: string;
@@ -119,7 +201,25 @@ export interface Leg {
   hint: string;
 }
 
-export function DvpReceipt({ left, right, sentence, hash }: { left: Leg; right: Leg; sentence: string; hash: string }) {
+export interface Stamp {
+  word: string;
+  sub: string;
+  repaid?: boolean;
+}
+
+export function DvpReceipt({
+  left,
+  right,
+  sentence,
+  hash,
+  stamp,
+}: {
+  left: Leg;
+  right: Leg;
+  sentence: string;
+  hash: string;
+  stamp?: Stamp;
+}) {
   const leg = (l: Leg) => (
     <div className="cv-dvp__leg">
       <span className="cv-eyebrow">{l.eyebrow}</span>
@@ -132,7 +232,7 @@ export function DvpReceipt({ left, right, sentence, hash }: { left: Leg; right: 
       <span className="cv-field__hint">{l.hint}</span>
     </div>
   );
-  return (
+  const receipt = (
     <div className="cv-dvp" data-testid="dvp-receipt">
       {leg(left)}
       <span className="cv-dvp__arrow" aria-hidden="true">
@@ -143,6 +243,14 @@ export function DvpReceipt({ left, right, sentence, hash }: { left: Leg; right: 
         <span>{sentence}</span>
         <TxHash kind="TX" value={hash} />
       </div>
+    </div>
+  );
+  if (!stamp) return receipt;
+  // key on the hash so a new settlement remounts the seal and replays the press.
+  return (
+    <div className="app-receipt" key={hash}>
+      {receipt}
+      <Seal {...stamp} />
     </div>
   );
 }

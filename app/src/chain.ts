@@ -11,6 +11,7 @@ import {
 import { Client as RepoClient } from "caravel-repo";
 import { Client as OracleClient } from "caravel-oracle";
 import type { contract } from "caravel-repo";
+import { emitPhase } from "./txphase";
 import {
   HORIZON_URL,
   NETWORK_PASSPHRASE,
@@ -248,7 +249,13 @@ const clientOpts = (signer: Signer) => ({
   networkPassphrase: NETWORK_PASSPHRASE,
   rpcUrl: RPC_URL,
   publicKey: signer.address,
-  signTransaction: signer.signTransaction,
+  // Report the wallet step to the UI (TxProgress): sign while the signer is open, submit once it returns.
+  signTransaction: async (...args: Parameters<Signer["signTransaction"]>) => {
+    emitPhase("sign");
+    const out = await signer.signTransaction(...args);
+    emitPhase("submit");
+    return out;
+  },
 });
 
 type Unwrappable<T> = { isErr(): boolean; unwrap(): T; unwrapErr?(): { message: string } };
@@ -343,10 +350,12 @@ export async function addTrustlines(signer: Signer, which: ("USDC" | "tBENJI")[]
     b.addOperation(Operation.changeTrust({ asset: new ClassicAsset(a.code, a.issuer) }));
   }
   const tx = b.setTimeout(120).build();
+  emitPhase("sign");
   const { signedTxXdr } = await signer.signTransaction(tx.toXDR(), {
     networkPassphrase: NETWORK_PASSPHRASE,
     address: signer.address,
   });
+  emitPhase("submit");
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
   const sent = await server.sendTransaction(signed);
   if (sent.status === "ERROR") throw new Error(`Trustline tx rejected: ${sent.errorResult?.result().switch().name}`);
