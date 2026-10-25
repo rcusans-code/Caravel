@@ -432,6 +432,38 @@ export async function declareDefault(signer: Signer, repoId: bigint): Promise<Tx
   return { hash: out.hash, value: null };
 }
 
+/**
+ * The lender's "Declare default" once a repo is past maturity + grace (#31):
+ * sends `default` only. The contract's `default` tries auto-repay first for an
+ * opted-in borrower (repo -> Repaid), else marks it Defaulted for liquidation.
+ * A repo that is no longer live throws "already settled" (keeper raced us).
+ */
+export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promise<TxOutcome<Status>> {
+  try {
+    const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+    // `default_` at runtime: see declareDefault.
+    const callDefault = (c as unknown as { default_: RepoClient["default"] }).default_.bind(c);
+    const out = await submit(await callDefault({ repo_id: repo.id }));
+    const status = unwrapResult<{ tag: Status } | Status>(out.value);
+    return { hash: out.hash, value: typeof status === "string" ? status : status.tag };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // InvalidStatus (#7) in simulation, or a tx that lost the race on-chain:
+    // either way, if the repo is no longer live someone else settled it.
+    const settledElsewhere =
+      /Error\(Contract, #7\)/.test(msg) || (await getRepoStatus(repo.id).catch(() => null))?.match(/^(Repaid|Defaulted|Liquidated)$/);
+    if (settledElsewhere)
+      throw new Error(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`);
+    throw e;
+  }
+}
+
+async function getRepoStatus(id: bigint): Promise<Status | null> {
+  const res = await server.getLedgerEntries(contractDataKey(dataKey("Repo", id)));
+  const e = res.entries[0];
+  return e ? normRepo(scValToNative(e.val.contractData().val()) as Record<string, unknown>).status : null;
+}
+
 export async function liquidate(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
   const out = await submit(await c.liquidate({ liquidator: signer.address, repo_id: repoId }));

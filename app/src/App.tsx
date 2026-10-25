@@ -1279,6 +1279,10 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const fill = cover === null ? 0 : Math.min(100, Math.max(0, ((cover - 90) / 20) * 100));
   const toMaturity = Number(repo.maturity_ts) - now;
   const canRepay = live && side === "borrowed";
+  // Past maturity + grace (strict, as in the contract) the repo waits for a keeper tx (#31).
+  const pastGrace = live && now > Number(repo.maturity_ts + config.grace_secs);
+  // Only the lender declares default; the contract's `default` auto-repays an opted-in borrower first.
+  const canDeclareDefault = pastGrace && !!signer && side === "lent";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
   const canTopUp = canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
@@ -1303,6 +1307,20 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const toggleAuto = async (enabled: boolean) => {
     if (!signer) return;
     await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () => chain.setAutoRepay(signer, repo.id, enabled));
+  };
+
+  const doDeclareDefault = async () => {
+    if (!signer) return;
+    const out = await ctx.run(`declare-${repo.id}`, `Repo #${repo.id} not defaulted`, () => chain.declareDefaultPastGrace(signer, repo));
+    if (out)
+      ctx.setFlash({
+        tone: "info",
+        title: out.value === "Repaid" ? `Repo #${String(repo.id).padStart(3, "0")} repaid` : `Repo #${String(repo.id).padStart(3, "0")} defaulted`,
+        body:
+          out.value === "Repaid"
+            ? `The borrower had auto-repay on: it pulled ${fmtAmount(debt)} USDC from them and your loan is repaid.`
+            : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
+      });
   };
 
   const doRepay = async () => {
@@ -1384,9 +1402,9 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
           </span>
-          {live && (
+          {live && !(pastGrace && !inMarginCall) && (
             <span className="cv-countdown__time">
               {inMarginCall && toDeadline !== null
                 ? fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))
@@ -1406,8 +1424,26 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             {busy === `repay-${repo.id}` ? "Repaying" : "Repay"}
           </button>
         )}
+        {canDeclareDefault && (
+          <button
+            type="button"
+            className="cv-btn cv-btn--secondary cv-btn--sm"
+            disabled={!!busy}
+            title="Sends default: if the borrower opted in to auto-repay it pulls the debt first, else the repo is marked defaulted for liquidation"
+            onClick={doDeclareDefault}
+            data-action="declare-default"
+          >
+            {busy === `declare-${repo.id}` ? "Declaring" : "Declare default"}
+          </button>
+        )}
       </div>
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {ctx.tx?.key === `declare-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {pastGrace && side === "borrowed" && (
+        <p className="cv-field__hint" data-hint="grace-over">
+          Grace is over. Repay now to keep your collateral.
+        </p>
+      )}
       {canTopUp && (
         <form
           className="cv-stack app-topup"
