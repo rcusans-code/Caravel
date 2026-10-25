@@ -17,4 +17,6 @@ pub enum Error {
     InsufficientCollateral = 10,
     NotLiquidator = 11,
     NotDefaultable = 12,
+    /// Oracle has no price for the asset, or it is not positive.
+    NoPrice = 13,
 }

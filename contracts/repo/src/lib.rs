@@ -7,6 +7,8 @@
 mod errors;
 mod events;
 pub mod math;
+#[allow(dead_code)] // read by take_offer / check_margin / liquidate (G1/G2)
+mod oracle;
 #[allow(dead_code)] // writers are wired up by the G1/G2 flows
 mod storage;
 mod types;
