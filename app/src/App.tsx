@@ -245,7 +245,10 @@ export default function App() {
       </header>
 
       <main className="app-wrap app-main">
-        <section className="cv-card app-status" aria-label="Demo account, balances and NAV">
+        <section
+          className={`cv-card app-status${DEMO_ENABLED ? "" : " app-status--public"}`}
+          aria-label={DEMO_ENABLED ? "Demo account, balances and NAV" : "Balances and NAV"}
+        >
           {DEMO_ENABLED && (
             <div className="app-status__group" role="group" aria-label="Demo account (testnet burner)">
               <span className="app-status__label">Demo as</span>
@@ -263,7 +266,11 @@ export default function App() {
               ))}
             </div>
           )}
-          {signer && <BalanceFigures balances={balances} />}
+          {signer ? (
+            <BalanceFigures balances={balances} />
+          ) : (
+            !DEMO_ENABLED && <span className="app-status__group small app-muted">Connect a wallet to see your balances.</span>
+          )}
           <NavStatus nav={nav} now={now} stale={navStale} loaded={loaded} />
         </section>
 
@@ -537,7 +544,7 @@ function NavStatus({ nav, now, stale, loaded }: { nav: Nav | null; now: number; 
   const age = nav ? now - Number(nav.timestamp) : null;
   const navRef = useFlash(nav ? String(nav.price) : null, navDir);
   return (
-    <div className="app-status__group" aria-label="tBENJI NAV" aria-busy={loaded ? undefined : "true"}>
+    <div className="app-status__group app-status__group--nav" aria-label="tBENJI NAV" aria-busy={loaded ? undefined : "true"}>
       <span className="app-status__label">tBENJI NAV</span>
       {!loaded ? (
         <Skel w={90} h={14} />

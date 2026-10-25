@@ -11,6 +11,7 @@ https://claude.ai/artifact/Ffm9CtbdGP9UqQea1y6DEc (private; ask Bohdan Che for a
 | `Positions.dc.html` / `PositionsPhone.dc.html` | My positions, including a margin call; phone at 390 px |
 | `Liquidator.dc.html` | Liquidator desk |
 | `Admin.dc.html` | Demo NAV slider |
+| `MainPublic.dc.html` | Public build: wallet login, no demo roles (balances left, NAV right) |
 
 Each artboard links `ds/caravel/tokens.css` and `components/bundle.*` (same files as `design/`) and inlines the app layout CSS. The logo points to a canvas blob, so open the files in the canvas, not straight from disk.
 

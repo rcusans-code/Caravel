@@ -188,6 +188,9 @@ body {
 .app-status__nav { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--ink-muted); }
 .app-status .cv-btn--sm { height: 28px; }
 @media (max-width: 720px) { .app-status__group + .app-status__group { padding-left: 0; border-left: 0; } }
+/* Public build (no "Demo as" roles): balances left, NAV pushed to the right edge, one row. */
+.app-status--public { justify-content: space-between; padding-top: var(--space-4); padding-bottom: var(--space-4); }
+.app-status--public .app-status__group--nav { margin-left: auto; padding-left: 0; border-left: 0; }
 /* Header info button ("i") opens a popover with demo notices instead of a banner in the page. */
 .app-notify { position: relative; margin-left: auto; }
 .app-notify + .app-header__account { margin-left: 0; }
