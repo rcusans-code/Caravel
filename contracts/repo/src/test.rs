@@ -570,7 +570,10 @@ fn take_with_signed_amount(w: &World, offer_id: u64, amount: i128) -> bool {
             sub_invokes: &[transfer],
         },
     }]);
-    let ok = w.repo.try_take_offer(&w.borrower, &offer_id, &false).is_ok();
+    let ok = w
+        .repo
+        .try_take_offer(&w.borrower, &offer_id, &false)
+        .is_ok();
     w.env.mock_all_auths();
     ok
 }
@@ -599,7 +602,10 @@ fn take_offer_requires_borrower_auth() {
     let w = world();
     let offer_id = w.offer();
     w.env.set_auths(&[]);
-    assert!(w.repo.try_take_offer(&w.borrower, &offer_id, &false).is_err());
+    assert!(w
+        .repo
+        .try_take_offer(&w.borrower, &offer_id, &false)
+        .is_err());
     assert_eq!(w.repo.offer(&offer_id).id, offer_id);
 }
 
@@ -977,7 +983,10 @@ fn auto_repay_at_maturity_returns_collateral() {
     );
     w.assert_repaid(repo_id);
     assert_eq!(w.allowance(), 0);
-    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
+    assert_eq!(
+        w.repo.try_auto_repay(&repo_id),
+        Err(Ok(Error::InvalidStatus))
+    );
 }
 
 #[test]
@@ -985,7 +994,10 @@ fn auto_repay_needs_opt_in() {
     let w = world();
     let repo_id = w.take();
     w.set_time(NOW + TERM_SECS);
-    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::AutoRepayOff)));
+    assert_eq!(
+        w.repo.try_auto_repay(&repo_id),
+        Err(Ok(Error::AutoRepayOff))
+    );
     assert_eq!(w.repo.try_auto_repay(&99), Err(Ok(Error::RepoNotFound)));
 }
 
@@ -1007,7 +1019,8 @@ fn short_borrower_still_defaults() {
     // Spent the loan: one stroop short of the debt.
     let keep = DEBT - 1;
     let spend = w.usdc.balance(&w.borrower) - keep;
-    w.usdc.transfer(&w.borrower, Address::generate(&w.env), &spend);
+    w.usdc
+        .transfer(&w.borrower, Address::generate(&w.env), &spend);
 
     w.set_time(NOW + TERM_SECS);
     assert_eq!(
@@ -1044,7 +1057,9 @@ fn expired_allowance_falls_back_to_default() {
     let w = world();
     let repo_id = w.take_auto();
     // Keeper down for days: the allowance lapsed before anyone called default.
-    w.env.ledger().set_sequence_number(w.env.ledger().sequence() + 100_000);
+    w.env
+        .ledger()
+        .set_sequence_number(w.env.ledger().sequence() + 100_000);
     w.set_time(MATURED);
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
 }

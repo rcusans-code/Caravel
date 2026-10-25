@@ -87,7 +87,11 @@ pub fn expiry(seq: u32, secs: u64, max_ttl: u32) -> u32 {
         .saturating_mul(EXPIRY_BUCKET);
     let max = seq.saturating_add(max_ttl.saturating_sub(1));
     let max_bucketed = max / EXPIRY_BUCKET * EXPIRY_BUCKET;
-    want.min(if max_bucketed >= seq { max_bucketed } else { max })
+    want.min(if max_bucketed >= seq {
+        max_bucketed
+    } else {
+        max
+    })
 }
 
 /// True from maturity, or once a margin call's deadline has passed: the two
