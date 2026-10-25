@@ -138,4 +138,5 @@ export const Err = {
   NotDefaultable: 12,
   NoPrice: 13,
   AutoRepayFailed: 16,
+  Paused: 17, // asset no_seize switch on: default / liquidate refused (#28)
 } as const;
