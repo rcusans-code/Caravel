@@ -219,7 +219,7 @@ a{color:var(--primary)}a:hover{color:var(--primary-hover)}
 /* Info button: same square popover as before, "i" instead of a bell. */
 .app-bell--info { font: 600 15px/1 var(--font-serif, Georgia, serif); }
 /* Inline "i" tooltip for the detail behind a plain-language line. */
-.app-tip { position: relative; display: inline-flex; vertical-align: -3px; margin-left: 6px; }
+.app-tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; transform: translateY(-1px); }
 .app-tip__btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid var(--primary); border-radius: 0; background: var(--surface); color: var(--primary); font: 600 11px/1 var(--font-sans); cursor: help; }
 .app-tip__btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .app-tip__pop { display: none; position: absolute; left: -8px; top: calc(100% + 8px); z-index: 30; width: min(280px, calc(100vw - 48px)); padding: 10px 12px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--line-strong); color: var(--ink); font: 400 13px/18px var(--font-sans); text-transform: none; letter-spacing: 0; white-space: normal; text-align: left; }
