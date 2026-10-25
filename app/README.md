@@ -23,7 +23,7 @@ Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` wri
 
 ## Public deploy
 
-Live at **https://caravel-repo.pages.dev/app/** (Cloudflare Pages project `caravel-repo`, static, no server). Wallet login only. The same project serves the landing page (`../site`) at https://caravel-repo.pages.dev/; the header's *About Caravel* link goes there (`/`), and the landing's demo buttons come back to `/app/`.
+Live at **https://caravel-repo.pages.dev/app/** (Cloudflare Pages project `caravel-repo`, static, no server). Wallet login only. The same project serves the landing page (`../site`) at https://caravel-repo.pages.dev/; the header logo goes there (`/`), and the landing's demo buttons come back to `/app/`.
 
 ```sh
 cd app
