@@ -67,7 +67,13 @@ pub fn check_margin(env: &Env, repo_id: u64) -> Result<Status, Error> {
     repo.margin_call_deadline = Some(deadline);
     storage::write_repo(env, &repo);
 
-    events::MarginCall { repo_id, deadline }.publish(env);
+    events::MarginCall {
+        repo_id,
+        deadline,
+        nav,
+        nav_decimals,
+    }
+    .publish(env);
     Ok(repo.status)
 }
 

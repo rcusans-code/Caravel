@@ -31,7 +31,7 @@ pub struct Config {
     pub guardian: Address,
     /// Delay between `propose_*` and `execute_*` for every change that adds
     /// risk (DECISIONS.md #33). 172_800 (2 days) in production, 120 in the
-    /// demo (#5). Must be > 0.
+    /// demo (#5). Must be >= 60.
     pub timelock_secs: u64,
 }
 
@@ -141,6 +141,17 @@ pub enum Status {
     Repaid,
     Defaulted,
     Liquidated,
+}
+
+/// Why `default` moved a repo to `Defaulted` (carried by the `Defaulted` event).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefaultReason {
+    /// Unpaid past maturity + grace.
+    Maturity,
+    /// Margin call missed: past `margin_call_deadline`, still in breach or
+    /// without a fresh in-band NAV.
+    MarginCall,
 }
 
 /// A live or settled repo, created when a borrower takes an offer.

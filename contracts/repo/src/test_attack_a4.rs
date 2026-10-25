@@ -17,7 +17,7 @@ use crate::{
     test::{
         demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, UNIT, WIDE_BAND_BPS,
     },
-    Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Error, Status,
+    Asset, AssetConfig, CaravelRepo, CaravelRepoClient, DefaultReason, Error, Status,
 };
 
 const GRACE_SECS: u64 = 60;
@@ -176,7 +176,11 @@ fn a4_stale_then_fresh_breach_defaults() {
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
     assert_eq!(
         w.last_repo_event(),
-        events::Defaulted { repo_id }.to_xdr(&w.env, &w.repo.address)
+        events::Defaulted {
+            repo_id,
+            reason: DefaultReason::MarginCall,
+        }
+        .to_xdr(&w.env, &w.repo.address)
     );
 }
 

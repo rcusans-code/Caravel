@@ -8,9 +8,9 @@ use soroban_sdk::{
 
 use crate::{
     events,
-    oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
-    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Offer, Pause,
-    PendingAsset, Repo, Status,
+    oracle::mock::{setup_mock_oracle, MockOracleClient, MOCK_DECIMALS, ONE},
+    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, DefaultReason, Error,
+    Offer, Pause, PendingAsset, Repo, Status,
 };
 
 pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
@@ -883,7 +883,11 @@ fn default_after_maturity_plus_grace() {
     w.repo.default(&repo_id);
     assert_eq!(
         w.env.events().all().filter_by_contract(&w.repo.address),
-        [events::Defaulted { repo_id }.to_xdr(&w.env, &w.repo.address)]
+        [events::Defaulted {
+            repo_id,
+            reason: DefaultReason::Maturity
+        }
+        .to_xdr(&w.env, &w.repo.address)]
     );
     assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
     // Collateral stays put until a liquidator buys it.
@@ -1260,6 +1264,8 @@ fn liquidate_at(
             lender_amount: lender,
             fee,
             borrower_amount: borrower,
+            nav,
+            nav_decimals: MOCK_DECIMALS,
         }
         .to_xdr(&w.env, &w.repo.address)
     );
@@ -1477,7 +1483,13 @@ fn check_margin_breach_sets_deadline_and_emits() {
     let deadline = NOW + 10 + MARGIN_WINDOW;
     assert_eq!(
         w.repo_events(),
-        [events::MarginCall { repo_id, deadline }.to_xdr(&w.env, &w.repo.address)]
+        [events::MarginCall {
+            repo_id,
+            deadline,
+            nav: BREACH_NAV,
+            nav_decimals: MOCK_DECIMALS,
+        }
+        .to_xdr(&w.env, &w.repo.address)]
     );
     let mut called = opened_repo(&w);
     called.status = Status::MarginCall;
@@ -1609,7 +1621,11 @@ fn missed_call_still_breached_defaults() {
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
     assert_eq!(
         w.repo_events(),
-        [events::Defaulted { repo_id }.to_xdr(&w.env, &w.repo.address)]
+        [events::Defaulted {
+            repo_id,
+            reason: DefaultReason::MarginCall
+        }
+        .to_xdr(&w.env, &w.repo.address)]
     );
 }
 

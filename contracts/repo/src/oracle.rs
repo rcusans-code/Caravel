@@ -60,6 +60,9 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
     Ok((data.price, feed.decimals(), data.timestamp))
 }
 
+/// Largest clock skew [`fresh_nav`] accepts on a future price timestamp.
+pub const MAX_FUTURE_SKEW_SECS: u64 = 60;
+
 /// Latest NAV for `asset` as `(price, decimals)`, rejecting old and
 /// implausible prices.
 ///
@@ -67,14 +70,19 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
 ///
 /// - `StaleNav` if `now - timestamp > asset.max_nav_age_secs` (per asset,
 ///   DECISIONS.md #25). A price exactly `max_nav_age_secs` old is still fresh.
-/// - A timestamp in the future (`timestamp > now`) is treated as age 0, i.e.
-///   fresh. The feed is trusted; this only absorbs clock skew between the
-///   feed's timestamp and the ledger close time.
+/// - A timestamp up to [`MAX_FUTURE_SKEW_SECS`] in the future is treated as
+///   age 0, i.e. fresh: this absorbs clock skew between the feed's timestamp
+///   and the ledger close time. Further ahead is `NoPrice`: a future-dated
+///   price would otherwise stay "fresh" until long after it was posted.
 /// - `NoPrice` if the feed has no price for the asset or it is `<= 0`.
 /// - `NavOutOfBand` if the price fails [`check_band`] (DECISIONS.md #31).
 pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32), Error> {
     let (price, decimals, timestamp) = nav(env, cfg, asset)?;
-    let age = env.ledger().timestamp().saturating_sub(timestamp);
+    let now = env.ledger().timestamp();
+    if timestamp > now.saturating_add(MAX_FUTURE_SKEW_SECS) {
+        return Err(Error::NoPrice);
+    }
+    let age = now.saturating_sub(timestamp);
     if age > asset.max_nav_age_secs {
         return Err(Error::StaleNav);
     }
