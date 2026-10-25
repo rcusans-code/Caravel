@@ -251,3 +251,7 @@ a:hover { color: var(--primary-hover); }
 .app-take .app-preview { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); padding: var(--space-2) var(--space-3); }
 .app-take .app-preview .cv-field__hint { flex-basis: 100%; }
 @media (max-width: 760px) { .app-take__act { padding-left: 0; } }
+
+/* Status pills: compact, so the state reads as a tag, not a button. */
+.cv-pill { height: 20px; padding: 0 6px; gap: 5px; font-size: 11px; line-height: 14px; letter-spacing: .03em; }
+.cv-pill::before { width: 5px; height: 5px; }
