@@ -137,14 +137,6 @@ fn admin_manages_liquidator_whitelist() {
     assert!(!client.is_liquidator(&liquidator));
 }
 
-#[test]
-fn flows_are_stubbed() {
-    let env = Env::default();
-    let (client, _) = setup(&env);
-    assert_eq!(client.try_check_margin(&1), Err(Ok(Error::NotImplemented)));
-    assert_eq!(client.try_top_up(&1, &1), Err(Ok(Error::NotImplemented)));
-}
-
 // --- offers ---------------------------------------------------------------
 
 /// A deployed repo contract with real USDC and tBENJI SACs, a mock SEP-40
@@ -1054,4 +1046,344 @@ fn liquidate_fails_without_liquidator_funds() {
     assert!(w.repo.try_liquidate(&w.liquidator, &repo_id).is_err());
     assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
     assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+// --- margin -------------------------------------------------------------------
+
+/// NAV 0.985: the repo opened at NAV 1.00 is past the trigger (#14), which
+/// sits near NAV 0.98977 (debt / (collateral × 0.98)).
+const BREACH_NAV: i128 = 985 * ONE / 1_000;
+/// NAV 0.999: below the take NAV, still above the trigger.
+const DIPPED_NAV: i128 = 999 * ONE / 1_000;
+const MARGIN_WINDOW: u64 = 120; // demo profile
+
+impl World<'_> {
+    /// Takes a repo at NOW, drops NAV to BREACH_NAV and lets anyone call
+    /// `check_margin`. Returns the repo id.
+    fn breached(&self) -> u64 {
+        let repo_id = self.take();
+        self.set_nav(BREACH_NAV, NOW);
+        assert_eq!(self.repo.check_margin(&repo_id), Status::MarginCall);
+        repo_id
+    }
+
+    fn repo_events(&self) -> std::vec::Vec<soroban_sdk::xdr::ContractEvent> {
+        self.env
+            .events()
+            .all()
+            .filter_by_contract(&self.repo.address)
+            .events()
+            .to_vec()
+    }
+}
+
+/// Collateral needed at `nav` for `debt ≤ value × (1 − bps)`.
+fn need(nav: i128, bps: u32) -> i128 {
+    crate::math::required_collateral(DEBT, nav, 14, bps).unwrap()
+}
+
+#[test]
+fn check_margin_healthy_repo_stays_open() {
+    let w = world();
+    let repo_id = w.take();
+    w.env.set_auths(&[]); // anyone (#7)
+    for nav in [ONE, DIPPED_NAV] {
+        w.set_nav(nav, NOW);
+        assert_eq!(w.repo.check_margin(&repo_id), Status::Open);
+        assert!(w.repo_events().is_empty());
+    }
+    assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
+}
+
+#[test]
+fn check_margin_breach_sets_deadline_and_emits() {
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(BREACH_NAV, NOW);
+    w.set_time(NOW + 10);
+    w.env.set_auths(&[]); // anyone (#7)
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+
+    let deadline = NOW + 10 + MARGIN_WINDOW;
+    assert_eq!(
+        w.repo_events(),
+        [events::MarginCall { repo_id, deadline }.to_xdr(&w.env, &w.repo.address)]
+    );
+    let mut called = opened_repo(&w);
+    called.status = Status::MarginCall;
+    called.margin_call_deadline = Some(deadline);
+    assert_eq!(w.repo.repo(&repo_id), called);
+}
+
+#[test]
+fn check_margin_does_not_call_twice() {
+    let w = world();
+    let repo_id = w.breached();
+    let deadline = NOW + MARGIN_WINDOW;
+
+    // Later and worse: same deadline, no second event.
+    w.set_time(NOW + 60);
+    w.set_nav(98 * ONE / 100, NOW + 60);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+    assert!(w.repo_events().is_empty());
+    assert_eq!(w.repo.repo(&repo_id).margin_call_deadline, Some(deadline));
+}
+
+#[test]
+fn check_margin_does_not_clear_on_nav_recovery() {
+    // DECISIONS.md #20: only a top-up to initial margin clears the call.
+    let w = world();
+    let repo_id = w.breached();
+    w.set_nav(ONE, NOW);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+    assert_eq!(
+        w.repo.repo(&repo_id).margin_call_deadline,
+        Some(NOW + MARGIN_WINDOW)
+    );
+}
+
+#[test]
+fn check_margin_rejects_stale_nav() {
+    // DECISIONS.md #17: no margin call on an old price.
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(BREACH_NAV, NOW - 181);
+    assert_eq!(w.repo.try_check_margin(&repo_id), Err(Ok(Error::StaleNav)));
+    assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
+
+    // Exactly at the limit is still fresh.
+    w.set_nav(BREACH_NAV, NOW - 180);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+
+    // A called repo is blocked too, and keeps its deadline.
+    w.set_time(NOW + 1);
+    assert_eq!(w.repo.try_check_margin(&repo_id), Err(Ok(Error::StaleNav)));
+    assert_eq!(
+        w.repo.repo(&repo_id).margin_call_deadline,
+        Some(NOW + MARGIN_WINDOW)
+    );
+}
+
+#[test]
+fn check_margin_rejects_missing_price() {
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(0, NOW);
+    assert_eq!(w.repo.try_check_margin(&repo_id), Err(Ok(Error::NoPrice)));
+}
+
+#[test]
+fn check_margin_settled_repos_return_status() {
+    // A keeper can poll any id; settled repos need no NAV.
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(0, NOW);
+    for status in [Status::Repaid, Status::Defaulted, Status::Liquidated] {
+        w.set_status(repo_id, status);
+        assert_eq!(w.repo.check_margin(&repo_id), status);
+    }
+    assert_eq!(w.repo.try_check_margin(&99), Err(Ok(Error::RepoNotFound)));
+}
+
+#[test]
+fn missed_margin_call_defaults() {
+    // check_margin's deadline is what Den's `default` reads.
+    let w = world();
+    let repo_id = w.breached();
+    let deadline = NOW + MARGIN_WINDOW;
+    w.set_time(deadline);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+    w.set_time(deadline + 1);
+    w.repo.default(&repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+    assert_eq!(
+        w.repo.try_top_up(&repo_id, &UNIT),
+        Err(Ok(Error::InvalidStatus))
+    );
+}
+
+#[test]
+fn top_up_partial_keeps_margin_call() {
+    let w = world();
+    let repo_id = w.breached();
+
+    // Out of breach (liquidation discount) but below initial margin (haircut).
+    let partial = need(BREACH_NAV, 200) - TAKE_COLLATERAL;
+    w.repo.top_up(&repo_id, &partial);
+    assert_eq!(
+        w.repo_events(),
+        [events::ToppedUp {
+            repo_id,
+            amount: partial,
+            collateral_amount: TAKE_COLLATERAL + partial,
+            cleared: false,
+        }
+        .to_xdr(&w.env, &w.repo.address)]
+    );
+
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::MarginCall);
+    assert_eq!(repo.margin_call_deadline, Some(NOW + MARGIN_WINDOW));
+    assert_eq!(repo.collateral_amount, TAKE_COLLATERAL + partial);
+    assert_eq!(
+        w.tbenji_token.balance(&w.repo.address),
+        TAKE_COLLATERAL + partial
+    );
+    assert_eq!(
+        w.tbenji_token.balance(&w.borrower),
+        2_000 * UNIT - TAKE_COLLATERAL - partial
+    );
+    // No longer breached, still not cleared (#20).
+    assert!(
+        !crate::math::margin_breached(DEBT, TAKE_COLLATERAL + partial, BREACH_NAV, 14, 200)
+            .unwrap()
+    );
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+
+    // One unit short of initial margin: still called.
+    let rest = need(BREACH_NAV, 300) - TAKE_COLLATERAL - partial;
+    w.repo.top_up(&repo_id, &(rest - 1));
+    assert_eq!(w.repo.repo(&repo_id).status, Status::MarginCall);
+}
+
+#[test]
+fn top_up_to_initial_margin_clears_call() {
+    let w = world();
+    let repo_id = w.breached();
+    let amount = need(BREACH_NAV, 300) - TAKE_COLLATERAL;
+    w.repo.top_up(&repo_id, &amount);
+    assert_eq!(
+        w.repo_events(),
+        [events::ToppedUp {
+            repo_id,
+            amount,
+            collateral_amount: TAKE_COLLATERAL + amount,
+            cleared: true,
+        }
+        .to_xdr(&w.env, &w.repo.address)]
+    );
+
+    let mut open = opened_repo(&w);
+    open.collateral_amount = TAKE_COLLATERAL + amount;
+    assert_eq!(w.repo.repo(&repo_id), open);
+
+    // The old deadline no longer counts.
+    w.set_time(NOW + MARGIN_WINDOW + 1);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+}
+
+#[test]
+fn cleared_repo_can_be_called_again() {
+    let w = world();
+    let repo_id = w.breached();
+    w.repo
+        .top_up(&repo_id, &(need(BREACH_NAV, 300) - TAKE_COLLATERAL));
+
+    // NAV keeps falling: a fresh call with a fresh deadline.
+    w.set_time(NOW + 300);
+    w.set_nav(95 * ONE / 100, NOW + 300);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+    assert_eq!(
+        w.repo.repo(&repo_id).margin_call_deadline,
+        Some(NOW + 300 + MARGIN_WINDOW)
+    );
+}
+
+#[test]
+fn top_up_works_with_stale_nav() {
+    // DECISIONS.md #6: the last known NAV decides the clear.
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(BREACH_NAV, NOW - 100);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+
+    w.set_time(NOW + 100); // NAV now 200 s old, deadline not yet passed
+    assert_eq!(w.repo.try_check_margin(&repo_id), Err(Ok(Error::StaleNav)));
+    w.repo
+        .top_up(&repo_id, &(need(BREACH_NAV, 300) - TAKE_COLLATERAL));
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::Open);
+    assert_eq!(repo.margin_call_deadline, None);
+}
+
+#[test]
+fn top_up_without_price_adds_collateral_but_keeps_call() {
+    let w = world();
+    let repo_id = w.breached();
+    w.set_nav(0, NOW);
+    w.repo.top_up(&repo_id, &(100 * UNIT));
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::MarginCall);
+    assert_eq!(repo.collateral_amount, TAKE_COLLATERAL + 100 * UNIT);
+}
+
+#[test]
+fn top_up_after_deadline_until_defaulted() {
+    // Like repay: the borrower can cure until someone calls `default`.
+    let w = world();
+    let repo_id = w.breached();
+    w.set_time(NOW + MARGIN_WINDOW + 30);
+    w.repo
+        .top_up(&repo_id, &(need(BREACH_NAV, 300) - TAKE_COLLATERAL));
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+}
+
+#[test]
+fn top_up_open_repo_adds_collateral() {
+    let w = world();
+    let repo_id = w.take();
+    w.repo.top_up(&repo_id, &UNIT);
+    assert_eq!(w.env.auths()[0].0, w.borrower);
+    let mut open = opened_repo(&w);
+    open.collateral_amount = TAKE_COLLATERAL + UNIT;
+    assert_eq!(w.repo.repo(&repo_id), open);
+    assert_eq!(
+        w.tbenji_token.balance(&w.repo.address),
+        TAKE_COLLATERAL + UNIT
+    );
+}
+
+#[test]
+fn top_up_requires_borrower_auth() {
+    let w = world();
+    let repo_id = w.breached();
+    w.env.set_auths(&[]);
+    assert!(w
+        .repo
+        .try_top_up(&repo_id, &(need(BREACH_NAV, 300) - TAKE_COLLATERAL))
+        .is_err());
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::MarginCall);
+    assert_eq!(repo.collateral_amount, TAKE_COLLATERAL);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+#[test]
+fn top_up_fails_without_enough_collateral() {
+    let w = world();
+    let repo_id = w.take();
+    let held = w.tbenji_token.balance(&w.borrower);
+    assert!(w.repo.try_top_up(&repo_id, &(held + 1)).is_err());
+    assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
+}
+
+#[test]
+fn top_up_rejects_bad_amount_and_status() {
+    let w = world();
+    let repo_id = w.take();
+    for amount in [0, -1] {
+        assert_eq!(
+            w.repo.try_top_up(&repo_id, &amount),
+            Err(Ok(Error::InvalidAmount))
+        );
+    }
+    for status in [Status::Repaid, Status::Defaulted, Status::Liquidated] {
+        w.set_status(repo_id, status);
+        assert_eq!(
+            w.repo.try_top_up(&repo_id, &UNIT),
+            Err(Ok(Error::InvalidStatus))
+        );
+    }
+    assert_eq!(w.repo.try_top_up(&99, &UNIT), Err(Ok(Error::RepoNotFound)));
 }
