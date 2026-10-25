@@ -88,6 +88,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_open_debt"
+                      },
+                      "val": {
+                        "i128": "170141183460469231731687303715884105727"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "oracle_asset"
                       },
                       "val": {
@@ -1379,6 +1387,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_open_debt"
+                            },
+                            "val": {
+                              "i128": "170141183460469231731687303715884105727"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "oracle_asset"
                             },
                             "val": {
@@ -1502,6 +1518,21 @@
                       },
                       "val": {
                         "u64": "3"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "OpenDebt"
+                          },
+                          {
+                            "address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "9709301370"
                       }
                     }
                   ]

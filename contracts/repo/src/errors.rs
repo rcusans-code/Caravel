@@ -27,4 +27,6 @@ pub enum Error {
     AutoRepayFailed = 16,
     /// The asset's `no_new_repos` or `no_seize` switch blocks this call (#30).
     Paused = 17,
+    /// `take_offer` would push the asset's open debt past `max_open_debt`.
+    CapExceeded = 18,
 }

@@ -16,6 +16,8 @@ use crate::{
 pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
 /// Demo tBENJI staleness limit: 3 demo days at 60 s per day.
 pub(crate) const DEMO_NAV_AGE: u64 = 180;
+/// No exposure cap in play (#31); the cap tests set their own.
+pub(crate) const NO_CAP: i128 = i128::MAX;
 
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
@@ -76,6 +78,7 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_open_debt: NO_CAP,
     };
 
     client.set_asset(&token, &config);
@@ -84,6 +87,7 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_open_debt: NO_CAP,
     };
     assert_eq!(
         env.events().all().filter_by_contract(&client.address),
@@ -110,6 +114,7 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
             haircut_bps,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         };
         assert_eq!(
             client.try_set_asset(&token, &config),
@@ -131,6 +136,7 @@ fn set_asset_rejects_zero_max_nav_age() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: 0,
+        max_open_debt: NO_CAP,
     };
     assert_eq!(
         client.try_set_asset(&token, &config),
@@ -152,6 +158,7 @@ fn set_asset_requires_admin_auth() {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
 }
@@ -217,6 +224,7 @@ fn world<'a>() -> World<'a> {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
 
@@ -368,6 +376,7 @@ fn create_offer_rejects_missing_or_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
     assert_eq!(
@@ -649,6 +658,7 @@ fn take_offer_rejects_asset_disabled_after_offer() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
     assert_eq!(
@@ -703,6 +713,7 @@ fn retiering_asset_does_not_touch_live_repo() {
             haircut_bps: 800,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
     assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
@@ -1344,6 +1355,7 @@ fn liquidate_works_on_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
     w.set_nav(ONE, MATURED);
@@ -1729,6 +1741,7 @@ impl World<'_> {
                 haircut_bps: 300,
                 enabled: true,
                 max_nav_age_secs,
+                max_open_debt: NO_CAP,
             },
         );
         StellarAssetClient::new(&self.env, &token).mint(&self.borrower, &(3_000 * UNIT));
@@ -2044,4 +2057,197 @@ fn auto_repay_settles_under_no_seize() {
     w.env.set_auths(&[]);
     assert_eq!(w.repo.default(&repo_id), Status::Repaid);
     w.assert_repaid(repo_id);
+}
+
+// --- exposure cap (#31) -------------------------------------------------------
+
+impl World<'_> {
+    /// Re-sets tBENJI at the world's terms with exposure cap `cap`.
+    fn set_cap(&self, cap: i128) {
+        self.repo.set_asset(
+            &self.tbenji,
+            &AssetConfig {
+                oracle_asset: Asset::Stellar(self.tbenji.clone()),
+                haircut_bps: 300,
+                enabled: true,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_open_debt: cap,
+            },
+        );
+    }
+
+    fn open_debt(&self) -> i128 {
+        self.repo.open_debt(&self.tbenji)
+    }
+}
+
+#[test]
+fn cap_exactly_at_limit_passes_one_unit_over_fails() {
+    let w = world();
+    let offer_id = w.offer();
+
+    // One stroop short: nothing moves and the offer stays on the board.
+    w.set_cap(DEBT - 1);
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
+        Err(Ok(Error::CapExceeded))
+    );
+    assert_eq!(w.repo.offer(&offer_id).id, offer_id);
+    assert_eq!(w.open_debt(), 0);
+    assert_eq!(w.usdc.balance(&w.borrower), 100 * UNIT);
+    assert_eq!(w.tbenji_token.balance(&w.borrower), 2_000 * UNIT);
+
+    // Exactly at the cap.
+    w.set_cap(DEBT);
+    let repo_id = w.repo.take_offer(&w.borrower, &offer_id, &false);
+    assert_eq!(w.open_debt(), DEBT);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
+
+    // The cap is full: the next take is one whole debt over.
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&w.borrower, &(2_000 * UNIT));
+    let next = w.offer();
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &next, &false),
+        Err(Ok(Error::CapExceeded))
+    );
+    w.set_cap(2 * DEBT);
+    w.repo.take_offer(&w.borrower, &next, &false);
+    assert_eq!(w.open_debt(), 2 * DEBT);
+}
+
+#[test]
+fn zero_cap_allows_no_new_repos() {
+    let w = world();
+    w.set_cap(0);
+    let offer_id = w.offer(); // lenders can still post
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer_id, &true),
+        Err(Ok(Error::CapExceeded))
+    );
+    assert_eq!(w.open_debt(), 0);
+    assert_eq!(w.allowance(), 0);
+}
+
+#[test]
+fn set_asset_rejects_negative_cap() {
+    let w = world();
+    let config = AssetConfig {
+        oracle_asset: Asset::Stellar(w.tbenji.clone()),
+        haircut_bps: 300,
+        enabled: true,
+        max_nav_age_secs: DEMO_NAV_AGE,
+        max_open_debt: -1,
+    };
+    assert_eq!(
+        w.repo.try_set_asset(&w.tbenji, &config),
+        Err(Ok(Error::InvalidConfig))
+    );
+    assert_eq!(w.repo.asset(&w.tbenji).max_open_debt, NO_CAP);
+}
+
+#[test]
+fn open_debt_is_per_asset_and_survives_set_asset() {
+    let w = world();
+    let fund = w.add_asset(DEMO_NAV_AGE, NOW);
+    w.set_cap(DEBT);
+    w.take();
+    // Re-tiering tBENJI does not reset its counter.
+    w.set_cap(DEBT);
+    assert_eq!(w.open_debt(), DEBT);
+    // tBENJI is full; the other fund has its own cap and counter.
+    let benji_offer = w.offer();
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &benji_offer, &false),
+        Err(Ok(Error::CapExceeded))
+    );
+    w.repo.take_offer(&w.borrower, &w.offer_on(&fund), &false);
+    assert_eq!(w.repo.open_debt(&fund), DEBT);
+    assert_eq!(w.open_debt(), DEBT);
+    assert_eq!(w.repo.open_debt(&Address::generate(&w.env)), 0);
+}
+
+#[test]
+fn open_debt_is_released_on_every_exit_path() {
+    let w = world();
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&w.borrower, &(4_000 * UNIT));
+    let repaid = w.take();
+    let auto_repaid = w.take_auto();
+    let settled_at_default = w.take_auto();
+    let liquidated = w.take();
+    let shortfall = w.take();
+    assert_eq!(w.open_debt(), 5 * DEBT);
+
+    w.repo.repay(&repaid);
+    assert_eq!(w.open_debt(), 4 * DEBT);
+
+    w.set_time(NOW + TERM_SECS);
+    w.repo.auto_repay(&auto_repaid);
+    assert_eq!(w.open_debt(), 3 * DEBT);
+
+    // `default` settles an opted-in borrower by auto-repay.
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&settled_at_default), Status::Repaid);
+    assert_eq!(w.open_debt(), 2 * DEBT);
+
+    // A defaulted repo is still exposure until it is liquidated.
+    w.repo.default(&liquidated);
+    w.repo.default(&shortfall);
+    assert_eq!(w.open_debt(), 2 * DEBT);
+
+    w.set_nav(ONE, MATURED);
+    w.repo.liquidate(&w.liquidator, &liquidated);
+    assert_eq!(w.open_debt(), DEBT);
+
+    // Shortfall settlement frees the whole debt, not just the proceeds.
+    w.set_nav(98 * ONE / 100, MATURED);
+    w.repo.liquidate(&w.liquidator, &shortfall);
+    let events = w.env.events().all().filter_by_contract(&w.repo.address);
+    assert!(events.events().iter().any(|e| *e
+        == events::Shortfall {
+            repo_id: shortfall,
+            amount: LENDER_DUE - 9_613_209_316,
+        }
+        .to_xdr(&w.env, &w.repo.address)));
+    assert_eq!(w.open_debt(), 0);
+}
+
+#[test]
+fn lowering_cap_below_open_debt_leaves_live_repos_alone() {
+    let w = world();
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&w.borrower, &(4_000 * UNIT));
+    let topped = w.take();
+    let repaid = w.take();
+    let defaulted = w.take();
+    let before = w.repo.repo(&topped);
+    let offer_id = w.offer();
+
+    // Cap cut to zero with 3 × DEBT open: no new repos ...
+    w.set_cap(0);
+    assert_eq!(w.open_debt(), 3 * DEBT);
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
+        Err(Ok(Error::CapExceeded))
+    );
+
+    // ... but every live repo keeps its terms and every exit works.
+    assert_eq!(w.repo.check_margin(&topped), Status::Open);
+    w.repo.top_up(&topped, &UNIT);
+    w.repo.set_auto_repay(&topped, &true);
+    let mut expected = before.clone();
+    expected.collateral_amount += UNIT;
+    expected.auto_repay = true;
+    assert_eq!(w.repo.repo(&topped), expected);
+    w.repo.repay(&repaid);
+    w.set_time(NOW + TERM_SECS);
+    w.repo.auto_repay(&topped);
+    w.set_time(MATURED);
+    w.repo.default(&defaulted);
+    w.set_nav(ONE, MATURED);
+    w.repo.liquidate(&w.liquidator, &defaulted);
+    assert_eq!(w.open_debt(), 0);
+
+    // Headroom is back once the cap is raised again.
+    w.set_cap(DEBT);
+    w.repo.take_offer(&w.borrower, &offer_id, &false);
+    assert_eq!(w.open_debt(), DEBT);
 }

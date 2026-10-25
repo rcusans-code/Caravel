@@ -198,6 +198,7 @@ mod test {
     };
     use crate::{
         errors::Error,
+        test::NO_CAP,
         types::{Asset, AssetConfig, Config},
         CaravelRepo,
     };
@@ -234,6 +235,7 @@ mod test {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: MAX_AGE,
+            max_open_debt: NO_CAP,
         };
         Setup {
             env,

@@ -124,6 +124,7 @@ pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, E
 
     repo.status = Status::Repaid;
     storage::write_repo(env, repo);
+    storage::release_open_debt(env, &repo.collateral_asset, debt);
     storage::extend_instance(env);
 
     usdc.transfer(&this, &repo.lender, &split.lender);

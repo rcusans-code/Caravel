@@ -130,10 +130,10 @@ stateDiagram-v2
 | `check_margin(repo_id) → Status` | anyone | Open → MarginCall on breach; deadline set once | **yes** | none |
 | `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull | no | none, or as `auto_repay` |
 | `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → lender, treasury, borrower; collateral → liquidator |
-| `set_asset(asset, config)` | admin | — | — | — |
+| `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness and exposure cap; DECISIONS #31) |
 | `set_liquidator(who, allowed)` | admin | — | — | — |
 | `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
+| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
 
 <!-- REVIEW (Misha): check_margin and top_up rows follow DECISIONS #14, #17 and #20; confirm they match margin.rs once it merges. -->
 
@@ -143,7 +143,7 @@ Every state-changing call checks status first and fails with a named error other
 
 | Event | Topics | Data |
 |---|---|---|
-| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs |
+| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs, max_open_debt |
 | `PauseSet` | asset | no_new_repos, no_seize |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
@@ -168,6 +168,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
+- **Exposure is capped per asset.** `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 
 `cargo test --workspace` runs 167 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
@@ -184,6 +185,7 @@ All durations are configuration, so the demo compresses time without touching co
 | `liquidation_discount_bps` | global | 200 | must stay below every haircut; the contract enforces it |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
+| `max_open_debt` | per asset | 100,000 USDC (tBENJI), 50,000 USDC (tSAFO) | BENJI/USTBL/USDY $2M, EUTBL $1M, CETES $0.5M, SAFO 0 ([DECISIONS #31](DECISIONS.md)) |
 | `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
 | `fee_bps` | global | 1,000 (10% of interest) | illustrative |
 

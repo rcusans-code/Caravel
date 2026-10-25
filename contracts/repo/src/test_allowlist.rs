@@ -20,7 +20,7 @@ use soroban_sdk::{
 
 use crate::{
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
-    test::{demo_config, APR_BPS, DEMO_NAV_AGE, NOW, PRINCIPAL, TERM_SECS, UNIT},
+    test::{demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, UNIT},
     Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Status,
 };
 
@@ -204,6 +204,7 @@ fn fund_world<'a>() -> Fund<'a> {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_open_debt: NO_CAP,
         },
     );
 

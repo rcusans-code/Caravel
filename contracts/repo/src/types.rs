@@ -55,6 +55,12 @@ pub struct AssetConfig {
     /// a fund that prints NAV only on business days needs ~96 h to cover a
     /// weekend, a daily-priced token less. Must be > 0.
     pub max_nav_age_secs: u64,
+    /// Exposure cap (DECISIONS.md #31): total debt (principal + interest, USDC
+    /// 7 decimals) of live repos on this asset. `take_offer` fails with
+    /// `CapExceeded` past it; 0 means no new repos. Exits (repay, auto-repay,
+    /// top-up, liquidate) are never blocked, and lowering the cap below the
+    /// open debt leaves live repos untouched. Must be ≥ 0.
+    pub max_open_debt: i128,
 }
 
 /// Per-asset emergency switches (DECISIONS.md #30), stored apart from
