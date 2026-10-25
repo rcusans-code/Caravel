@@ -900,6 +900,9 @@ fn default_after_missed_margin_call() {
     w.set_time(deadline);
     assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
     w.set_time(deadline + 1);
+    // A missed call defaults only on a fresh NAV that confirms the breach.
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::StaleNav)));
+    w.set_nav(BREACH_NAV, deadline + 1);
     w.repo.default(&repo_id);
     assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
 }
@@ -1608,36 +1611,54 @@ fn missed_call_still_breached_defaults() {
 }
 
 #[test]
-fn missed_call_with_stale_recovery_defaults() {
-    // A recovered price older than max_nav_age cannot clear the call.
+fn missed_call_with_stale_nav_waits() {
+    // A missed call defaults only on a fresh NAV that confirms the breach: a
+    // price older than max_nav_age makes `default` wait, the repo untouched.
     let w = world();
     let repo_id = w.breached();
     w.set_nav(ONE, NOW + 1);
     let at = NOW + 1 + DEMO_NAV_AGE + 1;
     w.set_time(at);
+    let before = w.repo.repo(&repo_id);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::StaleNav)));
+    assert_eq!(w.repo.repo(&repo_id), before);
+    // A fresh price still past the trigger then defaults.
+    w.set_nav(BREACH_NAV, at);
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
 }
 
 #[test]
-fn missed_call_with_out_of_band_recovery_defaults() {
-    // A recovery the sanity band rejects (#31) cannot clear the call.
+fn missed_call_with_out_of_band_nav_waits() {
+    // A price the sanity band rejects (#31) neither clears nor defaults.
     let w = world();
     let repo_id = w.breached();
     let at = NOW + MARGIN_WINDOW + 1;
     w.set_time(at);
     w.set_nav(ONE, at); // +1.52% on the 0.985 record
     w.set_band(100, None, None);
-    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NavOutOfBand)));
+    assert_eq!(w.repo.repo(&repo_id).status, Status::MarginCall);
 }
 
 #[test]
-fn missed_call_without_price_defaults() {
+fn missed_call_without_price_waits() {
     let w = world();
     let repo_id = w.breached();
     let at = NOW + MARGIN_WINDOW + 1;
     w.set_time(at);
     w.set_nav(0, at);
-    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert!(w.repo.try_default(&repo_id).is_err());
+    assert_eq!(w.repo.repo(&repo_id).status, Status::MarginCall);
+}
+
+#[test]
+fn matured_repo_defaults_on_stale_nav() {
+    // Maturity + grace needs no NAV (#17), even with a missed call pending.
+    let w = world();
+    let called = w.take();
+    w.margin_call(called, NOW + 200);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&called), Status::Defaulted);
 }
 
 #[test]

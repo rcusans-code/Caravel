@@ -115,7 +115,7 @@ stateDiagram-v2
 2. `check_margin` (anyone): Open → **MarginCall** when `debt > collateral × NAV × (1 − 2%)`. Starts the margin window. Blocked on stale or out-of-band NAV.
 3. `top_up` (borrower): MarginCall → **Open**, only once collateral is back at the initial haircut. Works with stale or out-of-band NAV, but an out-of-band NAV never clears the call.
 4. `repay` (borrower): Open or MarginCall → **Repaid** (final). Works with stale NAV, and after maturity until someone calls `default`.
-5. `default` (anyone): Open past maturity + grace, or MarginCall past the window → **Defaulted**. A missed margin call first re-checks the breach at a fresh in-band NAV: if the loan is back above the trigger, the call clears and the repo is **Open** again (#20); a stale or out-of-band NAV cannot clear it. Then `liquidate` (whitelisted, fresh in-band NAV): Defaulted → **Liquidated** (final).
+5. `default` (anyone): Open past maturity + grace, or MarginCall past the window → **Defaulted**. A missed margin call first re-checks the breach at a fresh in-band NAV: if the loan is back above the trigger, the call clears and the repo is **Open** again (#20); a stale or out-of-band NAV cannot clear it, and cannot default it either: `default` returns `StaleNav` / `NavOutOfBand` and waits for a fresh in-band NAV that confirms the breach. A maturity default needs no NAV. Then `liquidate` (whitelisted, fresh in-band NAV): Defaulted → **Liquidated** (final).
 
 ### Methods
 
@@ -129,7 +129,7 @@ stateDiagram-v2
 | `auto_repay(repo_id)` | anyone, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, pulled from the allowance; fails with `AutoRepayFailed` and moves nothing if the borrower is short |
 | `top_up(repo_id, amount)` | borrower | MarginCall → Open at the haircut line | no | borrower collateral → contract |
 | `check_margin(repo_id) → Status` | anyone | Open → MarginCall on breach; deadline set once | **yes** | none |
-| `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull; a missed MarginCall → Open when a fresh NAV shows it recovered (#20) | no (read only to clear a missed call) | none, or as `auto_repay` |
+| `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull; a missed MarginCall → Open when a fresh NAV shows it recovered (#20) | maturity: no; missed MarginCall: yes (clears or confirms the breach, else `StaleNav` / `NavOutOfBand`) | none, or as `auto_repay` |
 | `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → lender, treasury, borrower; collateral → liquidator |
 | `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness, NAV band and exposure cap; DECISIONS #13, #31, #32). Instant for a first listing or a change that only tightens; a loosening fails with `Loosens` (DECISIONS #33) |
 | `set_liquidator(who, allowed)` | admin | — | — | — |

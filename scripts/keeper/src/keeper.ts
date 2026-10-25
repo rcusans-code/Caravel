@@ -273,6 +273,8 @@ async function tick(cfg: Cfg) {
       } catch (e) {
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
         if (e instanceof ContractError && e.code === Err.NotDefaultable) note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
+        // A missed margin call defaults only on a fresh, in-band NAV that confirms the breach (A4).
+        else if (e instanceof ContractError && (e.code === Err.StaleNav || e.code === Err.NoPrice)) note(next, r.id, "pending", `default      repo ${r.id} missed margin call waits for a fresh NAV (${e.code === Err.StaleNav ? "StaleNav" : "NoPrice"}), retrying`);
         else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-default", `skip         repo ${r.id} default: asset paused (no_seize), skipping until cleared`);
         else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
