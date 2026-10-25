@@ -393,19 +393,14 @@ export async function declareDefault(signer: Signer, repoId: bigint): Promise<Tx
 }
 
 /**
- * Anyone can call it once a repo is past maturity + grace (#31): the keeper's
- * job, sent from the app when the keeper is late. `auto_repay` when the
- * borrower opted in (pulls the USDC, repo -> Repaid), else `default`.
+ * The lender's "Declare default" once a repo is past maturity + grace (#31):
+ * sends `default` only. The contract's `default` tries auto-repay first for an
+ * opted-in borrower (repo -> Repaid), else marks it Defaulted for liquidation.
  * A repo that is no longer live throws "already settled" (keeper raced us).
  */
-export async function settle(signer: Signer, repo: Repo): Promise<TxOutcome<Status>> {
+export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promise<TxOutcome<Status>> {
   try {
     const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
-    if (repo.auto_repay) {
-      const out = await submit(await c.auto_repay({ repo_id: repo.id }));
-      unwrapResult(out.value);
-      return { hash: out.hash, value: "Repaid" };
-    }
     // `default_` at runtime: see declareDefault.
     const callDefault = (c as unknown as { default_: RepoClient["default"] }).default_.bind(c);
     const out = await submit(await callDefault({ repo_id: repo.id }));

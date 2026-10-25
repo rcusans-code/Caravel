@@ -1257,8 +1257,8 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const canRepay = live && side === "borrowed";
   // Past maturity + grace (strict, as in the contract) the repo waits for a keeper tx (#31).
   const pastGrace = live && now > Number(repo.maturity_ts + config.grace_secs);
-  // A borrower without auto-repay would default their own loan: Repay is their way out.
-  const canSettle = pastGrace && !!signer && (side === "lent" || repo.auto_repay);
+  // Only the lender declares default; the contract's `default` auto-repays an opted-in borrower first.
+  const canDeclareDefault = pastGrace && !!signer && side === "lent";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
   const canTopUp = canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
@@ -1285,16 +1285,16 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
     await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () => chain.setAutoRepay(signer, repo.id, enabled));
   };
 
-  const doSettle = async () => {
+  const doDeclareDefault = async () => {
     if (!signer) return;
-    const out = await ctx.run(`settle-${repo.id}`, `Repo #${repo.id} not settled`, () => chain.settle(signer, repo));
+    const out = await ctx.run(`declare-${repo.id}`, `Repo #${repo.id} not defaulted`, () => chain.declareDefaultPastGrace(signer, repo));
     if (out)
       ctx.setFlash({
         tone: "info",
-        title: `Settled Repo #${String(repo.id).padStart(3, "0")}`,
+        title: out.value === "Repaid" ? `Repo #${String(repo.id).padStart(3, "0")} repaid` : `Repo #${String(repo.id).padStart(3, "0")} defaulted`,
         body:
           out.value === "Repaid"
-            ? `Auto-repay pulled ${fmtAmount(debt)} USDC from the borrower; the ${token.code} went back to them.`
+            ? `The borrower had auto-repay on: it pulled ${fmtAmount(debt)} USDC from them and your loan is repaid.`
             : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
       });
   };
@@ -1400,24 +1400,24 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             {busy === `repay-${repo.id}` ? "Repaying" : "Repay"}
           </button>
         )}
-        {canSettle && (
+        {canDeclareDefault && (
           <button
             type="button"
             className="cv-btn cv-btn--secondary cv-btn--sm"
             disabled={!!busy}
-            title={repo.auto_repay ? "Sends auto_repay: pulls the debt from the borrower's USDC allowance" : "Sends default: marks the repo defaulted for liquidation"}
-            onClick={doSettle}
-            data-action="settle"
+            title="Sends default: if the borrower opted in to auto-repay it pulls the debt first, else the repo is marked defaulted for liquidation"
+            onClick={doDeclareDefault}
+            data-action="declare-default"
           >
-            {busy === `settle-${repo.id}` ? "Settling" : "Settle now"}
+            {busy === `declare-${repo.id}` ? "Declaring" : "Declare default"}
           </button>
         )}
       </div>
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {ctx.tx?.key === `settle-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {pastGrace && (
-        <p className="cv-field__hint" data-hint="settle">
-          Grace is over. Settlement waits for a keeper transaction; {canSettle ? "Settle now sends it from your wallet." : "repay now to keep your collateral."}
+      {ctx.tx?.key === `declare-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {pastGrace && side === "borrowed" && (
+        <p className="cv-field__hint" data-hint="grace-over">
+          Grace is over. Repay now to keep your collateral.
         </p>
       )}
       {canTopUp && (
