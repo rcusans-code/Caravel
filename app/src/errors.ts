@@ -1,4 +1,5 @@
 import { TBENJI_SAC, TSAFO, USDC_SAC, ORACLE_ID } from "./config";
+import { staleNavText } from "./gates";
 
 // contracts/repo/src/errors.rs
 const REPO_ERRORS: Record<number, string> = {
@@ -10,7 +11,7 @@ const REPO_ERRORS: Record<number, string> = {
   6: "Repo not found.",
   7: "This repo is no longer open, so it cannot change state that way.",
   8: "This collateral asset is not enabled right now.",
-  9: "NAV is older than 3 minutes. Wait for the next update (or push one from Admin), then try again.",
+  9: staleNavText([]), // explain() rebuilds it from max_nav_age_secs
   10: "The collateral does not cover the debt at the current NAV.",
   11: "Only whitelisted liquidators can liquidate.",
   12: "This repo cannot be defaulted yet: it is before maturity plus grace.",
@@ -46,8 +47,12 @@ const TOKEN_ERRORS: Record<number, string> = {
 
 const assetName = (id: string) => (id === USDC_SAC ? "USDC" : id === TBENJI_SAC ? "tBENJI" : null);
 
-/** Turns SDK, RPC, wallet and contract failures into one desk-note sentence. */
-export function explain(err: unknown): string {
+/**
+ * Turns SDK, RPC, wallet and contract failures into one desk-note sentence.
+ * `navAges` (code + max_nav_age_secs per collateral asset) words error 9.
+ */
+export function explain(err: unknown, navAges: { code: string; secs: number | bigint }[] = []): string {
+  const repoErr = (code: number) => (code === 9 ? staleNavText(navAges) : REPO_ERRORS[code]);
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
   const msg = raw ?? "";
 
@@ -75,10 +80,10 @@ export function explain(err: unknown): string {
       return `${token}: ${TOKEN_ERRORS[code] ?? `token error #${code}.`}`;
     }
     if (id === ORACLE_ID) return `Oracle error #${code}.`;
-    if (REPO_ERRORS[code]) return REPO_ERRORS[code];
+    if (REPO_ERRORS[code]) return repoErr(code);
   }
   const m = msg.match(/Error\(Contract, #(\d+)\)/);
-  if (m && REPO_ERRORS[Number(m[1])]) return REPO_ERRORS[Number(m[1])];
+  if (m && REPO_ERRORS[Number(m[1])]) return repoErr(Number(m[1]));
   if (m && SPIKO_ERRORS[Number(m[1])]) return SPIKO_ERRORS[Number(m[1])];
   if (/trustline entry is missing|TrustlineMissing/i.test(msg))
     return "The account has no trustline for this asset. Add the trustline, then try again.";
