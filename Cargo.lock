@@ -268,6 +268,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "caravel-oracle"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "caravel-repo"
 version = "0.1.0"
 dependencies = [
