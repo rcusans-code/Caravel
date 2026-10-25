@@ -103,6 +103,21 @@ Each tick the keeper:
 4. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` is logged once and skipped (#17).
 5. `MarginCall` repos wait for a top-up, repay or the deadline.
 
+NAV jump hold (flash-crash fixes #2 and #3, `src/navguard.ts`). The oracle accepts any price in one push, and `nav-keeper.sh` re-posts it every 60 s, so a fat-fingered NAV would turn into a margin call, a default and a liquidation within ~2 minutes. Each tick the keeper reads `prices(asset, 20)` (~19 min of history) per collateral asset and measures the current price against an anchor: the most recent earlier price that stood longer than the hold time (re-posts of one price count as one). While the price is held, the keeper does not send, for repos of that asset:
+
+- `check_margin` on `Open` repos (the simulation still runs),
+- `default` on a missed margin call, so a borrower called on a bad price can still top up after the correction,
+- `liquidate` on `Defaulted` repos.
+
+A maturity `default` still runs (it needs no NAV); its `liquidate` is held. Rules:
+
+- Jump > `NAV_JUMP_BPS` (200): held until the new price has stood `NAV_JUMP_HOLD_SECS` (default margin window + 60 s, 180 s on the demo). A correction inside that time (1.00 → 0.50 → 1.00) is measured against 1.00 and not held; small steps (1.00 → 0.985 → 0.97) add up against 1.00.
+- Jump > `NAV_JUMP_ACK_BPS` (1000): held until a human acks that exact price: add the oracle integer from the log line to `NAV_JUMP_ACK` in `.env` (comma-separated, e.g. `NAV_JUMP_ACK=97000000000000`). It is re-read every tick, no restart needed, and an acked price is not held at all. An ack never releases a different price. The hold stays on after the old price leaves the 20-record history (an in-memory latch; a keeper restart forgets it).
+- If a >10% price stood longer than the hold before it was corrected, it becomes the anchor, so the correction needs an ack as well; the log line names the price to ack.
+- A price timestamped more than 30 s in the future, a failed `prices` read, or a repo whose collateral is not a keeper asset: held, retried every tick.
+
+Log lines, once per state change: `hold         repo 3 liquidate: NAV -50.00% vs 1.00 (stood 45s/180s), set NAV_JUMP_ACK=50000000000000 in .env to release`. The start line ends with `nav-jump hold 200bps/180s, ack >1000bps`. The cost: a real NAV move over 2% margin-calls up to 180 s later, and over 10% waits for a human, while the lender's exposure grows. Treasury NAVs move a few bps a day; the demo's `set-nav 0.97` margin call (-3%) fires ~180 s after the push. Third parties calling the permissionless `check_margin` / `default` (e.g. the app's Check margin button) are not held.
+
 Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQUIDATOR_SECRET`); `liquidate` with `LIQUIDATOR_SECRET` (must be whitelisted with `set_liquidator`; the start line says so if it is not, and the liquidator receives the tBENJI); `--refresh-nav` and `set-nav` sign with `ADMIN_SECRET` (oracle admin). Flags: `--interval <s>` (10), `--refresh-secs <s>` (120). Logs one line per action, plus a line when a repo's state changes:
 
 ```
@@ -115,7 +130,7 @@ Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQU
 16:25:32 LIQUIDATE    repo 2 Defaulted debt 50.05 coll 51.60 proceeds 50.57 USDC -> lender GB44DX…  https://stellar.expert/explorer/testnet/tx/db1924…
 ```
 
-Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it on the next tick and `default` follows ~120 s later (margin window), then `liquidate`.
+Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it once the -3% price has stood 180 s (NAV jump hold, above) and `default` follows ~120 s later (margin window), then `liquidate`. For a faster demo set `NAV_JUMP_HOLD_SECS=0` in `.env` and restart the keeper.
 
 On sim-server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
 
