@@ -204,7 +204,18 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-wrap app-header__inner">
-          <a href="/" className="app-brand" aria-label="Caravel home">
+          <a
+            href="/"
+            className="app-brand"
+            aria-label="Caravel home: offers board"
+            onClick={(e) => {
+              // Plain click stays in the app: back to the Offers tab, no reload. Cmd/Ctrl-click still opens a new tab.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              setTab("offers");
+              window.scrollTo({ top: 0 });
+            }}
+          >
             <img src={lockup} alt="Caravel" height={44} />
           </a>
           <span className="caption app-net">Stellar testnet</span>
