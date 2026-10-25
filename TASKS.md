@@ -3,7 +3,7 @@
 Hard deadline **Mon 26 Oct 12:00** (no late submissions). Submit target **11:30**.
 Tick boxes right in GitHub (edit file → change `[ ]` to `[x]`), or mark in-progress with `🔄` and blocked with `⛔ reason`.
 
-Owners: **C** = Contracts (Soroban dev) · **I** = Integration (assets, oracle, keeper, deploy) · **F** = Frontend · **P** = Pitch & polish (Bohdan) · **T** = whole team
+Owners: **C** = Contracts, core flows (Den) · **I** = Integration, oracle + margin call, keeper, deploy (Misha) · **F** = Design + frontend (Bohdan Che) · **P** = Pitch, docs + QA (Bohdan Koldun) · **T** = whole team
 
 Per-dev task lists and handoff times: [DEVS.md](DEVS.md). Read [DECISIONS.md](DECISIONS.md) before writing code. Tasks marked ⚠️ implement one of those fixes.
 
@@ -35,7 +35,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 ## G2 · Full contract — 16:00–19:30
 Exit: margin, default, liquidate tested; one-command deploy.
 
-- [ ] **C** `check_margin` / `top_up` — stale NAV blocks `check_margin` (#17); breach (#14) sets `margin_call_deadline` once; top-up clears at initial margin (#20). *Done when: breach, clear, no-double-call tests*
+- [ ] **I** `check_margin` / `top_up` in `margin.rs` — stale NAV blocks `check_margin` (#17); breach (#14) sets `margin_call_deadline` once; top-up clears at initial margin (#20). *Done when: breach, clear, no-double-call tests*
 - [ ] **C** ⚠️ `default` / `liquidate` — whitelist, pays NAV × (1 − 2%), waterfall, collateral to liquidator, `Shortfall` event when short. *Done when: made-whole, surplus, shortfall tests*
 - [ ] **I** One-command deploy: build, deploy oracle + repo, init demo config, authorize contract + liquidator on tBENJI, mint demo balances, write IDs to `.env`. *Done when: clean deploy < 5 min*
 - [ ] **I** Keeper script (TS): `check_margin` on open repos every 10 s + NAV setter CLI. *Done when: margin call fires unattended*
@@ -90,3 +90,4 @@ Exit: margin call, default, liquidation in the UI.
 - **Sun 13:05** — AUTH_REQUIRED spike: **GO** (contract authorized via SAC `set_authorized`, transfer in/out and freeze verified, see `spikes/auth/README.md`). 5 testnet accounts funded: lender 500 USDC, liquidator 500 USDC, borrower 100 USDC + 1000 tBENJI. Real Circle USDC bought on the testnet DEX (no faucet). Testnet burner keys committed in `.env`.
 - **Sun 13:08** — C: `contracts/repo` skeleton (soroban-sdk 29, testnet is protocol 29) + `math.rs`, 25 tests green incl. surplus / made-whole / shortfall. Flows are `NotImplemented` stubs. Build: `stellar contract build` (stellar-cli ≥ 25.2), test: `cargo test`.
 - **Sun 14:05** — Main checked: G0 contract work done, 33 tests green, design system + logo in `design/`. Flows still stubs; no oracle, scripts or frontend yet; no other branches. Parallel work assigned in [DEVS.md](DEVS.md) ("Right now"): Denys oracle client + create/take/repay, Misha mock oracle + deploy v0 on the skeleton, Bohdan P. app scaffold on mock data. Open: G0 frontend scaffold (late), team lock-in.
+- **Sun 14:15** — Lanes reassigned (DEVS.md): Den = core contract flows; Misha = integration + oracle client (`oracle.rs`, due 14:45) + margin call (`margin.rs`: `check_margin`, `top_up`); Bohdan Che = design + frontend; Bohdan Koldun = pitch, docs, QA.

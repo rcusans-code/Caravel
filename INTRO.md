@@ -65,7 +65,9 @@ To make this fit in a video, **1 day = 60 seconds** in the demo. That's just set
 - Stuck for more than 30 minutes? Say it in the team chat. Mentors from Stellar are on site.
 
 ## Who does what
-- **Contracts (Rust/Soroban):** the loan contract and its tests.
-- **Integration:** test tokens, price oracle, deploy and demo scripts.
-- **Frontend:** web app for lender, borrower, liquidator, plus a demo price slider.
-- **Bohdan:** story, README, deck, video, submission, mentor feedback, UI review.
+- **Den · Contracts (Rust/Soroban):** the loan contract flows and their tests.
+- **Misha · Integration:** test tokens, price oracle, margin-call logic, keeper, deploy and demo scripts.
+- **Bohdan Che · Design + frontend:** design system and the web app for lender, borrower, liquidator, plus a demo price slider.
+- **Bohdan Koldun · Pitch, docs + QA:** story, README, deck, video, submission, mentor feedback, UI testing.
+
+Task lists and handoff times per person: [DEVS.md](DEVS.md).
