@@ -2,13 +2,13 @@
   "network": "testnet",
   "rpcUrl": "https://soroban-testnet.stellar.org",
   "horizonUrl": "https://horizon-testnet.stellar.org",
-  "deployedAt": "2026-10-25T17:59:39Z",
+  "deployedAt": "2026-10-25T20:03:23Z",
   "contracts": {
-    "repo": "CCFP3L7TZ6BLCN7FYHFVYF3JXJDZ47QKSIAKMXV6AYVBDFWJNZJ3DP53",
-    "oracle": "CAQK3QD4N6YQFH4GEMIH7F6TKBIFI6WKIOFHY6IEFT4NMFAC2L3ZBWWU",
+    "repo": "CBJGKHDVAJE3PZMV6XPPSMMGWICPW2VMNFZYKEEUHWWUOXX2WCIWYPYF",
+    "oracle": "CBSJ4GKNXMHRVCHTAY5TB32ESRK7LO7NXK3V66HJVLGAFTNRA5AR6257",
     "usdc": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
     "tbenji": "CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX",
-    "tsafo": "CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y"
+    "tsafo": "CBC7FQJVPBXCBA6OMZ7FATPVVLMI5UG2JMPC276A6NF6EB3YPYUD3C2P"
   },
   "assets": {
     "usdc": "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -25,7 +25,7 @@
   "config": {
     "admin": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
     "usdc": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
-    "oracle": "CAQK3QD4N6YQFH4GEMIH7F6TKBIFI6WKIOFHY6IEFT4NMFAC2L3ZBWWU",
+    "oracle": "CBSJ4GKNXMHRVCHTAY5TB32ESRK7LO7NXK3V66HJVLGAFTNRA5AR6257",
     "treasury": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
     "fee_bps": 1000,
     "liquidation_discount_bps": 200,
@@ -39,15 +39,23 @@
     },
     "haircut_bps": 300,
     "enabled": true,
-    "max_nav_age_secs": 180
+    "max_nav_age_secs": 180,
+    "max_nav_move_bps": 2500,
+    "nav_floor": null,
+    "nav_ceiling": null,
+    "max_open_debt": "1000000000000"
   },
   "tsafoAsset": {
     "oracle_asset": {
-      "Stellar": "CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y"
+      "Stellar": "CBC7FQJVPBXCBA6OMZ7FATPVVLMI5UG2JMPC276A6NF6EB3YPYUD3C2P"
     },
     "haircut_bps": 3000,
     "enabled": true,
-    "max_nav_age_secs": 180
+    "max_nav_age_secs": 180,
+    "max_nav_move_bps": 2500,
+    "nav_floor": null,
+    "nav_ceiling": null,
+    "max_open_debt": "500000000000"
   },
   "tsafo": {
     "symbol": "tSAFO",
