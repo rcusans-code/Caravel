@@ -5,7 +5,7 @@
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::{AssetConfig, Config, Offer, Pause, Repo};
+use crate::types::{AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
                                     // Extending the instance also extends the contract code entry. On testnet,
@@ -30,6 +30,9 @@ pub enum DataKey {
     /// Debt of live repos on this collateral asset (#32). Kept apart from
     /// `Asset` so `set_asset` never resets it.
     OpenDebt(Address),
+    /// Admin change waiting out the timelock (#33). At most one per asset.
+    PendingAsset(Address),
+    PendingPause(Address),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -89,6 +92,44 @@ pub fn write_pause(env: &Env, asset: &Address, pause: &Pause) {
     } else {
         env.storage().instance().set(&key, pause);
     }
+}
+
+// --- timelocked proposals (#33) ---------------------------------------------
+
+pub fn read_pending_asset(env: &Env, asset: &Address) -> Option<PendingAsset> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingAsset(asset.clone()))
+}
+
+pub fn write_pending_asset(env: &Env, asset: &Address, pending: &PendingAsset) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAsset(asset.clone()), pending);
+}
+
+pub fn remove_pending_asset(env: &Env, asset: &Address) {
+    env.storage()
+        .instance()
+        .remove(&DataKey::PendingAsset(asset.clone()));
+}
+
+pub fn read_pending_pause(env: &Env, asset: &Address) -> Option<PendingPause> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingPause(asset.clone()))
+}
+
+pub fn write_pending_pause(env: &Env, asset: &Address, pending: &PendingPause) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingPause(asset.clone()), pending);
+}
+
+pub fn remove_pending_pause(env: &Env, asset: &Address) {
+    env.storage()
+        .instance()
+        .remove(&DataKey::PendingPause(asset.clone()));
 }
 
 // --- exposure (#32) ---------------------------------------------------------

@@ -62,6 +62,8 @@ fn config(env: &Env, usdc: &Address, oracle: &Address) -> Config {
         day_secs: 60,
         margin_window_secs: 120,
         grace_secs: GRACE_SECS,
+        guardian: Address::generate(env),
+        timelock_secs: 120,
     }
 }
 
