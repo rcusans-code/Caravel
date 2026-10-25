@@ -88,7 +88,7 @@ TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `TSAFO_ID` (op
 cd scripts/keeper && npm install
 npm run keeper                      # poll every 10 s
 npm run keeper -- --refresh-nav     # also re-post the last NAV once it is ≥120 s old (max age 180 s)
-npm run keeper -- --once            # one tick (check_margin / default / liquidate / auto_repay as due), then exit; exit 1 if the tick failed
+npm run keeper -- --once            # one tick (check_margin / default / liquidate / auto_repay as due), then exit; exit 1 if the tick threw (RPC/read error) or any refresh-nav / auto_repay / default / check_margin / liquidate call failed; holds, StaleNav and liquidator-USDC skips, NotDefaultable and AutoRepayFailed (short) exit 0
 npm run repos                       # every repo: status, maturity, lender, debt; lender + liquidator USDC
 npm run set-nav -- 0.97             # admin: oracle set_price(Stellar(TBENJI_SAC), 0.97 × 10^decimals())
 npm run set-nav -- 1.02 tsafo       # same for Stellar(TSAFO_ID)

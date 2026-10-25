@@ -14,11 +14,11 @@
 // A NAV that just jumped holds check_margin, missed-margin default and
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 import { readFileSync } from "node:fs";
-import process from "node:process";
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
 import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
+import { onceExitCode } from "./once.js";
 import { setNav } from "./set-nav.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
@@ -188,7 +188,7 @@ async function tick(cfg: Cfg) {
         const { hash } = await setNav(last.price, a.id);
         log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
       } catch (e) {
-        log(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
+        fail(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
       }
     }
   }
@@ -237,7 +237,7 @@ async function tick(cfg: Cfg) {
         if (e instanceof ContractError && e.code === Err.AutoRepayFailed) {
           note(next, r.id, "short", `auto-repay   ${desc}: borrower USDC or allowance short of the debt, waiting for grace`);
           if (!marginMissed) continue;
-        } else log(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
+        } else fail(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
       }
     }
 
@@ -262,7 +262,7 @@ async function tick(cfg: Cfg) {
       } catch (e) {
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
         if (e instanceof ContractError && e.code === Err.NotDefaultable) note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
-        else log(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
+        else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
       await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null, guard }, next);
@@ -296,11 +296,20 @@ async function tick(cfg: Cfg) {
         // maturity default + liquidate still do.
         note(next, r.id, "no-margin", `skip         repo ${r.id} check_margin: NotImplemented on the deployed contract (redeploy from main); maturity default still runs`);
       } else {
-        log(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
+        fail(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
       }
     }
   }
   lastSeen = next;
+}
+
+/** Failed actions (tx or simulation errors) caught inside the current tick; --once exits 1 if any. */
+let failures = 0;
+
+/** Log a failed action and count it for the --once exit code. */
+function fail(line: string) {
+  failures++;
+  log(line);
 }
 
 /** Record a repo's state; log the line only when the state changed since the last tick. */
@@ -349,7 +358,10 @@ async function liquidateRepo(
     next.delete(r.id);
   } catch (e) {
     if (e instanceof ContractError && e.code === Err.StaleNav) note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: StaleNav on-chain, retrying each tick`);
-    else note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
+    else {
+      note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
+      failures++;
+    }
   }
 }
 
@@ -381,13 +393,14 @@ async function main() {
   );
   for (;;) {
     let failed = false;
+    failures = 0;
     try {
       await tick(cfg);
     } catch (e) {
       failed = true;
       log(`tick failed: ${(e as Error).message}`);
     }
-    if (ONCE) process.exit(failed ? 1 : 0);
+    if (ONCE) process.exit(onceExitCode(failed, failures));
     await new Promise((r) => setTimeout(r, INTERVAL_MS));
   }
 }
