@@ -25,8 +25,38 @@ What it does, idempotently (each step reads chain state first and only sends a t
 
 Every param can be overridden from the environment (`HAIRCUT_BPS`, `MAX_NAV_AGE_SECS`, …); see the top of the script.
 
-The mock price goes stale after `max_nav_age_secs` (180 s): until the keeper exists, refresh it with `NAV=1.00 scripts/deploy.sh` or
+The mock price goes stale after `max_nav_age_secs` (180 s): run the keeper with `--refresh-nav` (below), or refresh it with `NAV=1.00 scripts/deploy.sh` or
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## `keeper/`: keeper + NAV setter
+
+TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC` and keys from the repo-root `.env` at start, so restart it after a redeploy (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly).
+
+```sh
+cd scripts/keeper && npm install
+npm run keeper                      # poll every 10 s
+npm run keeper -- --refresh-nav     # also re-post the last NAV once it is ≥120 s old (max age 180 s)
+npm run set-nav -- 0.97             # admin: oracle set_price(Stellar(TBENJI_SAC), 0.97 × 10^decimals())
+```
+
+Each tick the keeper:
+
+1. Walks repo ids `1, 2, …` via the `repo(id)` view until `RepoNotFound`. Settled repos (`Repaid`, `Defaulted`, `Liquidated`) are remembered and not read again.
+2. `default(id)` once the margin window has passed (`MarginCall` and now > `margin_call_deadline`) or now > maturity + grace. Needs no NAV. Ledger time can lag the wall clock by a few seconds; a `NotDefaultable` simulation just means "next tick".
+3. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` is logged once and skipped (#17).
+4. `MarginCall` repos wait for a top-up, repay or the deadline.
+
+Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQUIDATOR_SECRET`); `--refresh-nav` and `set-nav` sign with `ADMIN_SECRET` (oracle admin). Flags: `--interval <s>` (10), `--refresh-secs <s>` (120). Logs one line per action, plus a line when a repo's state changes:
+
+```
+14:47:00 healthy      repo 1 Open debt 100.82 coll 103.94 ltv 97.00%
+14:47:42 MARGIN CALL  repo 1 Open debt 100.82 coll 103.94 ltv 100.00% (trigger 98.00%)  https://stellar.expert/explorer/testnet/tx/2dd57f…
+14:47:53 waiting      repo 1 MarginCall debt 100.82 coll 103.94 ltv 100.00%, default possible in 111s
+14:49:37 refresh-nav  re-posted 0.97 (was 125s old)  https://stellar.expert/explorer/testnet/tx/056e74…
+14:49:53 DEFAULT      repo 1 MarginCall … (margin window missed)  https://stellar.expert/explorer/testnet/tx/2b73b4…
+```
+
+Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it on the next tick and `default` follows ~120 s later (margin window).
 
 ## Bindings
 
