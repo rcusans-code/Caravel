@@ -24,7 +24,7 @@ Exit: AUTH_REQUIRED go/no-go, repo public, decisions locked.
 Exit: create / take / repay pass unit tests, mock oracle live.
 
 - [ ] **C** `create_offer` / `cancel_offer` — lender escrows USDC; cancel returns it. *Done when: balance test passes*
-- [ ] **C** ⚠️ `take_offer` — atomic DvP; LTV check with NAV; reject stale NAV and wrong asset. *Done when: success, LTV-reject, stale-reject tests*
+- [ ] **C** ⚠️ `take_offer` — atomic DvP; LTV check with NAV; contract computes collateral (#21); reject stale NAV and unsupported asset. *Done when: success, LTV-reject, stale-reject tests*
 - [ ] **C** ⚠️ `repay` — fee carved from interest; collateral back; works even with stale NAV. *Done when: lender gets exact offer terms*
 - [ ] **I** ⚠️ Mock SEP-40 oracle: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) + admin `set_price`, deployed. *Done when: `lastprice(tBENJI)` returns price + timestamp*
 - [ ] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
@@ -35,7 +35,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 ## G2 · Full contract — 16:00–19:30
 Exit: margin, default, liquidate tested; one-command deploy.
 
-- [ ] **C** `check_margin` / `top_up` — breach sets `margin_call_deadline` once; top-up clears when healthy. *Done when: breach, clear, no-double-call tests*
+- [ ] **C** `check_margin` / `top_up` — stale NAV blocks `check_margin` (#17); breach (#14) sets `margin_call_deadline` once; top-up clears at initial margin (#20). *Done when: breach, clear, no-double-call tests*
 - [ ] **C** ⚠️ `default` / `liquidate` — whitelist, pays NAV × (1 − 2%), waterfall, collateral to liquidator, `Shortfall` event when short. *Done when: made-whole, surplus, shortfall tests*
 - [ ] **I** One-command deploy: build, deploy oracle + repo, init demo config, authorize contract + liquidator on tBENJI, mint demo balances, write IDs to `.env`. *Done when: clean deploy < 5 min*
 - [ ] **I** Keeper script (TS): `check_margin` on open repos every 10 s + NAV setter CLI. *Done when: margin call fires unattended*

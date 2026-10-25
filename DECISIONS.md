@@ -21,6 +21,15 @@ Weak spots from the project brief, turned into day-zero decisions. Changing thes
 | 15 | **Debt = principal + full-term interest**, fixed at `take_offer`. Early repay pays the same amount; no pro-rata. | Repo convention; one number for lender, borrower and margin math. |
 | 16 | **Full takes only.** Borrower receives the whole offer principal and posts `collateral = debt / (NAV × (1 − haircut))`, rounded up. | No partial-fill state in `Offer`. |
 | 17 | **Stale NAV also blocks `check_margin`** (extends decision 6). `default` on maturity + grace needs no NAV. | No margin call on an old price. |
+| 18 | **Haircut strictly above liquidation discount.** `set_asset` rejects unless `liquidation_discount_bps < haircut_bps < 10_000` (`InvalidConfig`). | A take at max LTV then opens strictly below the margin trigger (#14). |
+| 19 | **Haircut is snapshotted on the repo at take.** `Repo.haircut_bps` is fixed; re-tiering an asset (#13) only affects new takes. `RepoOpened` carries it. | Admin changes never move a live borrower's terms. |
+| 20 | **Top-up clears a margin call only at initial margin**: once `ltv_ok(debt, collateral, nav, repo.haircut_bps)` holds. The minimum to leave breach (`required_collateral` at the liquidation discount) is shown for info only. | TradFi convention; avoids a repo flapping in and out of margin call at the trigger. |
+| 21 | **`take_offer` computes the collateral, no amount argument** (#16): `required_collateral(debt, nav, dec, haircut)`, rounded up. The borrower's auth on the SAC transfer pins the exact amount. | If NAV moves between simulate and submit, the tx fails instead of overcharging. |
+| 22 | **Asset configs live in instance storage**, keyed by token address, with a SEP-40 `Asset` (`Stellar(Address)` / `Other(Symbol)`) for the oracle. Missing or disabled asset → `AssetNotSupported` on `create_offer`; live repos unaffected. | Few assets, shared instance TTL; same asset shape as Reflector so the mock and live feeds accept it. |
+
+## Open
+
+- `take_offer` on an existing offer whose asset was disabled after `create_offer`: reject or allow? Decide in G1.
 
 ## Risk register
 

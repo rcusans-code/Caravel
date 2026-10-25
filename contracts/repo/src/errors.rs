@@ -11,7 +11,8 @@ pub enum Error {
     OfferNotFound = 5,
     RepoNotFound = 6,
     InvalidStatus = 7,
-    WrongAsset = 8,
+    /// Collateral asset has no `AssetConfig`, or it is disabled.
+    AssetNotSupported = 8,
     StaleNav = 9,
     InsufficientCollateral = 10,
     NotLiquidator = 11,

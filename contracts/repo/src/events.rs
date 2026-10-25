@@ -3,6 +3,16 @@
 
 use soroban_sdk::{contractevent, Address};
 
+/// Admin added or re-tiered a collateral asset (DECISIONS.md #13).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetConfigured {
+    #[topic]
+    pub asset: Address,
+    pub haircut_bps: u32,
+    pub enabled: bool,
+}
+
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OfferCreated {
@@ -13,7 +23,6 @@ pub struct OfferCreated {
     pub collateral_asset: Address,
     pub principal: i128,
     pub apr_bps: u32,
-    pub haircut_bps: u32,
     pub term_secs: u64,
 }
 
@@ -37,6 +46,8 @@ pub struct RepoOpened {
     pub collateral_amount: i128,
     pub principal: i128,
     pub interest: i128,
+    /// Asset haircut snapshotted at take time.
+    pub haircut_bps: u32,
     pub maturity_ts: u64,
 }
 

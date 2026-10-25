@@ -17,7 +17,7 @@ mod test;
 use soroban_sdk::{contract, contractimpl, Address, Env};
 
 pub use errors::Error;
-pub use types::{Config, Offer, Repo, Status};
+pub use types::{Asset, AssetConfig, Config, Offer, Repo, Status};
 
 #[contract]
 pub struct CaravelRepo;
@@ -53,6 +53,11 @@ impl CaravelRepo {
         storage::is_liquidator(&env, &who)
     }
 
+    pub fn asset(env: Env, asset: Address) -> Result<AssetConfig, Error> {
+        storage::extend_instance(&env);
+        storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)
+    }
+
     // --- admin ------------------------------------------------------------
 
     pub fn set_liquidator(env: Env, liquidator: Address, allowed: bool) {
@@ -61,16 +66,39 @@ impl CaravelRepo {
         storage::set_liquidator(&env, &liquidator, allowed);
     }
 
+    /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
+    /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
+    /// haircut means a take at max LTV opens strictly below the margin trigger.
+    pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        if config.haircut_bps <= protocol.liquidation_discount_bps
+            || config.haircut_bps as i128 >= math::BPS
+        {
+            return Err(Error::InvalidConfig);
+        }
+        storage::extend_instance(&env);
+        storage::write_asset(&env, &asset, &config);
+        events::AssetConfigured {
+            asset,
+            haircut_bps: config.haircut_bps,
+            enabled: config.enabled,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
     // --- lender -----------------------------------------------------------
 
     /// Escrows `principal` USDC from the lender. Returns the offer id.
+    /// The haircut comes from the asset's `AssetConfig`, not the lender.
+    /// Rejects a missing or disabled asset with `AssetNotSupported` (G1).
     pub fn create_offer(
         _env: Env,
         _lender: Address,
         _collateral_asset: Address,
         _principal: i128,
         _apr_bps: u32,
-        _haircut_bps: u32,
         _term_secs: u64,
     ) -> Result<u64, Error> {
         Err(Error::NotImplemented)
@@ -84,12 +112,12 @@ impl CaravelRepo {
     // --- borrower ---------------------------------------------------------
 
     /// Atomic DvP: collateral in, escrowed USDC out. Returns the repo id.
-    pub fn take_offer(
-        _env: Env,
-        _borrower: Address,
-        _offer_id: u64,
-        _collateral_amount: i128,
-    ) -> Result<u64, Error> {
+    /// Full takes only (DECISIONS.md #16): the contract computes
+    /// `collateral = required_collateral(debt, nav, dec, haircut)`, rounded up,
+    /// and fixes debt = principal + full-term interest (#15). The borrower's
+    /// auth on the SAC transfer pins the exact amount, so if NAV moves between
+    /// simulate and submit the tx fails instead of overcharging.
+    pub fn take_offer(_env: Env, _borrower: Address, _offer_id: u64) -> Result<u64, Error> {
         Err(Error::NotImplemented)
     }
 
@@ -98,19 +126,23 @@ impl CaravelRepo {
         Err(Error::NotImplemented)
     }
 
-    /// Adds collateral; clears a margin call once healthy. Works with stale NAV.
+    /// Adds collateral. Clears a margin call once
+    /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds, i.e. the
+    /// initial margin is restored (TradFi convention). Works with stale NAV.
     pub fn top_up(_env: Env, _repo_id: u64, _amount: i128) -> Result<(), Error> {
         Err(Error::NotImplemented)
     }
 
     // --- keeper (anyone) --------------------------------------------------
 
-    /// Sets `margin_call_deadline` on the first breach. Returns the status.
+    /// Sets `margin_call_deadline` on the first `margin_breached`. Returns the
+    /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17).
     pub fn check_margin(_env: Env, _repo_id: u64) -> Result<Status, Error> {
         Err(Error::NotImplemented)
     }
 
-    /// Moves a repo past maturity + grace, or past its margin deadline, to Defaulted.
+    /// Moves a repo past maturity + grace, or past its margin deadline, to
+    /// Defaulted. Needs no NAV (DECISIONS.md #17).
     pub fn default(_env: Env, _repo_id: u64) -> Result<(), Error> {
         Err(Error::NotImplemented)
     }
@@ -118,6 +150,7 @@ impl CaravelRepo {
     // --- liquidator (whitelisted) -----------------------------------------
 
     /// Liquidator pays NAV × (1 − discount) and receives the collateral.
+    /// Stale NAV returns `StaleNav`.
     pub fn liquidate(_env: Env, _liquidator: Address, _repo_id: u64) -> Result<(), Error> {
         Err(Error::NotImplemented)
     }

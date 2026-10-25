@@ -6,7 +6,7 @@
 //!
 //! Rounding always favours the lender / protocol:
 //! - interest rounds up
-//! - collateral value and max borrow (LTV) round down
+//! - collateral value, and that value after a haircut or discount, round down
 //! - required collateral rounds up
 //! - liquidation proceeds (what the liquidator pays) round up
 //! - protocol fee rounds down (lender keeps the dust)
@@ -40,12 +40,19 @@ fn non_negative(x: i128) -> Result<i128, Error> {
     }
 }
 
-fn haircut_factor(haircut_bps: u32) -> Result<i128, Error> {
-    let h = haircut_bps as i128;
-    if h >= BPS {
+/// `BPS − bps`, the share of value kept after a haircut or discount.
+fn bps_factor(bps: u32) -> Result<i128, Error> {
+    let b = bps as i128;
+    if b >= BPS {
         return Err(Error::InvalidAmount);
     }
-    Ok(BPS - h)
+    Ok(BPS - b)
+}
+
+/// `value × (1 − bps)`. Rounds down.
+fn apply_bps(value: i128, bps: u32) -> Result<i128, Error> {
+    non_negative(value)?;
+    mul_div_floor(value, bps_factor(bps)?, BPS)
 }
 
 /// Simple interest for the whole term, fixed at take time. Rounds up.
@@ -82,6 +89,14 @@ pub fn protocol_fee(interest: i128, fee_bps: u32) -> Result<i128, Error> {
     mul_div_floor(interest, fee_bps as i128, BPS)
 }
 
+/// What the borrower owes: principal + full-term interest, fixed at take
+/// time. Early repay pays the same amount (DECISIONS.md #15).
+pub fn debt(principal: i128, interest: i128) -> Result<i128, Error> {
+    non_negative(principal)?
+        .checked_add(non_negative(interest)?)
+        .ok_or(Error::MathOverflow)
+}
+
 /// USDC value of `amount` collateral at `nav`. Rounds down.
 pub fn collateral_value(amount: i128, nav: i128, nav_decimals: u32) -> Result<i128, Error> {
     non_negative(amount)?;
@@ -91,40 +106,52 @@ pub fn collateral_value(amount: i128, nav: i128, nav_decimals: u32) -> Result<i1
     mul_div_floor(amount, nav, pow10(nav_decimals)?)
 }
 
-/// Most USDC that `value` of collateral supports after the haircut. Rounds down.
-pub fn max_principal(value: i128, haircut_bps: u32) -> Result<i128, Error> {
-    non_negative(value)?;
-    mul_div_floor(value, haircut_factor(haircut_bps)?, BPS)
-}
-
-/// Margin threshold: healthy while the haircut collateral value still covers
-/// the principal. Same rule `take_offer` uses for its LTV check, so a repo
-/// opened at max LTV starts exactly at the threshold, not in breach.
-pub fn is_healthy(
-    principal: i128,
+/// Initial LTV check (DECISIONS.md #14): `debt ≤ value × (1 − haircut)`.
+/// Used by `take_offer`, and by `top_up` with the repo's snapshotted haircut
+/// to decide when a margin call clears.
+pub fn ltv_ok(
+    debt: i128,
     collateral_amount: i128,
     nav: i128,
     nav_decimals: u32,
     haircut_bps: u32,
 ) -> Result<bool, Error> {
-    non_negative(principal)?;
+    non_negative(debt)?;
     let value = collateral_value(collateral_amount, nav, nav_decimals)?;
-    Ok(max_principal(value, haircut_bps)? >= principal)
+    Ok(debt <= apply_bps(value, haircut_bps)?)
 }
 
-/// Smallest collateral amount for which `is_healthy` holds. Rounds up.
-/// Used for the take-offer preview and the top-up amount.
-pub fn required_collateral(
-    principal: i128,
+/// Margin trigger (DECISIONS.md #14): `debt > value × (1 − liq_discount)`.
+/// Up to the trigger a liquidation at the same discount still pays the lender
+/// in full. Since haircut > discount, a take at max LTV opens below it.
+pub fn margin_breached(
+    debt: i128,
+    collateral_amount: i128,
     nav: i128,
     nav_decimals: u32,
-    haircut_bps: u32,
+    liquidation_discount_bps: u32,
+) -> Result<bool, Error> {
+    non_negative(debt)?;
+    let value = collateral_value(collateral_amount, nav, nav_decimals)?;
+    Ok(debt > apply_bps(value, liquidation_discount_bps)?)
+}
+
+/// Smallest collateral amount with `debt ≤ value × (1 − bps)`. Rounds up.
+///
+/// With the asset haircut: the `take_offer` amount and the top-up target that
+/// clears a margin call. With the liquidation discount: the minimum that gets
+/// a repo out of breach.
+pub fn required_collateral(
+    debt: i128,
+    nav: i128,
+    nav_decimals: u32,
+    bps: u32,
 ) -> Result<i128, Error> {
-    non_negative(principal)?;
+    non_negative(debt)?;
     if nav <= 0 {
         return Err(Error::InvalidAmount);
     }
-    let value_needed = mul_div_ceil(principal, BPS, haircut_factor(haircut_bps)?)?;
+    let value_needed = mul_div_ceil(debt, BPS, bps_factor(bps)?)?;
     mul_div_ceil(value_needed, pow10(nav_decimals)?, nav)
 }
 
@@ -145,7 +172,7 @@ pub fn liquidation_proceeds(
     let scale = pow10(nav_decimals)?
         .checked_mul(BPS)
         .ok_or(Error::MathOverflow)?;
-    mul_div_ceil(gross, haircut_factor(discount_bps)?, scale)
+    mul_div_ceil(gross, bps_factor(discount_bps)?, scale)
 }
 
 /// How an amount of USDC is split on repay or liquidation.
@@ -190,7 +217,8 @@ pub fn waterfall(
     })
 }
 
-/// NAV is usable for `take_offer` / `liquidate` if no older than `max_age_secs`.
+/// NAV is usable for `take_offer`, `check_margin` and `liquidate` if no older
+/// than `max_age_secs` (DECISIONS.md #6, #17).
 pub fn nav_is_fresh(now: u64, nav_timestamp: u64, max_age_secs: u64) -> bool {
     now.saturating_sub(nav_timestamp) <= max_age_secs
 }
@@ -203,8 +231,8 @@ mod test {
     const NAV_DEC: u32 = 7;
     const DAY: u64 = 86_400;
 
-    // The INTRO.md example: 1,000 tBENJI at NAV 1.00, 970 USDC for 7 days
-    // at 5% APR, 3% haircut, 2% liquidation discount. Fee = 10% of interest.
+    // The INTRO.md example: 970 USDC for 7 days at 5% APR against tBENJI at
+    // NAV 1.00, 3% haircut, 2% liquidation discount. Fee = 10% of interest.
     const PRINCIPAL: i128 = 970 * UNIT;
     const COLLATERAL: i128 = 1_000 * UNIT;
     const APR_BPS: u32 = 500;
@@ -215,19 +243,30 @@ mod test {
 
     // 970 × 5% × 7/365 = 0.9301369863… → rounds up.
     const INTEREST: i128 = 9_301_370;
+    const DEBT: i128 = PRINCIPAL + INTEREST; // 970.9301370
     const FEE: i128 = 930_137;
-    const LENDER_DUE: i128 = PRINCIPAL + INTEREST - FEE; // 970.8371233
+    const LENDER_DUE: i128 = DEBT - FEE; // 970.8371233
+                                         // DEBT / (1.00 × 0.97), rounded up: 1000.9589042 tBENJI.
+    const TAKE_COLLATERAL: i128 = 10_009_589_042;
 
     fn nav(x: f64) -> i128 {
         (x * UNIT as f64).round() as i128
     }
 
-    fn liquidate_at(nav_price: i128) -> Waterfall {
-        let proceeds = liquidation_proceeds(COLLATERAL, nav_price, NAV_DEC, DISCOUNT_BPS).unwrap();
-        waterfall(proceeds, PRINCIPAL, INTEREST, FEE_BPS).unwrap()
+    fn breached(nav_price: i128) -> bool {
+        margin_breached(DEBT, TAKE_COLLATERAL, nav_price, NAV_DEC, DISCOUNT_BPS).unwrap()
     }
 
-    // --- interest ---------------------------------------------------------
+    fn liquidate_at(nav_price: i128) -> (i128, Waterfall) {
+        let proceeds =
+            liquidation_proceeds(TAKE_COLLATERAL, nav_price, NAV_DEC, DISCOUNT_BPS).unwrap();
+        (
+            proceeds,
+            waterfall(proceeds, PRINCIPAL, INTEREST, FEE_BPS).unwrap(),
+        )
+    }
+
+    // --- interest and debt ------------------------------------------------
 
     #[test]
     fn interest_rounds_up() {
@@ -266,15 +305,24 @@ mod test {
     }
 
     #[test]
+    fn debt_is_principal_plus_full_term_interest() {
+        assert_eq!(debt(PRINCIPAL, INTEREST), Ok(9_709_301_370));
+        assert_eq!(debt(i128::MAX, 1), Err(Error::MathOverflow));
+        assert_eq!(debt(-1, INTEREST), Err(Error::InvalidAmount));
+        assert_eq!(debt(PRINCIPAL, -1), Err(Error::InvalidAmount));
+    }
+
+    #[test]
     fn fee_comes_out_of_interest_and_rounds_down() {
         assert_eq!(protocol_fee(INTEREST, FEE_BPS), Ok(FEE));
         assert_eq!(protocol_fee(9, FEE_BPS), Ok(0));
         assert_eq!(protocol_fee(INTEREST, 0), Ok(0));
         assert_eq!(protocol_fee(INTEREST, 10_000), Ok(INTEREST));
         assert_eq!(protocol_fee(INTEREST, 10_001), Err(Error::InvalidAmount));
+        assert_eq!(LENDER_DUE, 9_708_371_233);
     }
 
-    // --- collateral value and LTV -----------------------------------------
+    // --- collateral value -------------------------------------------------
 
     #[test]
     fn collateral_value_rounds_down() {
@@ -314,75 +362,111 @@ mod test {
     }
 
     #[test]
-    fn max_principal_rounds_down() {
-        assert_eq!(max_principal(1_000 * UNIT, HAIRCUT_BPS), Ok(PRINCIPAL));
-        assert_eq!(max_principal(1, HAIRCUT_BPS), Ok(0));
-        assert_eq!(
-            max_principal(1_000 * UNIT, 10_000),
-            Err(Error::InvalidAmount)
-        );
+    fn apply_bps_rounds_down() {
+        assert_eq!(apply_bps(1_000 * UNIT, HAIRCUT_BPS), Ok(PRINCIPAL));
+        assert_eq!(apply_bps(1, HAIRCUT_BPS), Ok(0));
+        assert_eq!(apply_bps(1_000 * UNIT, 0), Ok(1_000 * UNIT));
+        assert_eq!(apply_bps(1_000 * UNIT, 10_000), Err(Error::InvalidAmount));
+        assert_eq!(apply_bps(-1, HAIRCUT_BPS), Err(Error::InvalidAmount));
     }
 
-    // --- margin threshold -------------------------------------------------
+    // --- take (initial LTV, #14 / #16) ------------------------------------
 
     #[test]
-    fn margin_threshold_is_inclusive() {
-        // Opened at max LTV: exactly at the threshold, still healthy.
+    fn take_posts_minimum_collateral_for_the_haircut() {
         assert_eq!(
-            is_healthy(PRINCIPAL, COLLATERAL, nav(1.0), NAV_DEC, HAIRCUT_BPS),
-            Ok(true)
+            required_collateral(DEBT, nav(1.0), NAV_DEC, HAIRCUT_BPS),
+            Ok(TAKE_COLLATERAL)
         );
-        // One NAV tick lower breaches.
         assert_eq!(
-            is_healthy(PRINCIPAL, COLLATERAL, nav(1.0) - 1, NAV_DEC, HAIRCUT_BPS),
-            Ok(false)
-        );
-        // At that tick capacity is floor(999.9999 × 0.97) = 969.9999030 USDC.
-        let capacity = 9_699_999_030;
-        assert_eq!(
-            is_healthy(capacity, COLLATERAL, nav(1.0) - 1, NAV_DEC, HAIRCUT_BPS),
+            ltv_ok(DEBT, TAKE_COLLATERAL, nav(1.0), NAV_DEC, HAIRCUT_BPS),
             Ok(true)
         );
         assert_eq!(
-            is_healthy(capacity + 1, COLLATERAL, nav(1.0) - 1, NAV_DEC, HAIRCUT_BPS),
+            ltv_ok(DEBT, TAKE_COLLATERAL - 1, nav(1.0), NAV_DEC, HAIRCUT_BPS),
             Ok(false)
         );
     }
 
     #[test]
-    fn required_collateral_is_the_minimum_healthy_amount() {
-        assert_eq!(
-            required_collateral(PRINCIPAL, nav(1.0), NAV_DEC, HAIRCUT_BPS),
-            Ok(COLLATERAL)
-        );
-
+    fn required_collateral_is_the_minimum_for_any_bps() {
         for (price, dec) in [
             (nav(0.99), NAV_DEC),
             (nav(1.0137), NAV_DEC),
             (99_123_456_789_012, 14),
         ] {
-            let need = required_collateral(PRINCIPAL, price, dec, HAIRCUT_BPS).unwrap();
+            let need = required_collateral(DEBT, price, dec, HAIRCUT_BPS).unwrap();
+            assert_eq!(ltv_ok(DEBT, need, price, dec, HAIRCUT_BPS), Ok(true));
+            assert_eq!(ltv_ok(DEBT, need - 1, price, dec, HAIRCUT_BPS), Ok(false));
+
+            let need = required_collateral(DEBT, price, dec, DISCOUNT_BPS).unwrap();
             assert_eq!(
-                is_healthy(PRINCIPAL, need, price, dec, HAIRCUT_BPS),
-                Ok(true)
+                margin_breached(DEBT, need, price, dec, DISCOUNT_BPS),
+                Ok(false)
             );
             assert_eq!(
-                is_healthy(PRINCIPAL, need - 1, price, dec, HAIRCUT_BPS),
-                Ok(false)
+                margin_breached(DEBT, need - 1, price, dec, DISCOUNT_BPS),
+                Ok(true)
             );
         }
     }
 
+    // --- margin trigger (#14) ---------------------------------------------
+
     #[test]
-    fn margin_call_top_up_amount() {
-        // NAV drops 1%: 1,000 tBENJI now supports only 960.3 USDC.
-        let price = nav(0.99);
+    fn max_ltv_take_is_not_in_margin_call() {
+        // The #14 fix: under the old rule one NAV tick after a max-LTV take
+        // fired a margin call. The trigger now sits at the liquidation discount.
+        assert!(!breached(nav(1.0)));
+        assert!(!breached(nav(1.0) - 1));
+    }
+
+    #[test]
+    fn margin_trigger_edge() {
+        // At 0.9897960 the discounted value is 970.9302171 ≥ DEBT;
+        // one tick lower it is 970.9301190 < DEBT.
+        assert!(!breached(9_897_960));
+        assert!(breached(9_897_959));
+    }
+
+    #[test]
+    fn margin_call_top_up_amounts() {
+        let price = 9_850_000; // NAV −1.5%
+        assert!(breached(price));
+
+        // Minimum to get out of breach.
+        let clear = required_collateral(DEBT, price, NAV_DEC, DISCOUNT_BPS).unwrap();
+        assert_eq!(clear, 10_058_325_257);
+        assert_eq!(clear - TAKE_COLLATERAL, 48_736_215);
         assert_eq!(
-            is_healthy(PRINCIPAL, COLLATERAL, price, NAV_DEC, HAIRCUT_BPS),
+            margin_breached(DEBT, clear, price, NAV_DEC, DISCOUNT_BPS),
             Ok(false)
         );
-        let need = required_collateral(PRINCIPAL, price, NAV_DEC, HAIRCUT_BPS).unwrap();
-        assert_eq!(need - COLLATERAL, 101_010_102); // ≈ 10.101 tBENJI top-up
+
+        // Top-up target that clears the margin call: initial margin restored.
+        let target = required_collateral(DEBT, price, NAV_DEC, HAIRCUT_BPS).unwrap();
+        assert_eq!(target - TAKE_COLLATERAL, 152_430_290);
+        assert_eq!(ltv_ok(DEBT, target, price, NAV_DEC, HAIRCUT_BPS), Ok(true));
+        assert_eq!(
+            ltv_ok(DEBT, target - 1, price, NAV_DEC, HAIRCUT_BPS),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn margin_checks_reject_bad_input() {
+        assert_eq!(
+            ltv_ok(-1, TAKE_COLLATERAL, nav(1.0), NAV_DEC, HAIRCUT_BPS),
+            Err(Error::InvalidAmount)
+        );
+        assert_eq!(
+            margin_breached(DEBT, TAKE_COLLATERAL, 0, NAV_DEC, DISCOUNT_BPS),
+            Err(Error::InvalidAmount)
+        );
+        assert_eq!(
+            margin_breached(DEBT, TAKE_COLLATERAL, nav(1.0), NAV_DEC, 10_000),
+            Err(Error::InvalidAmount)
+        );
     }
 
     // --- liquidation waterfall --------------------------------------------
@@ -402,7 +486,7 @@ mod test {
 
     #[test]
     fn repay_pays_lender_exact_offer_terms() {
-        let w = waterfall(PRINCIPAL + INTEREST, PRINCIPAL, INTEREST, FEE_BPS).unwrap();
+        let w = waterfall(DEBT, PRINCIPAL, INTEREST, FEE_BPS).unwrap();
         assert_eq!(
             w,
             Waterfall {
@@ -415,39 +499,73 @@ mod test {
     }
 
     /// Brief scenario 1 — surplus. Borrower misses maturity, NAV unchanged.
-    /// Liquidator pays 980; lender and treasury paid in full, borrower gets the rest.
+    /// Lender and treasury paid in full, borrower gets the rest.
     #[test]
     fn scenario_surplus() {
-        let w = liquidate_at(nav(1.0));
-        assert_eq!(w.lender, LENDER_DUE);
-        assert_eq!(w.fee, FEE);
-        assert_eq!(w.borrower, 90_698_630); // 980 − 970.9301370
-        assert_eq!(w.shortfall, 0);
-        assert_eq!(w.lender + w.fee + w.borrower, 980 * UNIT);
+        let (proceeds, w) = liquidate_at(nav(1.0));
+        assert_eq!(proceeds, 9_809_397_262);
+        assert_eq!(
+            w,
+            Waterfall {
+                lender: LENDER_DUE,
+                fee: FEE,
+                borrower: 100_095_892,
+                shortfall: 0
+            }
+        );
     }
 
-    /// Brief scenario 2 — lender made whole. NAV falls to 0.9907, margin call
-    /// missed. Proceeds cover the lender's terms but not the full fee: lender
-    /// exact, fee partly waived, borrower nothing, no Shortfall event.
+    /// Brief scenario 2 — lender made whole. NAV falls past the trigger and
+    /// the margin call is missed. Proceeds cover the lender's terms but not
+    /// the full fee: lender exact, fee partly waived, no Shortfall event.
     #[test]
     fn scenario_lender_made_whole() {
-        let w = liquidate_at(nav(0.9907));
-        assert_eq!(w.lender, LENDER_DUE);
-        assert_eq!(w.fee, 488_767);
-        assert_eq!(w.borrower, 0);
-        assert_eq!(w.shortfall, 0);
-        assert_eq!(w.lender + w.fee, 9_708_860_000);
+        let (proceeds, w) = liquidate_at(9_897_500);
+        assert_eq!(proceeds, 9_708_850_940);
+        assert_eq!(
+            w,
+            Waterfall {
+                lender: LENDER_DUE,
+                fee: 479_707,
+                borrower: 0,
+                shortfall: 0
+            }
+        );
     }
 
-    /// Brief scenario 3 — shortfall. NAV falls 2%, beyond the ~1% buffer.
-    /// Lender takes all 960.4 USDC, borrower and treasury get nothing.
+    /// Brief scenario 3 — shortfall. NAV falls 2%, beyond the buffer.
+    /// Lender takes all proceeds, borrower and treasury get nothing.
     #[test]
     fn scenario_shortfall() {
-        let w = liquidate_at(nav(0.98));
-        assert_eq!(w.lender, 9_604_000_000);
-        assert_eq!(w.fee, 0);
-        assert_eq!(w.borrower, 0);
-        assert_eq!(w.shortfall, LENDER_DUE - 9_604_000_000); // 10.4371233
+        let (proceeds, w) = liquidate_at(9_800_000);
+        assert_eq!(proceeds, 9_613_209_316);
+        assert_eq!(
+            w,
+            Waterfall {
+                lender: proceeds,
+                fee: 0,
+                borrower: 0,
+                shortfall: 95_161_917
+            }
+        );
+    }
+
+    /// The #14 promise: while the margin trigger has not fired, liquidating
+    /// at the same discount pays the lender in full.
+    #[test]
+    fn no_shortfall_before_margin_trigger() {
+        let (mut healthy, mut breaches) = (0, 0);
+        let mut price = nav(0.98);
+        while price <= nav(1.01) {
+            if breached(price) {
+                breaches += 1;
+            } else {
+                healthy += 1;
+                assert_eq!(liquidate_at(price).1.shortfall, 0, "nav {price}");
+            }
+            price += 13;
+        }
+        assert!(healthy > 0 && breaches > 0);
     }
 
     #[test]
@@ -458,7 +576,7 @@ mod test {
             LENDER_DUE - 1,
             LENDER_DUE,
             LENDER_DUE + 1,
-            PRINCIPAL + INTEREST,
+            DEBT,
             2_000 * UNIT,
         ] {
             let w = waterfall(available, PRINCIPAL, INTEREST, FEE_BPS).unwrap();
