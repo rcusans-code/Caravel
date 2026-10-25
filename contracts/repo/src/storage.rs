@@ -1,10 +1,11 @@
-//! Storage layout: instance = config and counters, persistent = offers,
+//! Storage layout: instance = config, counters and asset configs (few
+//! entries, they share the instance TTL), persistent = offers,
 //! repos and the liquidator whitelist. Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::{Config, Offer, Repo};
+use crate::types::{AssetConfig, Config, Offer, Repo};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
 const INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
@@ -19,6 +20,7 @@ pub enum DataKey {
     Config,
     NextOfferId,
     NextRepoId,
+    Asset(Address),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -48,6 +50,18 @@ pub fn read_config(env: &Env) -> Config {
 
 pub fn write_config(env: &Env, config: &Config) {
     env.storage().instance().set(&DataKey::Config, config);
+}
+
+// --- assets ---------------------------------------------------------------
+
+pub fn read_asset(env: &Env, asset: &Address) -> Option<AssetConfig> {
+    env.storage().instance().get(&DataKey::Asset(asset.clone()))
+}
+
+pub fn write_asset(env: &Env, asset: &Address, config: &AssetConfig) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Asset(asset.clone()), config);
 }
 
 // --- ids ------------------------------------------------------------------
