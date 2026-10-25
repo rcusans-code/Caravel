@@ -15,7 +15,8 @@
 # (contracts/spiko-mock, allowlist on every transfer, no approve, 5 decimals)
 # with ISSUER as its admin. The script allowlists the repo contract, the
 # liquidator and the demo wallets (+ TSAFO_HOLDERS), mints demo tSAFO to the
-# borrower, prices it and registers it with set_asset at SAFO_HAIRCUT_BPS.
+# borrower (+ TSAFO_HOLDER_MINT to each holder), prices it and registers it with
+# set_asset at SAFO_HAIRCUT_BPS.
 #
 # Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
 # DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app and
@@ -43,6 +44,7 @@ HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount
 SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (testnet only, DECISIONS #29)
 TSAFO_DECIMALS="${TSAFO_DECIMALS:-5}"            # Spiko tokens use 5 (mainnet eurSAFO decimals())
 TSAFO_BORROWER_MINT="${TSAFO_BORROWER_MINT:-2000}" # whole tSAFO minted to BORROWER when it holds none
+TSAFO_HOLDER_MINT="${TSAFO_HOLDER_MINT:-200}"       # whole tSAFO minted to each TSAFO_HOLDERS address when it holds none
 DAY_SECS="${DAY_SECS:-60}"                       # 1 day = 60 s (#5)
 MARGIN_WINDOW_SECS="${MARGIN_WINDOW_SECS:-120}"
 GRACE_SECS="${GRACE_SECS:-60}"
@@ -293,6 +295,16 @@ if [[ "${BAL:-0}" == 0 ]]; then
 else
   log "borrower holds $BAL tSAFO units"
 fi
+for who in ${TSAFO_HOLDERS:-}; do
+  BAL=$(view --id "$TSAFO_ID" -- balance --id "$who" 2>/dev/null | tr -d '"' || echo 0)
+  if [[ "${BAL:-0}" == 0 ]]; then
+    AMT=$(python3 -c "print($TSAFO_HOLDER_MINT * 10**$TSAFO_DECIMALS)")
+    log "issuer mints $TSAFO_HOLDER_MINT tSAFO to holder $who"
+    as_issuer --id "$TSAFO_ID" -- mint --to "$who" --amount "$AMT" >/dev/null
+  else
+    log "holder $who holds $BAL tSAFO units"
+  fi
+done
 
 # --- 7. outputs ------------------------------------------------------------------
 # DEPLOYED_AT moves only when a contract was (re)deployed, so no-op runs leave no diff.
