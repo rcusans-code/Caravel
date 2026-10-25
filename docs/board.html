@@ -1,0 +1,412 @@
+<title>Caravel War Room</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: settlement-desk blotter. Sticky clock bar, then decisions, gates timeline, task blotter by workstream, risks, cut list, log. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --ink:#0f1c2b; --muted:#5a6878; --line:#d3dae2;
+  --accent:#1f4fd1; --accent-soft:#e3eafc;
+  --ok:#17804a; --ok-soft:#dff3e7; --warn:#a86a00; --warn-soft:#fbefd6; --bad:#b8322a; --bad-soft:#f9e1df; --idle:#7b8794; --idle-soft:#e9edf1;
+  --f-display:"Archivo",system-ui,sans-serif; --f-body:"Archivo",system-ui,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c131c; --surface:#131d29; --ink:#e6ecf3; --muted:#93a1b2; --line:#253344;
+  --accent:#7aa2ff; --accent-soft:#1b2a4a;
+  --ok:#4cc985; --ok-soft:#123323; --warn:#e3a740; --warn-soft:#3a2b0f; --bad:#ff7a70; --bad-soft:#3d1a18; --idle:#8795a5; --idle-soft:#1c2734; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c131c; --surface:#131d29; --ink:#e6ecf3; --muted:#93a1b2; --line:#253344;
+  --accent:#7aa2ff; --accent-soft:#1b2a4a;
+  --ok:#4cc985; --ok-soft:#123323; --warn:#e3a740; --warn-soft:#3a2b0f; --bad:#ff7a70; --bad-soft:#3d1a18; --idle:#8795a5; --idle-soft:#1c2734; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--ink)}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+/* clock bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--ink);color:var(--bg)}
+.bar .in{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px;display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;justify-content:space-between}
+.bar .brand{font-family:var(--f-display);font-stretch:118%;font-weight:800;letter-spacing:.02em;font-size:17px}
+.bar .brand small{font-weight:500;font-stretch:100%;opacity:.7;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-left:8px}
+.clock{display:flex;gap:20px;flex-wrap:wrap;align-items:baseline}
+.clock div{display:flex;flex-direction:column}
+.clock label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;opacity:.65}
+.clock b{font-family:var(--f-mono);font-size:18px;font-weight:600}
+
+header.hero{padding-block:28px 8px;display:grid;gap:10px}
+h1{font-family:var(--f-display);font-stretch:112%;font-weight:800;font-size:clamp(26px,4.4vw,40px);line-height:1.05;margin:0;text-wrap:balance}
+.lede{color:var(--muted);max-width:68ch;margin:0}
+.updated{font-size:12px;color:var(--muted)}
+
+h2{font-family:var(--f-display);font-stretch:108%;font-weight:750;font-size:20px;margin:0;text-wrap:balance}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+section{margin-top:36px;display:grid;gap:14px}
+.sec-head{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;justify-content:space-between}
+.sec-head p{margin:0;color:var(--muted);font-size:13px}
+
+/* progress */
+.progress{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:grid;gap:8px}
+.pcard .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pcard .name{font-weight:650;font-size:14px}
+.pcard .who{font-size:12px;color:var(--muted)}
+.meter{height:6px;background:var(--idle-soft);border-radius:3px;overflow:hidden;display:flex}
+.meter i{display:block;height:100%}
+.meter .d{background:var(--ok)} .meter .w{background:var(--accent)} .meter .b{background:var(--bad)}
+
+/* gates timeline */
+.gates{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+.gates ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(150px,1fr));min-width:1050px}
+.gates li{padding:14px;border-right:1px solid var(--line);display:grid;gap:6px;align-content:start;position:relative}
+.gates li:last-child{border-right:0}
+.gates li.now{background:var(--accent-soft)}
+.gates li.now::before{content:"NOW";position:absolute;top:8px;right:10px;font:600 10px var(--f-mono);color:var(--accent);letter-spacing:.1em}
+.gates .t{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.gates .g{font-weight:700;font-size:14px}
+.gates .c{font-size:13px;color:var(--muted)}
+
+/* decisions */
+.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+.dec{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:grid;gap:6px;min-width:0}
+.dec .h{display:flex;gap:8px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.dec .h b{font-size:14.5px}
+.dec p{margin:0;font-size:13.5px;color:var(--muted)}
+.dec code,.task code,.risk code{font-family:var(--f-mono);font-size:12.5px;background:var(--idle-soft);padding:1px 4px;border-radius:3px;color:var(--ink);word-break:break-word}
+
+/* tags */
+.tag{font:600 10.5px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;white-space:nowrap}
+.s-todo{background:var(--idle-soft);color:var(--idle)}
+.s-doing{background:var(--accent-soft);color:var(--accent)}
+.s-done{background:var(--ok-soft);color:var(--ok)}
+.s-blocked{background:var(--bad-soft);color:var(--bad)}
+.s-cut{background:var(--idle-soft);color:var(--idle);text-decoration:line-through}
+.ws{font:600 10.5px var(--f-mono);letter-spacing:.06em;padding:2px 6px;border-radius:3px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters button{font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.filters button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* blotter */
+.blotter{display:grid;gap:18px}
+.gate-block{display:grid;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.gate-block>.gh{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--idle-soft)}
+.gate-block>.gh b{font-size:14px}
+.gate-block>.gh span{font-size:12px;color:var(--muted)}
+.task{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;padding:11px 16px;border-bottom:1px solid var(--line);align-items:start}
+.task:last-child{border-bottom:0}
+.task .l{display:flex;gap:6px;align-items:center;padding-top:2px}
+.task .m{min-width:0;display:grid;gap:2px}
+.task .m b{font-weight:600;font-size:14px}
+.task .m p{margin:0;font-size:13px;color:var(--muted)}
+.task .m .acc{font-size:12.5px;color:var(--ink);opacity:.8}
+.task .m .acc::before{content:"Done when: ";font-weight:600;color:var(--muted)}
+.task .r{padding-top:2px}
+.task.flag{box-shadow:inset 3px 0 0 var(--warn)}
+@media (max-width:640px){.task{grid-template-columns:1fr auto}.task .l{grid-column:1/-1}}
+
+/* risks */
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:13.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--idle-soft)}
+tr:last-child td{border-bottom:0}
+.sev{font:600 10.5px var(--f-mono);padding:2px 7px;border-radius:3px}
+.sev.H{background:var(--bad-soft);color:var(--bad)} .sev.M{background:var(--warn-soft);color:var(--warn)} .sev.L{background:var(--idle-soft);color:var(--idle)}
+
+/* two col */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:grid;gap:10px;align-content:start;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:grid;gap:6px;font-size:13.5px}
+.panel li span{color:var(--muted)}
+.log{display:grid;gap:0}
+.log div{display:grid;grid-template-columns:96px 1fr;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.log div:last-child{border-bottom:0}
+.log .mono{color:var(--muted);font-size:12.5px}
+@media (prefers-reduced-motion:no-preference){.filters button{transition:background .15s,color .15s}}
+</style>
+
+<div class="bar"><div class="in">
+  <div class="brand">CARAVEL<small>HackMeridian war room</small></div>
+  <div class="clock">
+    <div><label>Lisbon now</label><b id="now">--:--</b></div>
+    <div><label>To submit target 11:30</label><b id="tgt">--</b></div>
+    <div><label>Hard deadline Mon 12:00</label><b id="ddl">--</b></div>
+    <div><label>Current gate</label><b id="gnow">--</b></div>
+  </div>
+</div></div>
+
+<div class="wrap">
+<header class="hero">
+  <span class="eyebrow">Genesis path · Stellar Unlocked + Stellar Composed</span>
+  <h1>Term repo for tokenized Treasuries, shipped by Monday noon</h1>
+  <p class="lede">One board for the whole team: decisions to lock before writing code, time gates, every task by workstream, the risk register and what we cut first if we slip. Status gets updated every 1–2 hours.</p>
+  <span class="updated mono" id="updated"></span>
+</header>
+
+<section>
+  <div class="sec-head"><h2>Progress by workstream</h2><p>Green done · blue in progress · red blocked</p></div>
+  <div class="progress" id="progress"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Gates</h2><p>If a gate is missed by more than an hour, open the cut list.</p></div>
+  <div class="gates"><ol id="gates"></ol></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Lock these before coding</h2><p>Weak spots from the brief, turned into day-zero decisions. Changing them at 02:00 costs hours.</p></div>
+  <div class="decisions" id="decisions"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Task blotter</h2><p>Amber edge = carries a fix from the weak-spot review.</p></div>
+  <div class="filters" id="filters" role="group" aria-label="Filter by workstream"></div>
+  <div class="blotter" id="blotter"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Risk register</h2><p>What can sink the demo or the pitch, and who watches it.</p></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Risk</th><th>Sev</th><th>Mitigation / fallback</th><th>Owner</th><th>Check by</th></tr></thead>
+    <tbody id="risks"></tbody>
+  </table></div>
+</section>
+
+<section class="two">
+  <div class="panel">
+    <h2>Cut list, in order</h2>
+    <p class="lede" style="font-size:13px">Cut from the top. Everything below the line is the demo; it never gets cut.</p>
+    <ol id="cuts"></ol>
+  </div>
+  <div class="panel">
+    <h2>Submission checklist</h2>
+    <ul id="submit"></ul>
+  </div>
+</section>
+
+<section class="two">
+  <div class="panel">
+    <h2>Judge Q&amp;A we must answer in the README</h2>
+    <ul id="qa"></ul>
+  </div>
+  <div class="panel">
+    <h2>Status log</h2>
+    <div class="log" id="log"></div>
+  </div>
+</section>
+</div>
+
+<script>
+/* ======== STATE (edit here on each update) ======== */
+const UPDATED = "Sun 25 Oct, 11:58";
+
+const WS = {
+  C:{name:"Contracts", who:"Soroban dev"},
+  I:{name:"Integration", who:"Assets · oracle · keeper · deploy"},
+  F:{name:"Frontend", who:"UI · wallet"},
+  P:{name:"Pitch & polish", who:"Bohdan"},
+  T:{name:"Whole team", who:"Everyone"}
+};
+
+const GATES = [
+  {id:"g0", t:"Sun 12:00–13:00", g:"G0 · Spike & setup", c:"AUTH_REQUIRED go/no-go, repo public, decisions locked", start:"2026-10-25T12:00:00Z", end:"2026-10-25T13:00:00Z"},
+  {id:"g1", t:"13:00–16:00", g:"G1 · Core DvP", c:"create/take/repay pass unit tests, mock oracle live", start:"2026-10-25T13:00:00Z", end:"2026-10-25T16:00:00Z"},
+  {id:"g2", t:"16:00–19:30", g:"G2 · Full contract", c:"margin, default, liquidate tested; one-command deploy", start:"2026-10-25T16:00:00Z", end:"2026-10-25T19:30:00Z"},
+  {id:"g3", t:"19:30–00:00", g:"G3 · Happy path on testnet", c:"lender → borrower → repay works in the UI", start:"2026-10-25T19:30:00Z", end:"2026-10-26T00:00:00Z"},
+  {id:"g4", t:"00:00–06:00", g:"G4 · Stress flows", c:"margin call, default, liquidation in the UI", start:"2026-10-26T00:00:00Z", end:"2026-10-26T06:00:00Z"},
+  {id:"g5", t:"06:00–08:00", g:"G5 · Freeze", c:"polish, README final, 2 full rehearsals. Feature freeze 08:00", start:"2026-10-26T06:00:00Z", end:"2026-10-26T08:00:00Z"},
+  {id:"g6", t:"08:00–11:30", g:"G6 · Ship", c:"video, deck, answers, submit 11:30", start:"2026-10-26T08:00:00Z", end:"2026-10-26T12:00:00Z"}
+];
+
+const DECISIONS = [
+  {h:"Real testnet USDC, not a mock", tag:"Composed", p:"Use Circle testnet USDC through its SAC. Mock USDC only if the faucet fails by 13:00. Real infra is what lifts Composed alignment (20% of score)."},
+  {h:"Strict SEP-40 oracle + one real feed", tag:"Composed", p:"Mock oracle implements the full SEP-40 trait (<code>base</code>, <code>assets</code>, <code>decimals</code>, <code>resolution</code>, <code>lastprice</code>, <code>price</code>). The contract reads it through a client that also reads one live Reflector/RedStone testnet feed, to prove the swap is config-only."},
+  {h:"Fee comes out of interest", tag:"Contract", p:"Waterfall on repay and liquidate: protocol fee = interest × <code>fee_bps</code>; lender gets principal + (interest − fee); then borrower surplus. The lender never receives more than the offer terms."},
+  {h:"Shortfall path is explicit", tag:"Contract", p:"If liquidator proceeds &lt; debt: lender takes all proceeds, borrower gets 0, emit <code>Shortfall{repo_id, amount}</code>. README states the ~1% buffer (3% haircut vs 2% discount) and the insurance-fund roadmap."},
+  {h:"Time compression via config only", tag:"Contract", p:"No demo hacks in logic. <code>term_secs</code>, <code>margin_window_secs</code>, <code>grace_secs</code>, <code>max_nav_age_secs</code> are config. Demo profile: 1 day = 60 s, 7-day term = 7 min, margin window 120 s, grace 60 s, NAV age 180 s."},
+  {h:"Stale price rules", tag:"Contract", p:"Stale NAV blocks <code>take_offer</code> and <code>liquidate</code>. It never blocks <code>repay</code> or <code>top_up</code>. A borrower can always exit."},
+  {h:"Who can call what", tag:"Contract", p:"<code>check_margin</code> and <code>default</code>: anyone (keeper-friendly). <code>liquidate</code>: whitelisted only. <code>take_offer</code> requires auth from borrower; lender authorized at <code>create_offer</code> when USDC was escrowed."},
+  {h:"Units and rounding", tag:"Contract", p:"All amounts i128 in 7-decimal Stellar units. NAV scaled by oracle <code>decimals()</code>. Interest rounds up (in lender's favour), LTV check rounds down. Write it once in a <code>math.rs</code> with tests."},
+  {h:"Fallback if contract can't hold AUTH_REQUIRED asset", tag:"Unlocked", p:"Spike by 13:00. If <code>set_authorized</code> on a contract address fails, keep tBENJI AUTH_REQUIRED for wallets and say so plainly; worst case issue it without the flag and enforce the whitelist in-contract, flagged in README as a testnet workaround."},
+  {h:"Target user is active, not passive", tag:"Pitch", p:"Repo rate above fund yield = negative carry for passive holders. Pitch the trader/MM who earns more on USDC than the repo costs. Say this before a judge does."},
+  {h:"Commit history starts today", tag:"Progress", p:"Public repo now, small frequent commits, a <code>BUILT_DURING_HACKATHON.md</code> or README section. Hackathon Progress is 10% and judges check git log."},
+  {h:"Smart wallet only after G3 is green", tag:"Scope", p:"Passkey login (OpenZeppelin smart accounts / Stellar Passport) is a stated priority, but Freighter first. Start it only if the happy path works on testnet by 00:00."}
+];
+
+/* status: todo | doing | done | blocked | cut ; flag:true = carries a weak-spot fix */
+const TASKS = [
+  // G0
+  {g:"g0", ws:"I", s:"todo", flag:true, b:"AUTH_REQUIRED spike", p:"Issue tBENJI with AUTH_REQUIRED + REVOCABLE + CLAWBACK. Deploy a dummy contract, <code>set_authorized(contract)</code> via SAC, transfer in and out.", a:"Go/no-go posted to team by 13:00"},
+  {g:"g0", ws:"I", s:"todo", flag:true, b:"Testnet accounts + real USDC", p:"Fund admin, issuer, lender, borrower, liquidator. Trustlines to Circle testnet USDC and tBENJI. Keys in a shared .env (testnet only).", a:"Every demo account holds USDC or tBENJI"},
+  {g:"g0", ws:"C", s:"todo", b:"Contract skeleton", p:"Types (Offer, Repo, Status, Config), storage keys (instance for config, persistent for offers/repos), TTL extension helper, events enum.", a:"Compiles, empty methods stubbed"},
+  {g:"g0", ws:"C", s:"todo", flag:true, b:"math.rs with tests", p:"Interest accrual, LTV/collateral value, margin threshold, liquidation waterfall incl. fee and shortfall. Rounding rules fixed.", a:"Unit tests for the 3 example scenarios from the brief"},
+  {g:"g0", ws:"F", s:"todo", b:"Frontend scaffold", p:"Scaffold Stellar or Next.js + @stellar/stellar-sdk + Freighter. Testnet config, wallet connect, role switcher (lender / borrower / liquidator / admin).", a:"Wallet connects and shows balances"},
+  {g:"g0", ws:"P", s:"todo", b:"Public GitHub repo + README skeleton", p:"Sections: problem, insight, how it works, architecture, contract spec, Stellar features, run it, testnet IDs, built during hackathon, risks.", a:"Repo public, first commit pushed"},
+  {g:"g0", ws:"T", s:"todo", b:"15-min lock-in", p:"Agree the 12 decisions above, the demo time profile and the 6 demo beats.", a:"Everyone can say the one-liner"},
+
+  // G1
+  {g:"g1", ws:"C", s:"todo", b:"create_offer / cancel_offer", p:"Lender escrows USDC into the contract. Cancel returns it if untaken.", a:"Test: escrow in, cancel out, balances match"},
+  {g:"g1", ws:"C", s:"todo", flag:true, b:"take_offer (atomic DvP)", p:"Borrower collateral in + escrowed USDC out in one invocation. LTV check with NAV, reject stale NAV, reject wrong asset.", a:"Tests: success, LTV reject, stale reject"},
+  {g:"g1", ws:"C", s:"todo", flag:true, b:"repay", p:"Principal + interest from borrower; fee carved from interest; collateral back to borrower. Works with stale NAV.", a:"Test: lender gets exact offer terms, fee to treasury"},
+  {g:"g1", ws:"I", s:"todo", flag:true, b:"Mock SEP-40 oracle", p:"Full SEP-40 trait plus admin <code>set_price</code>. Deploy to testnet.", a:"lastprice(tBENJI) returns price + timestamp"},
+  {g:"g1", ws:"F", s:"todo", b:"Offers board", p:"List offers (getter or events): amount, term, APR, haircut, asset.", a:"Shows offers from testnet"},
+  {g:"g1", ws:"P", s:"todo", b:"Mentor round 1", p:"Ask: demand from BENJI/USDY holders for USDC credit? Would issuers whitelist a repo contract? Term vs perpetual? Ask permission to quote.", a:"One quotable line or a clear 'no' we learn from"},
+  {g:"g1", ws:"P", s:"todo", b:"Deck outline + numbers check", p:"9 slides: problem, insight, solution, demo, why Stellar, demand, competition, business model, roadmap/team. Re-verify every figure against sources.", a:"Outline agreed, every number has a source"},
+
+  // G2
+  {g:"g2", ws:"C", s:"todo", b:"check_margin / top_up", p:"Breach sets <code>margin_call_deadline</code> once; top_up adds collateral and clears it when healthy.", a:"Tests: breach, top-up clears, no double call"},
+  {g:"g2", ws:"C", s:"todo", flag:true, b:"default / liquidate", p:"Default after maturity + grace or missed margin deadline. Liquidate: whitelist, pays NAV × (1 − 2%), waterfall, collateral to liquidator, Shortfall event when short.", a:"Tests: made-whole case, surplus case, shortfall case"},
+  {g:"g2", ws:"I", s:"todo", b:"One-command deploy", p:"Build, deploy oracle + repo, init config with demo profile, authorize contract and liquidator on tBENJI, mint demo balances, write IDs to .env.", a:"Fresh deploy in under 5 min from clean state"},
+  {g:"g2", ws:"I", s:"todo", b:"Keeper script", p:"TS loop: calls <code>check_margin</code> on open repos every 10 s; NAV setter CLI.", a:"Margin call fires without manual calls"},
+  {g:"g2", ws:"F", s:"todo", b:"Create + take offer flows", p:"Lender form, borrower take with collateral preview (amount needed at current NAV and haircut).", a:"Both transactions succeed from the UI"},
+  {g:"g2", ws:"P", s:"todo", b:"README core", p:"Architecture diagram, state machine (Open → MarginCall → Repaid/Defaulted → Liquidated), contract method table, parameters.", a:"A dev outside the team could follow it"},
+
+  // G3
+  {g:"g3", ws:"F", s:"todo", b:"My positions", p:"Maturity countdown, health (collateral value vs debt / (1 − haircut)), status pill, repay and top-up buttons.", a:"Happy path end to end in the UI"},
+  {g:"g3", ws:"F", s:"todo", b:"Demo NAV control", p:"Admin slider writes oracle price. Shows feed timestamp.", a:"Moving the slider can trigger a margin call"},
+  {g:"g3", ws:"I", s:"todo", flag:true, b:"Read one real SEP-40 feed", p:"Same client function reads a live Reflector or RedStone testnet feed. Show it in UI/README as proof of drop-in compatibility.", a:"Live price shown next to mock NAV"},
+  {g:"g3", ws:"P", s:"todo", b:"Video script v1", p:"6 beats with exact screens, voiceover lines, and timings for the 1 day = 60 s profile. Target 2:30.", a:"Team reviewed the script"},
+  {g:"g3", ws:"P", s:"todo", b:"Submission answers draft", p:"One answer per rubric line: track alignment, user value, technical execution, innovation, progress, market, UX.", a:"Draft ready for edits"},
+
+  // G4
+  {g:"g4", ws:"F", s:"todo", b:"Liquidator view", p:"Defaulted repos, expected proceeds and spread, liquidate button. Fallback: run it from a script on camera.", a:"Liquidation from UI or script"},
+  {g:"g4", ws:"F", s:"todo", b:"Explorer links on every tx", p:"stellar.expert testnet links, especially the take_offer DvP tx.", a:"Click-through shows both legs in one tx"},
+  {g:"g4", ws:"C", s:"todo", b:"Hardening pass", p:"Auth on every mutating call, double-take guard, status checks per transition, TTL bumps.", a:"All tests green, no panics on bad input"},
+  {g:"g4", ws:"I", s:"todo", b:"Reset & seed script", p:"Wipes demo state and seeds 2 offers + 1 open repo near maturity.", a:"Demo restartable in 2 min"},
+  {g:"g4", ws:"P", s:"todo", b:"Deck v1", p:"Built in full, including the risk slide and the 'Why Stellar' map to Unlocked and Composed.", a:"Shared with team"},
+
+  // G5
+  {g:"g5", ws:"F", s:"todo", b:"UI polish + copy pass", p:"Empty states, loading states, number formatting, labels in plain language.", a:"Bohdan signs off"},
+  {g:"g5", ws:"P", s:"todo", b:"README final", p:"Run instructions, testnet contract IDs, built-during-hackathon log, risk section, how to swap in RedStone/Chainlink.", a:"Read through in incognito"},
+  {g:"g5", ws:"T", s:"todo", b:"Two full rehearsals", p:"Run all 6 beats on a fresh seed, twice. Note anything flaky and decide: fix or route around.", a:"Two clean runs"},
+
+  // G6
+  {g:"g6", ws:"P", s:"todo", b:"Record video", p:"Screen + voiceover, 2–3 min. Record a backup take. Upload unlisted.", a:"Link works logged out"},
+  {g:"g6", ws:"P", s:"todo", b:"Final deck + PDF", p:"Export PDF, check fonts and numbers.", a:"PDF attached"},
+  {g:"g6", ws:"P", s:"todo", b:"Submit by 11:30", p:"Repo, video, deck, answers. Verify every link in a private window.", a:"Confirmation received"}
+];
+
+const RISKS = [
+  {r:"Contract address can't be authorized on an AUTH_REQUIRED asset", s:"H", m:"Spike first. Fallback: flag-free tBENJI + in-contract whitelist, stated in README.", o:"Integration", t:"Sun 13:00"},
+  {r:"Composed track reads as 'mocks only'", s:"H", m:"Real Circle USDC + strict SEP-40 + one live Reflector/RedStone read. Name each tool in README and deck.", o:"Integration / Bohdan", t:"Sun 00:00"},
+  {r:"Liquidation shortfall (NAV moves > ~1% before liquidation)", s:"M", m:"Shortfall event + lender-takes-all rule; README explains buffer and insurance fund roadmap.", o:"Contracts", t:"Sun 19:30"},
+  {r:"Lender economics / negative carry challenge", s:"M", m:"Position for active traders/MMs; show carry math on one slide.", o:"Bohdan", t:"Mon 06:00"},
+  {r:"Demand doubt (tiny RWA pools = no demand?)", s:"M", m:"Mentor validation + Binance/Franklin, BUIDL, Aave Horizon evidence.", o:"Bohdan", t:"Sun 16:00"},
+  {r:"Testnet RPC / faucet flakiness during recording", s:"M", m:"Seed script, record early (08:00), keep backup take, explorer screenshots.", o:"Integration", t:"Mon 08:00"},
+  {r:"Time-compressed demo misses a beat on camera", s:"M", m:"Seed one repo near maturity; NAV slider to force margin call; rehearse twice.", o:"Frontend", t:"Mon 07:30"},
+  {r:"Unverified figures in deck (RWA totals, TVLs)", s:"L", m:"Every number on a slide has a source link in README.", o:"Bohdan", t:"Mon 06:00"},
+  {r:"Upload or submission platform problems", s:"L", m:"Submit at 11:30, not 11:58. Test the platform login on Sunday.", o:"Bohdan", t:"Sun 18:00"}
+];
+
+const CUTS = [
+  "Passkey smart wallet",
+  "Dutch auction (fixed NAV − 2% only)",
+  "Auto-roll",
+  "DeFindex lender vault / insurance fund",
+  "Liquidator UI (run liquidation from a script on camera)",
+  "cancel_offer in UI (keep in contract)",
+  "Real SEP-40 feed read (keep strict interface + README swap guide)",
+  "— line — Never cut: create → take (DvP) → margin call → repay → default → liquidate"
+];
+
+const SUBMIT = [
+  "Public GitHub repo, commits from Sun 25 Oct",
+  "README: problem, insight, architecture diagram, contract spec, state machine, parameters",
+  "Stellar features used, mapped to Unlocked and Composed",
+  "Run instructions + testnet contract IDs + explorer links",
+  "Built during the hackathon section",
+  "Risk section (shortfall, negative carry, issuer dependence)",
+  "Demo video 2–3 min, unlisted link tested logged out",
+  "Pitch deck PDF, ~9 slides",
+  "Submission answers, one per rubric line",
+  "Mentor quote (with permission) in deck and answers"
+];
+
+const QA = [
+  "Collateral drops 30%: what happens? (eligible assets, haircut, daily margin, shortfall rule)",
+  "Why not just redeem the fund? (T+1/T+2, exit from yield)",
+  "Where does the USDC come from? (marketplace of lenders; vault later)",
+  "Why term instead of perpetual? (no 24/7 liquidations on daily-NAV assets)",
+  "Why Stellar and not Aave Horizon on Ethereum? (assets live here, native auth, SAC, DvP)",
+  "Who whitelists the contract and liquidators? (issuer; partnerships needed)",
+  "Is the repo rate below fund yield? (no, target active users; show carry math)"
+];
+
+const LOG = [
+  {t:"Sun 11:58", x:"Board created. Weak spots integrated as day-zero decisions. All tasks to do."}
+];
+
+/* ======== RENDER ======== */
+const esc = s => s; // content is authored here, trusted
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2,"0");
+function fmtDur(ms){ if(ms<=0) return "passed"; const h=Math.floor(ms/3.6e6), m=Math.floor(ms%3.6e6/6e4); return `${h}h ${pad(m)}m`; }
+function tick(){
+  const now = new Date();
+  $("now").textContent = new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Lisbon",weekday:"short",hour:"2-digit",minute:"2-digit"}).format(now);
+  $("tgt").textContent = fmtDur(new Date("2026-10-26T11:30:00Z")-now);
+  $("ddl").textContent = fmtDur(new Date("2026-10-26T12:00:00Z")-now);
+  const g = GATES.find(g=>now>=new Date(g.start)&&now<new Date(g.end));
+  $("gnow").textContent = g ? g.g.split(" · ")[0] : (now<new Date(GATES[0].start)?"Pre-G0":"Closed");
+  document.querySelectorAll("#gates li").forEach(li=>li.classList.toggle("now", g && li.dataset.id===g.id));
+}
+
+$("updated").textContent = "Last status update: " + UPDATED;
+
+// progress
+$("progress").innerHTML = Object.entries(WS).map(([k,w])=>{
+  const ts = TASKS.filter(t=>t.ws===k && t.s!=="cut"); const n=ts.length||1;
+  const c = s => ts.filter(t=>t.s===s).length;
+  const d=c("done"), w2=c("doing"), b=c("blocked");
+  return `<div class="pcard"><div class="top"><span class="name">${w.name}</span><span class="mono">${d}/${ts.length}</span></div>
+  <div class="meter" aria-label="${d} done, ${w2} in progress, ${b} blocked of ${ts.length}"><i class="d" style="width:${d/n*100}%"></i><i class="w" style="width:${w2/n*100}%"></i><i class="b" style="width:${b/n*100}%"></i></div>
+  <span class="who">${w.who}</span></div>`;
+}).join("");
+
+// gates
+$("gates").innerHTML = GATES.map(g=>`<li data-id="${g.id}"><span class="t">${g.t}</span><span class="g">${g.g}</span><span class="c">${g.c}</span></li>`).join("");
+
+// decisions
+$("decisions").innerHTML = DECISIONS.map(d=>`<div class="dec"><div class="h"><b>${d.h}</b><span class="ws">${d.tag}</span></div><p>${d.p}</p></div>`).join("");
+
+// filters + blotter
+let filter = "all";
+try{ filter = localStorage.getItem("caravel-filter") || "all"; }catch(e){}
+const FILTERS = [["all","All"],...Object.entries(WS).map(([k,w])=>[k,w.name]),["open","Open only"]];
+function renderFilters(){
+  $("filters").innerHTML = FILTERS.map(([k,l])=>`<button type="button" id="f-${k}" data-f="${k}" aria-pressed="${filter===k}">${l}</button>`).join("");
+}
+function renderBlotter(){
+  $("blotter").innerHTML = GATES.map(g=>{
+    let ts = TASKS.filter(t=>t.g===g.id);
+    if(filter==="open") ts = ts.filter(t=>t.s!=="done"&&t.s!=="cut");
+    else if(filter!=="all") ts = ts.filter(t=>t.ws===filter);
+    if(!ts.length) return "";
+    const done = TASKS.filter(t=>t.g===g.id&&t.s==="done").length, all = TASKS.filter(t=>t.g===g.id).length;
+    return `<div class="gate-block"><div class="gh"><b>${g.g}</b><span class="mono">${g.t} · ${done}/${all} done</span></div>
+      ${ts.map(t=>`<div class="task${t.flag?" flag":""}"><div class="l"><span class="ws">${t.ws} · ${WS[t.ws].name}</span></div>
+      <div class="m"><b>${t.b}</b><p>${t.p}</p><span class="acc">${t.a}</span></div>
+      <div class="r"><span class="tag s-${t.s}">${t.s==="doing"?"in progress":t.s==="todo"?"to do":t.s}</span></div></div>`).join("")}
+    </div>`;
+  }).join("") || `<p class="lede">Nothing open in this view.</p>`;
+}
+$("filters").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  filter=b.dataset.f; try{localStorage.setItem("caravel-filter",filter)}catch(err){}
+  renderFilters(); renderBlotter();
+});
+renderFilters(); renderBlotter();
+
+// risks
+$("risks").innerHTML = RISKS.map(r=>`<tr><td>${r.r}</td><td><span class="sev ${r.s}">${r.s==="H"?"High":r.s==="M"?"Med":"Low"}</span></td><td>${r.m}</td><td>${r.o}</td><td class="mono">${r.t}</td></tr>`).join("");
+
+$("cuts").innerHTML = CUTS.map(c=>c.startsWith("—")?`<li style="list-style:none;margin-left:-20px;padding-top:6px;border-top:1px dashed var(--line);font-weight:600">${c.replace(/^— line — /,"")}</li>`:`<li>${c}</li>`).join("");
+$("submit").innerHTML = SUBMIT.map(s=>`<li>${s}</li>`).join("");
+$("qa").innerHTML = QA.map(s=>`<li>${s}</li>`).join("");
+$("log").innerHTML = LOG.slice().reverse().map(l=>`<div><span class="mono">${l.t}</span><span>${l.x}</span></div>`).join("");
+
+tick(); setInterval(tick, 30000);
+</script>
