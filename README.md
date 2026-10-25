@@ -18,11 +18,14 @@ Stellar holds billions in tokenized fund shares that no on-chain lender can hold
 
 | Fact | Value | Source |
 |---|---|---|
-| RWAs on Stellar (active market cap, 25 Oct) | **≈$2.4B** | [DefiLlama RWA](https://defillama.com/rwa/chain/stellar) |
-| Spiko on Stellar, the largest issuer (eurSAFO $1.47B, EUTBL $272M, USTBL $36M) | **≈$1.78B** | DefiLlama: [eurSAFO](https://defillama.com/rwa/asset/eurSAFO), [EUTBL](https://defillama.com/rwa/asset/EUTBL), [USTBL](https://defillama.com/rwa/asset/USTBL) |
-| Franklin BENJI on Stellar ($475M, [DefiLlama](https://defillama.com/rwa/asset/BENJI)) held by any smart contract | **0 contracts** | [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5) |
+| RWAs on Stellar (DefiLlama Active AUM) | **$3.03B** | [DefiLlama RWA](https://defillama.com/rwa/chain/stellar) |
+| Of which working in DeFi (DefiLlama DeFi Active TVL) | **$133K** | [DefiLlama RWA](https://defillama.com/rwa/chain/stellar) |
+| Spiko on Stellar, the largest issuer (9 funds) | **$1.97B** | [DefiLlama RWA](https://defillama.com/rwa/chain/stellar) |
+| Franklin BENJI on Stellar ($434.7M, [DefiLlama](https://defillama.com/rwa/asset/BENJI)) held by any smart contract | **0 contracts** | [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5) |
 | Spiko markets on Stellar lenders | XOXNO lists six, all disabled | [WhaleHub](https://whalehub.io/blog/spiko-stellar) |
 | Largest Stellar lender (Blend V2) | $132M, mostly XLM collateral, no allowlist hook | [gap analysis](docs/research/rwa-collateral-gap-analysis.md) |
+
+DefiLlama figures as of 25 Oct 2026. The per-asset breakdown and superseded figures are in [docs/numbers.md](docs/numbers.md).
 
 A holder of tokenized T-bills who needs dollars for a week has two options today: sell the fund shares and lose the yield, or leave Stellar. The assets are some of the safest on the network, and almost none of them can be borrowed against.
 

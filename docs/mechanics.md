@@ -340,7 +340,7 @@ Files disagree or are silent. Each item carries a suggested default. `[v2]` Item
 - **O23. Who may call `repay` and `top_up`.** *Default:* anyone may pay. Collateral and surplus always go to the recorded borrower.
 - **O24. Liquidator whitelist and issuer allowlist can diverge.** *Default:* `add_liquidator` checks `authorized(liquidator)` at add time; the issuer has a veto over the list (F-25).
 - **O25. Events list undefined.** *Default:* the set in §5.3.
-- **O26. Market-size figures disagree.** [INTRO.md:13](../INTRO.md#L13) says $4B; [collateral-research.md:19](collateral-research.md#L19) says $3.75B (rwa.xyz); the team's business notes (outside the repo) say ~$3B. *Default:* $3.75B with the rwa.xyz source.
+- **O26. Market-size figures disagree.** INTRO.md said $4B; [collateral-research.md](collateral-research.md) says $3.75B (rwa.xyz); the team's business notes (outside the repo) say ~$3B. **Resolved 25 Oct:** [numbers.md](numbers.md) owns market figures: $3.03B DefiLlama Active AUM, 25 Oct 2026; quote $3.75B only with "rwa.xyz" attached.
 
 ## 10. DECISIONS coverage
 
