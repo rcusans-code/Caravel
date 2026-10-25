@@ -93,7 +93,7 @@ It reads keys and `ORACLE_ID` from `~/.local/lib/caravel/.env` (the unit's `ENV_
 
 **Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
 
-The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main abffe73: margin calls, auto-repay, per-asset NAV staleness (DECISIONS #25), tSAFO collateral (issue #20), pause switches (#28), NAV sanity band (#26), exposure caps (#29) and the rule #20 change (a missed margin call clears at `default` when a fresh NAV shows the loan recovered) are live. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
+The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main 72dd78a (all eight attack fixes, a guardian key of its own): margin calls, auto-repay, per-asset NAV staleness (DECISIONS #25), tSAFO collateral (issue #20), pause switches (#28), NAV sanity band (#26), exposure caps (#29) and the rule #20 change (a missed margin call clears at `default` when a fresh NAV shows the loan recovered) are live. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
 
 ## `keeper/`: keeper + NAV setter

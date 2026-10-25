@@ -190,7 +190,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta`, and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 214 tests (14 oracle, 190 repo, 10 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 241 tests (14 oracle, 217 repo, 10 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -277,13 +277,13 @@ npm run build:public              # production build, demo signer off, secrets c
 <!-- testnet-ids:start: written by scripts/readme-ids.py from deployments/testnet.json; edits here are overwritten -->
 | Contract | ID |
 |---|---|
-| Repo (Caravel) | [`CDLNYC24T5VFUMRLHAJ4FKIKATJNWB6ZD4H4BV475B2Q4FI7SGX5T7ZL`](https://stellar.expert/explorer/testnet/contract/CDLNYC24T5VFUMRLHAJ4FKIKATJNWB6ZD4H4BV475B2Q4FI7SGX5T7ZL) |
-| Price feed (mock SEP-40) | [`CALCRP47RLEB3WLC5W2UOW6ZO65TB3UKVHJYDLTJU34QEAEXDFSRNKTO`](https://stellar.expert/explorer/testnet/contract/CALCRP47RLEB3WLC5W2UOW6ZO65TB3UKVHJYDLTJU34QEAEXDFSRNKTO) |
+| Repo (Caravel) | [`CDMLJAW5C6L5S66TMBHOOMJBR5PVWNJ7VABEMMOYSKH2ZJ7Y4AFZ5JEX`](https://stellar.expert/explorer/testnet/contract/CDMLJAW5C6L5S66TMBHOOMJBR5PVWNJ7VABEMMOYSKH2ZJ7Y4AFZ5JEX) |
+| Price feed (mock SEP-40) | [`CBMVY3VXOU3KZR7FFTIDNGQZ4T7HC7JQBGHAOQBCKHOHZOQNR6QHIIWW`](https://stellar.expert/explorer/testnet/contract/CBMVY3VXOU3KZR7FFTIDNGQZ4T7HC7JQBGHAOQBCKHOHZOQNR6QHIIWW) |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
 | tSAFO (Spiko-style mock, 5 decimals) | [`CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2`](https://stellar.expert/explorer/testnet/contract/CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2) |
 
-Deployed 2026-10-25T20:45:57Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
+Deployed 2026-10-25T22:59:48Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
 <!-- testnet-ids:end -->
 
 ## Risks and limits
