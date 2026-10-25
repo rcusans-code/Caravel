@@ -117,3 +117,97 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); 
 .cv-dvp__foot { grid-column: 1 / -1; display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); border-top: 1px solid var(--line); padding-top: var(--space-3); font-size: 13px; color: var(--ink-muted); }
 
 @media (prefers-reduced-motion: reduce) { .cv-btn { transition: none; } .cv-btn:active { transform: none; } .cv-ripple { display: none; } }
+
+/* ===== Motion: status elements =====
+   The one exception to "nothing loops": motion that mirrors an ongoing system state
+   (a live feed, a pending transaction). It is small, sits next to a word that says the
+   same thing, and stops the moment the state resolves. All of it rests with reduced motion. */
+
+/* Live indicator: live / stale / off */
+.cv-live { display: inline-flex; align-items: center; gap: 8px; font: 500 12px/16px var(--font-sans); letter-spacing: .04em; color: var(--ink-muted); white-space: nowrap; }
+.cv-live__dot { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--healthy); }
+.cv-live__dot::after { content: ""; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid var(--healthy); opacity: 0; animation: cv-live-ring 2.4s cubic-bezier(.2,.7,.3,1) infinite; }
+.cv-live--on { color: var(--healthy); }
+/* Live = a small wave flowing left to right, like water moving past */
+.cv-live--on .cv-live__dot { width: 20px; height: 10px; border-radius: 0; background: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22%, #000 78%, transparent 100%); }
+.cv-live--on .cv-live__dot::after { inset: 0; border: 0; border-radius: 0; opacity: 1; transform: none; background: var(--healthy);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M0 5 Q3 1.5 6 5 T12 5' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") 0 50% / 12px 10px repeat-x; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M0 5 Q3 1.5 6 5 T12 5' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") 0 50% / 12px 10px repeat-x;
+  animation: cv-live-wave 1.4s linear infinite; }
+@keyframes cv-live-wave { from { -webkit-mask-position: 0 50%; mask-position: 0 50%; } to { -webkit-mask-position: 12px 50%; mask-position: 12px 50%; } }
+.cv-live--stale { color: var(--margin); }
+.cv-live--stale .cv-live__dot { background: var(--margin); }
+.cv-live--stale .cv-live__dot::after { display: none; }
+.cv-live--off .cv-live__dot { background: transparent; border: 1.5px solid var(--ink-subtle); }
+.cv-live--off .cv-live__dot::after { display: none; }
+.cv-live__meta { font-family: var(--font-mono); letter-spacing: 0; color: var(--ink-subtle); }
+@keyframes cv-live-ring { 0% { transform: scale(1); opacity: .7; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
+
+/* Waiting: ellipsis after a verb ("Signing…") */
+.cv-wait { display: inline-flex; align-items: baseline; gap: 0; }
+.cv-wait__dots { display: inline-flex; gap: 2px; margin-left: 2px; }
+.cv-wait__dots i { width: 3px; height: 3px; background: currentColor; opacity: .25; animation: cv-wait-dot 1.2s steps(1, end) infinite; }
+.cv-wait__dots i:nth-child(2) { animation-delay: .2s; }
+.cv-wait__dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes cv-wait-dot { 0%, 100% { opacity: .25; } 30%, 60% { opacity: 1; } }
+
+/* Waiting: tide bar (indeterminate progress, square, on a ruled track) */
+.cv-tide { position: relative; height: 4px; margin-top: 14px; overflow: visible; clip-path: inset(-16px 0 0 0); background: var(--surface-sunken); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+/* A small pennant rides the leading edge of the moving block, streaming back as it sails */
+.cv-tide::after { content: ""; position: absolute; left: 0; bottom: 100%; width: 32%; height: 13px; pointer-events: none;
+  background:
+    linear-gradient(var(--ink), var(--ink)) right 0 bottom 0 / 1.5px 13px no-repeat,
+    linear-gradient(to bottom right, transparent 50%, var(--brand) 50%) right 1.5px top 0 / 10px 3.5px no-repeat,
+    linear-gradient(to top right, transparent 50%, var(--brand) 50%) right 1.5px top 3.5px / 10px 3.5px no-repeat;
+  transform-origin: right bottom;
+  animation: cv-tide 1.6s cubic-bezier(.45,0,.25,1) infinite; }
+.cv-tide::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 32%; background: var(--primary); animation: cv-tide 1.6s cubic-bezier(.45,0,.25,1) infinite; }
+.cv-tide--gold::before { background: var(--gold); }
+@keyframes cv-tide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+/* A busy button carries the tide along its bottom edge */
+.cv-btn[aria-busy="true"]::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 34%; background: currentColor; opacity: .7; animation: cv-tide 1.4s cubic-bezier(.45,0,.25,1) infinite; }
+
+/* Transaction progress: Sign → Submit → Settle */
+.cv-txprog { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--steps, 3), minmax(0, 1fr)); gap: 0; }
+.cv-txprog__step { position: relative; display: grid; gap: 4px; padding-top: 14px; font-size: 13px; line-height: 18px; color: var(--ink-subtle); }
+.cv-txprog__step::before { content: ""; position: absolute; top: 4px; left: 0; right: 0; height: 2px; background: var(--line); }
+.cv-txprog__step::after { content: ""; position: absolute; top: 0; left: 0; width: 10px; height: 10px; box-sizing: border-box; background: var(--surface); border: 1.5px solid var(--line-control); }
+.cv-txprog__label { font-weight: 600; }
+.cv-txprog__meta { font: 400 12px/16px var(--font-mono); }
+.cv-txprog__step.is-done { color: var(--ink-muted); }
+.cv-txprog__step.is-done::before { background: var(--primary); }
+.cv-txprog__step.is-done::after { background: var(--primary); border-color: var(--primary); }
+.cv-txprog__step.is-active { color: var(--ink); }
+.cv-txprog__step.is-active::before { background: var(--line); background-image: linear-gradient(90deg, var(--primary), var(--primary)); background-size: 32% 100%; background-repeat: no-repeat; animation: cv-txprog-run 1.6s cubic-bezier(.45,0,.25,1) infinite; }
+.cv-txprog__step.is-active::after { border-color: var(--primary); background: var(--primary-soft); }
+.cv-txprog__step.is-failed { color: var(--defaulted); }
+.cv-txprog__step.is-failed::before { background: var(--defaulted); }
+.cv-txprog__step.is-failed::after { border-color: var(--defaulted); background: var(--defaulted-soft); }
+@keyframes cv-txprog-run { 0% { background-position: -50% 0; } 100% { background-position: 150% 0; } }
+
+/* Skeleton: placeholder blocks while figures load, with a slow paper sheen */
+.cv-skel { display: block; height: 14px; background: var(--surface-sunken); background-image: linear-gradient(90deg, transparent 0, rgba(255,255,255,.55) 50%, transparent 100%); background-size: 40% 100%; background-repeat: no-repeat; animation: cv-skel 1.8s linear infinite; }
+[data-theme="dark"] .cv-skel { background-image: linear-gradient(90deg, transparent 0, rgba(255,255,255,.06) 50%, transparent 100%); }
+.cv-skel--figure { height: 28px; width: 60%; }
+.cv-skel--line { width: 100%; }
+.cv-skel--short { width: 40%; }
+@keyframes cv-skel { 0% { background-position: -40% 0; } 100% { background-position: 140% 0; } }
+
+/* Value flash: a figure that just changed glows gold once, then rests */
+.cv-flash { animation: cv-flash 1.2s cubic-bezier(.2,.7,.3,1) 1; }
+.cv-flash--up { --flash: var(--healthy-soft); }
+.cv-flash--down { --flash: var(--defaulted-soft); }
+@keyframes cv-flash { 0% { background-color: var(--flash, var(--gold-soft)); box-shadow: 0 0 0 3px var(--flash, var(--gold-soft)); } 100% { background-color: transparent; box-shadow: 0 0 0 3px transparent; } }
+
+/* Seal stamp: a confirmation pressed once, like a wax seal on a settled ticket */
+.cv-stamp { display: inline-grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; border: 2px solid var(--brand); color: var(--brand); font: 600 11px/1.2 var(--font-sans); letter-spacing: .14em; text-transform: uppercase; text-align: center; box-shadow: inset 0 0 0 4px var(--surface), inset 0 0 0 5px var(--brand); transform: rotate(-8deg); animation: cv-stamp .5s cubic-bezier(.2,.7,.3,1) 1 both; }
+.cv-stamp b { display: block; font: 500 18px/1 var(--font-display); letter-spacing: 0; text-transform: none; }
+.cv-stamp--repaid { border-color: var(--repaid); color: var(--repaid); box-shadow: inset 0 0 0 4px var(--surface), inset 0 0 0 5px var(--repaid); }
+@keyframes cv-stamp { 0% { transform: scale(1.6) rotate(-14deg); opacity: 0; } 60% { transform: scale(.94) rotate(-7deg); opacity: 1; } 100% { transform: scale(1) rotate(-8deg); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-live__dot::after, .cv-wait__dots i, .cv-tide::before, .cv-tide::after, .cv-btn[aria-busy="true"]::after, .cv-txprog__step.is-active::before, .cv-skel, .cv-flash, .cv-stamp { animation: none !important; }
+  .cv-wait__dots i { opacity: 1; }
+  .cv-tide::before { width: 100%; opacity: .35; }
+  .cv-tide::after { transform: none; left: auto; right: 0; width: 12px; }
+  .cv-txprog__step.is-active::before { background-size: 50% 100%; background-position: 0 0; }
+}

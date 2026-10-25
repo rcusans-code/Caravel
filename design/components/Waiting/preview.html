@@ -1,0 +1,16 @@
+<!-- @dsCard group="Motion" height=190 subtitle="Pending work: ellipsis on a verb, the tide bar, and a busy button" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div class="cv-stack" style="max-width:420px;gap:18px">
+  <div class="cv-row" style="gap:24px">
+    <span class="cv-wait body">Signing<span class="cv-wait__dots" aria-hidden="true"><i></i><i></i><i></i></span></span>
+    <span class="cv-wait body" style="color:var(--ink-muted)">Waiting for NAV<span class="cv-wait__dots" aria-hidden="true"><i></i><i></i><i></i></span></span>
+  </div>
+  <div class="cv-stack" style="gap:6px"><span class="caption" style="color:var(--ink-muted);text-transform:uppercase">Submitting to Stellar</span><div class="cv-tide" role="progressbar" aria-label="Submitting"></div></div>
+  <div class="cv-stack" style="gap:6px"><span class="caption" style="color:var(--ink-muted);text-transform:uppercase">Loading offers</span><div class="cv-tide cv-tide--gold" role="progressbar" aria-label="Loading offers"></div></div>
+  <div class="cv-row"><button class="cv-btn cv-btn--primary" type="button" aria-busy="true">Taking offer</button><button class="cv-btn cv-btn--secondary" type="button" aria-busy="true">Repaying</button></div>
+</div>
+</body>
+</html>
