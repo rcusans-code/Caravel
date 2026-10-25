@@ -5,7 +5,7 @@ Tick boxes right in GitHub (edit file → change `[ ]` to `[x]`), or mark in-pro
 
 Owners: **C** = Contracts (Soroban dev) · **I** = Integration (assets, oracle, keeper, deploy) · **F** = Frontend · **P** = Pitch & polish (Bohdan) · **T** = whole team
 
-Read [DECISIONS.md](DECISIONS.md) before writing code. Tasks marked ⚠️ implement one of those fixes.
+Per-dev task lists and handoff times: [DEVS.md](DEVS.md). Read [DECISIONS.md](DECISIONS.md) before writing code. Tasks marked ⚠️ implement one of those fixes.
 
 ---
 
