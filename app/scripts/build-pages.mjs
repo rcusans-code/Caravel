@@ -1,12 +1,15 @@
 // Assembles the one public site deployed to Cloudflare Pages (project caravel-repo):
 //   /      the landing page (../site, copied as is)
 //   /app/  the web app (app/dist, built with base "/app/")
-// and points the landing's demo CTAs at /app/. site/index.html is re-exported from the
-// design canvas, so the links are rewritten here at build time instead of hand-edited there.
+// points the landing's demo CTAs at /app/, and adds the landing's live-deals script
+// (src/landing.ts: ticker and hero card read from the testnet book). site/index.html is
+// re-exported from the design canvas, so both are added here at build time instead of
+// hand-edited there.
 // Run after `npm run build:public`; `npm run build:pages` runs both.
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "vite";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(appDir, "..");
@@ -34,10 +37,34 @@ html = html.replace(/<a href="#[^"]*"([^>]*)>([^<]+)<\/a>/g, (whole, attrs, text
   hits[label] += 1;
   return `<a href="${APP_PATH}"${attrs}>${text}</a>`;
 });
+
+// Live deals: one IIFE bundle (book reader + stellar-sdk) next to the landing's assets.
+// The demo signer is never part of it: __DEMO_KEYS__ is fixed to null.
+const bundle = await build({
+  configFile: false,
+  root: appDir,
+  logLevel: "warn",
+  publicDir: false,
+  define: { __DEMO_KEYS__: "null", global: "globalThis" },
+  build: {
+    outDir: out,
+    emptyOutDir: false,
+    copyPublicDir: false,
+    chunkSizeWarningLimit: 4096,
+    rollupOptions: {
+      input: path.join(appDir, "src", "landing.ts"),
+      output: { format: "iife", entryFileNames: "assets/live-deals-[hash].js" },
+    },
+  },
+});
+const liveJs = [bundle].flat()[0].output.find((o) => o.type === "chunk" && o.isEntry)?.fileName;
+if (!liveJs) throw new Error("build-pages: live-deals bundle not emitted");
+if (!html.includes("</body>")) throw new Error("build-pages: no </body> in site/index.html to add the live-deals script");
+html = html.replace("</body>", `<script src="${liveJs}" defer></script>\n</body>`);
 writeFileSync(indexFile, html);
 
 const missing = CTAS.filter((t) => hits[t] === 0);
 const total = Object.values(hits).reduce((a, b) => a + b, 0);
 if (total === 0) throw new Error("build-pages: no landing CTA links to the app; check the labels in CTAS against site/index.html");
 if (missing.length) console.warn(`build-pages: warning, CTA text not found in site/index.html: ${missing.join(", ")}`);
-console.log(`build-pages: ${path.relative(repoRoot, out)}/ = site/ at /, app/dist at ${APP_PATH}; ${total} landing links -> ${APP_PATH}`);
+console.log(`build-pages: ${path.relative(repoRoot, out)}/ = site/ at /, app/dist at ${APP_PATH}; ${total} landing links -> ${APP_PATH}; live deals ${liveJs}`);
