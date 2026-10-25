@@ -1,0 +1,51 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Caravel</title>
+<style>
+  html, body { margin:0; height:100%; padding:0; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; width:960px; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .medici { fill:var(--primary); }
+  .russet { fill:var(--brand); }
+  .ocher { fill:var(--gold); }
+  .ecru { fill:var(--wada-ecru); }
+  .blk { rx:var(--radius); }
+  .rule { stroke:var(--line-strong); stroke-width:1; }
+  .words { position:absolute; left:var(--space-8); bottom:var(--space-8); max-width:440px; }
+  .name { margin:0; font-family:var(--font-display); font-size:112px; line-height:.92; font-weight:500; letter-spacing:-.015em; color:var(--brand); }
+  .tag { margin:var(--space-3) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      primary (Medici) 144x264 bled off the top · brand (russet) 112x112 · wada-ecru 176x96 · gold (ocher) 112x48; all four Wada No. 249 colours, primary largest because it carries every action
+  arrangement one tall slab with satellites, stepped down like a ledger column; ecru bleeds off the right edge
+  pattern     editorial row: "borders, not shadows" and the serif display face, so four hairline rules in line-strong cross the blocks like the ruled lines of a settlement ledger
+  scales      gaps space-6 (24) and space-8 (32), block sides multiples of space-4 (16), corners radius (0, square, like every Caravel element), rules 1px at a space-12 (48) baseline pitch
+-->
+  <rect class="blk medici" x="32" y="-16" width="144" height="264"/>
+  <rect class="blk russet" x="200" y="56" width="112" height="112"/>
+  <rect class="blk ecru" x="336" y="24" width="176" height="96"/>
+  <rect class="blk ocher" x="336" y="144" width="112" height="48"/>
+  <rect class="blk ecru" x="200" y="192" width="112" height="64"/>
+  <line class="rule" x1="0" y1="72" x2="480" y2="72"/>
+  <line class="rule" x1="0" y1="120" x2="480" y2="120"/>
+  <line class="rule" x1="0" y1="168" x2="480" y2="168"/>
+  <line class="rule" x1="0" y1="216" x2="480" y2="216"/>
+</svg>
+</div>
+<div class="words">
+  <h1 class="name">Caravel</h1>
+  <p class="tag">Term repo for tokenized Treasuries, settled on Stellar.</p>
+</div>
+</div>
+</body>
+</html>

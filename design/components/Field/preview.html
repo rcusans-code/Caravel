@@ -1,0 +1,20 @@
+<!-- @dsCard group="Inputs" height=200 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div class="cv-stack">
+  <label class="cv-field">
+    <span class="cv-field__label">Amount to lend</span>
+    <span class="cv-field__control"><input inputmode="decimal" value="1,000.00" aria-describedby="h1"><span class="cv-field__suffix">USDC</span></span>
+    <span class="cv-field__hint" id="h1">Escrowed in the contract until a borrower takes the offer.</span>
+  </label>
+  <label class="cv-field cv-field--error">
+    <span class="cv-field__label">Collateral</span>
+    <span class="cv-field__control"><input inputmode="decimal" value="900.00" aria-invalid="true" aria-describedby="h2"><span class="cv-field__suffix">tBENJI</span></span>
+    <span class="cv-field__hint" id="h2">Needs at least 1,000.00 tBENJI at NAV 1.0004 and a 3.0% haircut.</span>
+  </label>
+</div>
+<script>/* static preview */</script>
+</body>
+</html>
