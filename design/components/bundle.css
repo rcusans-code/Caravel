@@ -26,8 +26,14 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); 
 .cv-btn--danger:hover { background: var(--defaulted-soft); }
 .cv-btn--sm { height: 32px; padding: 0 var(--space-3); font-size: 13px; }
 .cv-btn[aria-busy="true"] { opacity: .7; cursor: progress; }
+/* Disabled: faded, flat (no second layer), no press or hover change. Say why next to the button (title or hint). */
+.cv-btn:disabled, .cv-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; box-shadow: none; transform: none; }
+.cv-btn--primary:disabled:hover { background: var(--primary); }
+.cv-btn--secondary:disabled:hover, .cv-btn--danger:disabled:hover { background: var(--surface); }
+.cv-btn--quiet:disabled:hover { background: transparent; }
 /* Press: the button sinks into its second layer */
 .cv-btn--primary:active, .cv-btn--secondary:active, .cv-btn--danger:active { transform: translate(var(--frame-offset), var(--frame-offset)); box-shadow: none; }
+.cv-btn:disabled:active, .cv-btn[aria-disabled="true"]:active { transform: none; }
 /* Water-drop ripple, spawned at the pointer by bundle.js */
 .cv-ripple { position: absolute; left: var(--rx, 50%); top: var(--ry, 50%); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; pointer-events: none; z-index: -1; }
 .cv-ripple--drop { background: currentColor; opacity: .28; animation: cv-drop 560ms cubic-bezier(.2,.7,.3,1) forwards; }

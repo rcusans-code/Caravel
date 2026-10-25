@@ -904,7 +904,9 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
   // Closed = settled with nothing left to do (Repaid, Liquidated). Defaulted stays: the lender is still waiting on liquidation.
   const closedCount = mine.filter(isClosed).length;
   const shown = showClosed ? mine : mine.filter((r) => !isClosed(r));
-  const firstRepayable = mine.find((r) => live(r) && r.borrower === signer?.address)?.id;
+  // One primary button per view: a margin call's Top up outranks every Repay.
+  const anyMarginCall = mine.some((r) => r.status === "MarginCall" && r.borrower === signer?.address);
+  const firstRepayable = anyMarginCall ? undefined : mine.find((r) => live(r) && r.borrower === signer?.address)?.id;
   const showDesk = !!signer && (liquidatorOk || roleOf(signer.address) === "liquidator");
 
   return (
@@ -1139,7 +1141,9 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           {`Collateral cover is ${cover !== null ? cover.toFixed(1) : "—"}%. `}
           {side === "borrowed"
             ? topUpNeed !== null && topUpNeed > 0n
-              ? `Add ${fmtAmount(topUpNeed)} tBENJI${inMarginCall && toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
+              ? inMarginCall
+                ? `Add ${fmtAmount(topUpNeed)} tBENJI${toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
+                : `Add ${fmtAmount(topUpNeed)} tBENJI now to stay clear of a margin call.`
               : "Repay, or wait for the next NAV."
             : inMarginCall
               ? "The borrower has until the deadline to add collateral; after it, anyone can default the repo."
@@ -1237,7 +1241,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           />
           <button
             type="submit"
-            className="cv-btn cv-btn--primary"
+            className={`cv-btn ${inMarginCall ? "cv-btn--primary" : "cv-btn--secondary"}`}
             disabled={!!busy || !!topUpErr || !!topUpShort || !ctx.approved}
             title={ctx.approved ? "" : ACCESS_LIMITED}
             data-action="top-up"
