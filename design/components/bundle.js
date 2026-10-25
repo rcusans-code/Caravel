@@ -1,5 +1,6 @@
 /* @ds-bundle: {"format":4,"namespace":"Caravel","components":[]} */
 /* Caravel motion helpers. Classic script, no imports, no network.
+   Exposes Caravel.ripple, Caravel.flash (value changed), Caravel.stamp (replay a seal), Caravel.live (set a live indicator).
    Buttons (.cv-btn) release a water-drop ripple from the pointer on press:
    a filled drop and a thinner ring that follows it outward to the button's edges. */
 (function () {
@@ -38,5 +39,31 @@
     if (btn && btn.classList && btn.classList.contains("cv-btn")) ripple(btn);
   }, true);
 
-  window.Caravel = { ripple: ripple };
+  /* Value flash: call when a figure's value changes. dir: "up" | "down" | undefined (gold). */
+  function flash(el, dir) {
+    if (!el || (reduced && reduced.matches)) return;
+    el.classList.remove("cv-flash", "cv-flash--up", "cv-flash--down");
+    void el.offsetWidth;
+    el.classList.add("cv-flash");
+    if (dir === "up" || dir === "down") el.classList.add("cv-flash--" + dir);
+  }
+
+  /* Seal stamp: replay the press on an existing .cv-stamp. */
+  function stamp(el) {
+    if (!el || (reduced && reduced.matches)) return;
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = "";
+  }
+
+  /* Live indicator: set "on" | "stale" | "off" and the visible word with it. */
+  function live(el, state, word) {
+    if (!el) return;
+    el.classList.remove("cv-live--on", "cv-live--stale", "cv-live--off");
+    el.classList.add("cv-live--" + state);
+    var w = el.querySelector(".cv-live__word");
+    if (w && word) w.textContent = word;
+  }
+
+  window.Caravel = { ripple: ripple, flash: flash, stamp: stamp, live: live };
 })();

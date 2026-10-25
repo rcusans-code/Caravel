@@ -1,0 +1,23 @@
+# systemd --user unit for scripts/nav-keeper.sh. Install (see scripts/README.md):
+#   install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh
+#   install -Dm644 scripts/caravel-nav-keeper.service ~/.config/systemd/user/caravel-nav-keeper.service
+#   systemctl --user daemon-reload && systemctl --user enable --now caravel-nav-keeper
+# The script is copied out of the checkout so switching branches cannot break
+# the service; it still reads keys and ORACLE_ID from the checkout's .env.
+[Unit]
+Description=Caravel NAV keeper (tBENJI set_price on the testnet mock oracle every 60 s)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=ENV_FILE=%h/src/caravel/.env
+Environment=STELLAR=%h/.local/bin/stellar
+Environment=INTERVAL=60
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/lib/caravel/nav-keeper.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
