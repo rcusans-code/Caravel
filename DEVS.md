@@ -14,6 +14,34 @@ Deadline: submit **Mon 11:30**, feature freeze **Mon 08:00**.
 
 ---
 
+## Status at Sun 14:05, and what each of you does right now
+
+**Done on `main`**
+- AUTH_REQUIRED spike: **GO**. The issuer can authorize a contract on tBENJI, and the freeze works (`spikes/auth/README.md`).
+- 5 testnet accounts funded; tBENJI and USDC contract IDs in `spikes/auth/README.md`; burner keys in `.env`.
+- Contract skeleton: types, storage, events, errors. Constructor, views, `set_asset` and `set_liquidator` work.
+- `math.rs`: debt, LTV, margin trigger, required collateral, liquidation waterfall with fee and shortfall.
+- Decisions #1–22 locked. **33 tests pass** (`cargo test`).
+
+**Not started**
+- The 8 contract flows are still stubs (`create_offer` … `liquidate`).
+- No oracle, no deploy script, no keeper, no frontend. No other branches have been pushed.
+- G0 left open: frontend scaffold (was due 13:00) and the 15-minute team lock-in.
+
+Nobody needs to wait for anybody. Start these now, in parallel:
+
+| Dev | Right now (until ~16:00) | Then |
+|---|---|---|
+| **Denys** | 1. Add `oracle.rs`: a SEP-40 client (`lastprice(asset) → Option<PriceData>`, `decimals()`) plus a test-only mock oracle, and push it within 30 min so Misha's oracle matches it. 2. `create_offer` + `cancel_offer` (no NAV needed). 3. `take_offer`. 4. `repay`. | G2 flows |
+| **Misha** | 1. Mock oracle as a second contract in `contracts/oracle` (workspace member), matching Denys's `oracle.rs` interface, with `set_price` and tests. 2. **Deploy script v0 against today's skeleton.** The constructor, `set_asset` and `set_liquidator` already work, so you can do the full setup now: deploy oracle + repo, set tBENJI, whitelist the liquidator, have the issuer `set_authorized(repo, true)` on tBENJI, and write the IDs to `.env`. After that, each new flow is just a redeploy. 3. TS bindings for both contracts into the app. | Keeper, seed |
+| **Bohdan P.** | 1. Scaffold the app in `app/`: stellar-sdk, Freighter, testnet, design system. 2. Balances for USDC + tBENJI using the contract IDs in `spikes/auth/README.md`. 3. Role switcher using the public keys of the 5 demo accounts. 4. Offers board on **mock data** shaped like `Offer` in `types.rs`. | Swap in the bindings at 16:30 |
+
+**One sync point at ~14:30:** Denys and Misha agree on the oracle interface, meaning `PriceData { price: i128, timestamp: u64 }` and the `Asset` enum from `types.rs`, so the mock and Reflector stay interchangeable (#2, #22).
+
+**Bohdan C.** runs the 15-minute lock-in at the next status check: the one-liner, the 6 demo beats, and the demo time profile.
+
+---
+
 ## Handoffs: the only times you block each other
 
 | When | From → To | What | Why it matters |
