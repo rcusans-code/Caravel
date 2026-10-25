@@ -205,9 +205,10 @@ a { color: var(--primary); }
 a:hover { color: var(--primary-hover); }
 
 /* Header: network left, brand centred, info + account right. */
-.app-header__inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
-.app-header__inner > .app-net { justify-self: start; }
-.app-header__inner > .app-brand { justify-self: center; }
+.app-header__inner { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; column-gap: var(--space-3); min-height: 0; padding-top: 6px; padding-bottom: 6px; }
+.app-header__inner > .app-brand { justify-self: start; }
+/* Sits on the wordmark's baseline, to the right of the logo. */
+.app-header__inner > .app-net { justify-self: start; align-self: end; margin-bottom: 14px; line-height: 1; }
 .app-header__end { justify-self: end; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .app-header__end .app-notify, .app-header__end .app-header__account { margin-left: 0; }
 @media (max-width: 760px) {

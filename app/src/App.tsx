@@ -204,10 +204,10 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-wrap app-header__inner">
-          <span className="caption app-net">Stellar testnet</span>
           <a href="/" className="app-brand" aria-label="Caravel home">
             <img src={lockup} alt="Caravel" height={44} />
           </a>
+          <span className="caption app-net">Stellar testnet</span>
           <div className="app-header__end">
           {config && <DemoInfo config={config} />}
           <div className="app-header__account">
