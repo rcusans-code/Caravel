@@ -1,7 +1,7 @@
 #![no_std]
 
 //! Testnet stand-in for a Spiko fund token (tSAFO), modelled on
-//! `spiko-tech/stellar-contracts` `contracts/token` (DECISIONS.md #24).
+//! `spiko-tech/stellar-contracts` `contracts/token` (DECISIONS.md #25).
 //!
 //! What it keeps from the real token, because Caravel depends on it:
 //! - a custom Soroban token, not a SAC: no trustlines, no `AUTH_REQUIRED`;

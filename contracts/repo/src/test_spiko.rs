@@ -1,4 +1,4 @@
-//! Spiko-style collateral (tSAFO, issue #20, DECISIONS.md #24): the full repo
+//! Spiko-style collateral (tSAFO, issue #20, DECISIONS.md #24, #25): the full repo
 //! flow on `caravel-spiko-mock`, a custom Soroban token with an allowlist on
 //! every transfer, no `approve` / `transfer_from`, an issuer pause and
 //! 5 decimals like Spiko's mainnet tokens.

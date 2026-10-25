@@ -6,6 +6,7 @@ import {
   Contract,
   Operation,
   TransactionBuilder,
+  contract as sdkContract,
   rpc,
   scValToNative,
   xdr,
@@ -110,11 +111,10 @@ const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWOR
 const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
 const oracleAsset = (sac: string) => ({ tag: "Stellar" as const, values: [sac] as const });
 
-// Read-only call on a contract without TS bindings (the tSAFO mock). The SDK's
-// own read-only simulations use this all-zero source account too.
-const NULL_ACCOUNT = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+// Read-only call on a contract without TS bindings (the tSAFO mock), from the
+// all-zero source account the SDK's own read-only simulations use.
 async function simulateView<T>(contractId: string, method: string, ...args: xdr.ScVal[]): Promise<T> {
-  const tx = new TransactionBuilder(new Account(NULL_ACCOUNT, "0"), { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+  const tx = new TransactionBuilder(new Account(sdkContract.NULL_ACCOUNT, "0"), { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
     .addOperation(new Contract(contractId).call(method, ...args))
     .setTimeout(30)
     .build();
