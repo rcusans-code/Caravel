@@ -91,4 +91,20 @@ What it means for Caravel:
 1. **Gating is not our edge.** XOXNO already supports an issuer-allowlisted fund token in tested code: the pool, holders and liquidators must all be allowlisted ([liqvid_rwa_collateral.rs](https://github.com/XOXNO/rs-lending-xlm/blob/30d59905/tests/test-harness/tests/controller/liqvid_rwa_collateral.rs)). Its six Spiko markets are configured but `"enabled": false` on mainnet ([markets.json#L425](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/mainnet/markets.json#L425)), and no public reason was found.
 2. **The barrier is issuer approval, not code.** Writing the whitelist check is cheap. What is hard is getting Franklin or Spiko to approve the contract and every liquidator: legal and onboarding work for each issuer.
 3. **Our design keeps the approval small.** Lenders hold only USDC and never the fund share, so they need no KYC. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
-4. **Pitch line:** "gated *and* on the fund's clock". Fixed term, fixed rate and NAV-timed margin calls are what no live lender offers. Gating alone is not.
+4. **Pitch line:** "gated *and* on the fund's clock". Fixed term and NAV-timed margin calls are what no live lender offers. Gating alone is not. The edge is the fixed term, not the fixed rate: see §8.
+
+## 8. Our edge: a term that matches redemption time, not a fixed rate (supports the Innovation pitch)
+
+**Pitch line:** "Fixed-term loans are the only safe way to lend against collateral that takes days to redeem."
+
+Why rate certainty alone is a weak pitch:
+- DeFi borrowers have mostly passed on fixed rates. Yield Protocol closed in Dec 2023, citing lack of demand and regulatory pressure ([CoinTurk](https://en.coin-turk.com/yield-protocol-a-defi-project-shuts-down-due-to-regulatory-pressure-and-lack-of-demand/)). Aave dropped its stable-rate mode and moved every position to variable after a 2023 bug report ([Aave governance](https://governance.aave.com/t/bgd-full-deprecation-of-stable-rate/16473)).
+- On a 7–30 day loan, a floating rate seldom moves much unless the pool runs low on cash, so a locked rate is worth little.
+
+Why a fixed term is the real edge:
+- Variable-rate pools such as XOXNO and Blend let suppliers withdraw at any time. The rate rises with utilization (borrowed share of supply) to keep cash in the pool ([XOXNO rate model](https://xoxno.com/docs/stellar-lending/dev/interest-and-revenue)). That only works if seized collateral can be sold at any hour.
+- BENJI and Spiko can't be sold that way. They redeem only through the issuer, to approved holders, on business days (§1, §6).
+- A fixed term means lenders agree up front to wait. That leaves time to redeem through the issuer at NAV instead of dumping the collateral on a thin DEX.
+- Repo, the institutional form of this loan, already works this way, so the funds' existing holders know it.
+
+The fixed rate is a by-product of the fixed term, not a selling point by itself.
