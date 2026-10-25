@@ -27,10 +27,13 @@ Weak spots from the project brief, turned into day-zero decisions. Changing thes
 | 21 | **`take_offer` computes the collateral, no amount argument** (#16): `required_collateral(debt, nav, dec, haircut)`, rounded up. The borrower's auth on the SAC transfer pins the exact amount. | If NAV moves between simulate and submit, the tx fails instead of overcharging. |
 | 22 | **Asset configs live in instance storage**, keyed by token address, with a SEP-40 `Asset` (`Stellar(Address)` / `Other(Symbol)`) for the oracle. Missing or disabled asset → `AssetNotSupported` on `create_offer`; live repos unaffected. | Few assets, shared instance TTL; same asset shape as Reflector so the mock and live feeds accept it. |
 | 23 | **`take_offer` re-checks the asset.** An offer whose collateral asset was disabled (or removed) after `create_offer` cannot be taken: `AssetNotSupported`. The lender can still `cancel_offer`; live repos are unaffected (#22). | Admin stops new risk on an asset in one call, including offers already on the board. |
+| 24 | **Compliance-agnostic core.** The repo contract moves collateral only through the SEP-41 `token::Client` (`transfer` with the payer's auth; no `approve` / `transfer_from`, no SAC admin calls). Who may hold a token stays the issuer's call: BENJI admits the contract and liquidators with authorized trustlines (AUTH_REQUIRED), Spiko with its own Soroban permission-manager / smart-account contracts. No issuer-specific compliance code in the core. | Spiko, the largest RWA issuer on Stellar, does not rely only on classic authorized trustlines. One code path serves every issuer. |
+| 25 | **NAV staleness is per asset.** `AssetConfig.max_nav_age_secs` replaces `Config.max_nav_age_secs`. Production ≈ 96h (345,600 s) so a NAV published Friday still covers the weekend; demo 180 s. Stale NAV blocks `take_offer` and `check_margin`. It never blocks `repay` or `top_up`. Snapshot nothing on the repo; the live asset value applies. | A 26h window breaks every weekend: on Saturday nobody could open a repo or check margin. Funds publish on business days. |
+| 26 | **Launch haircuts (7-day term):** USTBL, BENJI, USDY 3%; EUTBL ≈5% (EUR/USD against a USDC loan); CETES 8–10%; SAFO and other swap-based funds only after due diligence (not enabled). All above the 2% liquidation discount (#18). Demo runs tBENJI at 3%. | Replaces the open tier proposal in collateral-research.md §3. |
 
 ## Open
 
-- None.
+- **`liquidate` on a stale NAV (#6 vs #25).** #25 lists only new repos and margin calls as blocked. Liquidation pays NAV × (1 − discount), so it still needs a fresh price; proposal: keep `liquidate` blocked on stale NAV (as today). Den + Misha decide.
 
 ## Risk register
 
@@ -44,4 +47,6 @@ Weak spots from the project brief, turned into day-zero decisions. Changing thes
 | Testnet RPC/faucet flaky during recording | Med | Seed script, record at 08:00, backup take | I | Mon 08:00 |
 | Demo misses a beat on camera | Med | Seed repo near maturity; NAV slider; 2 rehearsals | F | Mon 07:30 |
 | Unverified figures in deck | Low | Every number has a source link in README | P | Mon 06:00 |
+| Issuer compliance differs (Spiko contracts vs BENJI trustlines) | Med | #24: SEP-41 only; spike a Spiko-style token without `approve` against `take_offer` | I | Sun 23:00 |
+| Weekend NAV gap blocks the protocol | Med | #25 per-asset staleness (≈96h) | I / C | Sun 22:00 |
 | Submission platform issues | Low | Submit 11:30; test login Sunday | P | Sun 18:00 |

@@ -29,7 +29,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 - [x] **I** ⚠️ Mock SEP-40 oracle: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) + admin `set_price`, deployed. *Done when: `lastprice(tBENJI)` returns price + timestamp*
 - [x] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
 - [ ] **P** Mentor round 1: demand? issuer whitelisting? term vs perpetual? Ask permission to quote. *Done when: one quotable line or a clear no*
-- [ ] **P** Deck outline (9 slides) + every number re-verified with a source. Sourced numbers and the "every dollar ends in T-bills; the risk is exit" framing: [docs/collateral-research.md](docs/collateral-research.md)
+- [ ] **P** Deck: 11 slides in English per [docs/pitch-deck.md](docs/pitch-deck.md). Teo drafts, Den owns narrative + final read. Numbers only from [docs/numbers.md](docs/numbers.md) (DefiLlama, dated). Spiko next to BENJI as the anchor issuers.
 - [ ] **T** Decide in chat: Spiko USTBL→SAFO as asset #2 roadmap + haircut tier numbers (proposals in docs/collateral-research.md §3–4). Per-asset haircut itself is decided (DECISIONS #13).
 
 ## G2 · Full contract — 16:00–19:30
@@ -42,6 +42,9 @@ Exit: margin, default, liquidate tested; one-command deploy.
 - [x] **F** Create offer + take offer flows, with collateral preview at current NAV and haircut. *Done when: both txs succeed from UI*
 - [ ] **P** README core: architecture diagram, state machine, method table, parameters
 
+- [ ] **I** ⚠️ Per-asset NAV staleness (DECISIONS #25): move `max_nav_age_secs` into `AssetConfig`, `fresh_nav` reads it; deploy config 96h prod / 180 s demo. Tests: Friday NAV still fresh on Sunday; stale blocks `take_offer` + `check_margin` only. *Done when: tests pass, redeployed*
+- [ ] **C** Compliance-agnostic check (DECISIONS #24): `take_offer` + `repay` + `liquidate` against a Spiko-style SEP-41 token with an allowlist and no `approve`. *Done when: test passes with a mock permissioned token*
+- [ ] **T** Decide: `liquidate` on stale NAV (DECISIONS → Open)
 ## G3 · Happy path on testnet — 19:30–00:00
 Exit: lender → borrower → repay works in the UI.
 
@@ -93,3 +96,4 @@ Exit: margin call, default, liquidation in the UI.
 - **Sun 14:15** — Lanes reassigned (DEVS.md): Den = core contract flows; Misha = integration + oracle client (`oracle.rs`, due 14:45) + margin call (`margin.rs`: `check_margin`, `top_up`); Bohdan Che = design + frontend; Bohdan Koldun = pitch, docs, QA.
 - **Sun 15:35** — Main: create/cancel/take/repay/default/liquidate merged (Den), oracle client merged (Misha), README draft merged; **85 tests green**; 2 stubs left (`check_margin`, `top_up`, in PR #10). Open PRs, all Misha: #4 mock oracle, #9 deploy v0, #10 margin, #11 keeper, #12 live feed, #13 seed (most 2 commits behind main). App built on `simon/app-wallet-login` (15 commits, Vite + React on `design/`, offers/lend/positions/liquidator/admin tabs, Pages deploy) but **no PR yet**. Design system synced to `design/` with 6 status-motion components (LiveIndicator, Waiting, TxProgress, Skeleton, ValueFlash, SealStamp).
 - **Sun 16:15** — Everything open is merged: #4 oracle, #9 deploy, #10 margin, #11 keeper, #12 live feed, #13 seed, #16 app, #15 app status motion (in via 638e80d). No stubs left in the contract; 102 + 14 tests green. Landing V3 exported to `site/` (static, deployable to Pages). Ticked on merge; still to check on testnet in the G5 rehearsal. **Open:** the deployment in `.env` / `deployments/testnet.json` (14:43, `CAMV…WDJS`) predates `check_margin` / `top_up`, so redeploy with `scripts/deploy.sh` and regenerate bindings before the margin-call beat; positions still need Top up + margin-call alert.
+- **Sun 16:35** — Plan update: Spiko (≈$1.78B on Stellar, #1 issuer, DefiLlama 25 Oct) goes next to BENJI in the pitch. DECISIONS #24 compliance-agnostic core (SEP-41 only; the contract already uses only `token::Client`), #25 per-asset NAV staleness ≈96h for weekends, #26 launch haircuts. New tasks: per-asset staleness (I), permissioned-token test (C), stale-liquidate decision (T). Deck is 11 slides (docs/pitch-deck.md); numbers in docs/numbers.md. #19 margin-call UI merged.
