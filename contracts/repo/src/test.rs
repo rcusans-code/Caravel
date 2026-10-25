@@ -9,8 +9,8 @@ use soroban_sdk::{
 use crate::{
     events,
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
-    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Offer, Pause, Repo,
-    Status,
+    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Offer, Pause,
+    PendingAsset, Repo, Status,
 };
 
 pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
@@ -21,6 +21,8 @@ pub(crate) const DEMO_NAV_AGE: u64 = 180;
 pub(crate) const WIDE_BAND_BPS: u32 = 10_000;
 /// No exposure cap in play (#32); the cap tests set their own.
 pub(crate) const NO_CAP: i128 = i128::MAX;
+/// Demo timelock (#33): 2 demo days at 60 s per day.
+pub(crate) const TIMELOCK: u64 = 120;
 
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
@@ -33,6 +35,8 @@ pub(crate) fn demo_config(env: &Env) -> Config {
         day_secs: 60,
         margin_window_secs: 120,
         grace_secs: 60,
+        guardian: Address::generate(env),
+        timelock_secs: TIMELOCK,
     }
 }
 
@@ -2014,14 +2018,35 @@ fn stale_nav_blocks_take_margin_and_liquidate_but_never_repay_or_top_up() {
 // --- pause switches (#30) ----------------------------------------------------
 
 impl World<'_> {
+    /// Sets tBENJI's switches: instantly when it only switches on, through
+    /// the timelock when it clears one (#33).
     fn pause(&self, no_new_repos: bool, no_seize: bool) {
-        self.repo.set_pause(
-            &self.tbenji,
-            &Pause {
-                no_new_repos,
-                no_seize,
-            },
-        );
+        let pause = Pause {
+            no_new_repos,
+            no_seize,
+        };
+        if self.repo.try_set_pause(&self.tbenji, &pause) == Err(Ok(Error::Loosens)) {
+            self.repo.propose_pause(&self.tbenji, &pause);
+            self.after_timelock(|| self.repo.execute_pause(&self.tbenji));
+        }
+    }
+
+    /// Runs `execute` once the timelock has passed, then puts the clock
+    /// back, so a loosening never shifts the caller's timeline.
+    fn after_timelock(&self, execute: impl FnOnce()) {
+        let now = self.env.ledger().timestamp();
+        self.set_time(now + TIMELOCK);
+        execute();
+        self.set_time(now);
+    }
+
+    /// Admin re-tiers tBENJI: instantly if `config` only tightens, else
+    /// propose + execute after the timelock, with the clock put back (#33).
+    fn set_tbenji(&self, config: AssetConfig) {
+        if self.repo.try_set_asset(&self.tbenji, &config) == Err(Ok(Error::Loosens)) {
+            self.repo.propose_asset(&self.tbenji, &config);
+            self.after_timelock(|| self.repo.execute_asset(&self.tbenji));
+        }
     }
 
     /// Enough tBENJI for `n` more full takes.
@@ -2070,18 +2095,19 @@ fn set_pause_is_stored_apart_from_asset_config() {
 }
 
 #[test]
-#[should_panic]
 fn set_pause_requires_admin_auth() {
-    let env = Env::default();
-    let (client, _) = setup(&env);
-    let token = Address::generate(&env);
-    client.set_pause(
-        &token,
-        &Pause {
-            no_new_repos: true,
-            no_seize: false,
-        },
-    );
+    // On a listed asset, so only auth can fail: guardian-only and
+    // stranger-only auth are refused, admin auth goes through.
+    let w = world();
+    let args: soroban_sdk::Vec<soroban_sdk::Val> = (w.tbenji.clone(), PAUSED_ALL).into_val(&w.env);
+    w.sign_as_guardian("set_pause", args.clone());
+    assert!(w.repo.try_set_pause(&w.tbenji, &PAUSED_ALL).is_err());
+    w.sign_as(&Address::generate(&w.env), "set_pause", args.clone());
+    assert!(w.repo.try_set_pause(&w.tbenji, &PAUSED_ALL).is_err());
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+    w.sign_as(&w.admin(), "set_pause", args);
+    w.repo.set_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
 }
 
 #[test]
@@ -2233,20 +2259,19 @@ struct BandScene {
 
 impl World<'_> {
     /// Re-tiers tBENJI with a NAV sanity band; everything else as `world()`.
+    /// A narrower band applies instantly, a wider one through the
+    /// timelock (#33).
     fn set_band(&self, max_nav_move_bps: u32, nav_floor: Option<i128>, nav_ceiling: Option<i128>) {
-        self.repo.set_asset(
-            &self.tbenji,
-            &AssetConfig {
-                oracle_asset: Asset::Stellar(self.tbenji.clone()),
-                haircut_bps: 300,
-                enabled: true,
-                max_nav_age_secs: DEMO_NAV_AGE,
-                max_nav_move_bps,
-                nav_floor,
-                nav_ceiling,
-                max_open_debt: NO_CAP,
-            },
-        );
+        self.set_tbenji(AssetConfig {
+            oracle_asset: Asset::Stellar(self.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps,
+            nav_floor,
+            nav_ceiling,
+            max_open_debt: NO_CAP,
+        });
     }
 
     /// Two open repos, one defaulted repo and an untaken offer. Time is
@@ -2454,14 +2479,24 @@ fn nav_band_accepts_a_price_once_it_fills_the_window() {
 #[test]
 fn nav_band_admin_widens_the_band_to_accept_a_real_move() {
     // Recovery path: a genuine move (or a correction back after a bad push)
-    // is accepted at once when the admin widens the band with set_asset.
+    // is accepted once the admin widens the band. Widening loosens risk, so
+    // it waits out the timelock (#33): set_asset refuses, propose + execute.
     let w = world();
     let s = w.band_scene();
     w.set_nav(ONE / 2, MATURED);
     w.set_time(MATURED + 60);
     w.set_nav(ONE, MATURED + 60); // correction: 1.00 is still 100% from 0.50
     w.assert_band_blocks(&s);
-    w.set_band(WIDE_BAND_BPS, None, None);
+    let mut wide = w.repo.asset(&w.tbenji);
+    wide.max_nav_move_bps = WIDE_BAND_BPS;
+    assert_eq!(
+        w.repo.try_set_asset(&w.tbenji, &wide),
+        Err(Ok(Error::Loosens))
+    );
+    let eta = w.repo.propose_asset(&w.tbenji, &wide);
+    w.set_time(eta);
+    w.set_nav(ONE, eta);
+    w.repo.execute_asset(&w.tbenji);
     w.assert_band_passes(&s);
 }
 
@@ -2489,21 +2524,19 @@ fn top_up_does_not_clear_margin_call_on_out_of_band_nav() {
 // --- exposure cap (#32) -------------------------------------------------------
 
 impl World<'_> {
-    /// Re-sets tBENJI at the world's terms with exposure cap `cap`.
+    /// Re-sets tBENJI at the world's terms with exposure cap `cap`: a cut
+    /// applies instantly, a raise through the timelock (#33).
     fn set_cap(&self, cap: i128) {
-        self.repo.set_asset(
-            &self.tbenji,
-            &AssetConfig {
-                oracle_asset: Asset::Stellar(self.tbenji.clone()),
-                haircut_bps: 300,
-                enabled: true,
-                max_nav_age_secs: DEMO_NAV_AGE,
-                max_nav_move_bps: WIDE_BAND_BPS,
-                nav_floor: None,
-                nav_ceiling: None,
-                max_open_debt: cap,
-            },
-        );
+        self.set_tbenji(AssetConfig {
+            oracle_asset: Asset::Stellar(self.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
+            max_open_debt: cap,
+        });
     }
 
     fn open_debt(&self) -> i128 {
@@ -2683,4 +2716,717 @@ fn lowering_cap_below_open_debt_leaves_live_repos_alone() {
     w.set_cap(DEBT);
     w.repo.take_offer(&w.borrower, &offer_id, &false);
     assert_eq!(w.open_debt(), DEBT);
+}
+
+// --- guardian and timelock (#33) ----------------------------------------------
+
+impl World<'_> {
+    fn tbenji_config(&self) -> AssetConfig {
+        self.repo.asset(&self.tbenji)
+    }
+
+    fn guardian(&self) -> Address {
+        self.repo.config().guardian
+    }
+
+    fn admin(&self) -> Address {
+        self.repo.config().admin
+    }
+
+    fn events(&self) -> std::vec::Vec<soroban_sdk::xdr::ContractEvent> {
+        self.env
+            .events()
+            .all()
+            .filter_by_contract(&self.repo.address)
+            .events()
+            .to_vec()
+    }
+}
+
+const PAUSED_ALL: Pause = Pause {
+    no_new_repos: true,
+    no_seize: true,
+};
+
+#[test]
+fn guardian_tightens_instantly() {
+    let w = world();
+    let guardian = w.guardian();
+
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 800;
+    config.max_open_debt = 5 * DEBT;
+    config.max_nav_age_secs = DEMO_NAV_AGE / 2;
+    w.repo.guardian_set_asset(&w.tbenji, &config);
+    assert_eq!(w.env.auths()[0].0, guardian);
+    assert_eq!(w.tbenji_config(), config);
+
+    config.enabled = false;
+    w.repo.guardian_set_asset(&w.tbenji, &config);
+    assert_eq!(w.tbenji_config(), config);
+
+    w.repo.guardian_set_pause(
+        &w.tbenji,
+        &Pause {
+            no_new_repos: false,
+            no_seize: true,
+        },
+    );
+    assert_eq!(w.env.auths()[0].0, guardian);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    // Re-sending the current state is not a loosening.
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+}
+
+#[test]
+fn guardian_cannot_loosen_anything() {
+    let w = world();
+    let mut tight = w.tbenji_config();
+    tight.haircut_bps = 800;
+    tight.max_open_debt = 5 * DEBT;
+    tight.max_nav_age_secs = DEMO_NAV_AGE / 2;
+    tight.enabled = false;
+    w.repo.guardian_set_asset(&w.tbenji, &tight);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+
+    let loosenings: [fn(&mut AssetConfig); 5] = [
+        |c| c.enabled = true,
+        |c| c.haircut_bps -= 1,
+        |c| c.max_open_debt += 1,
+        |c| c.max_nav_age_secs += 1,
+        |c| c.oracle_asset = Asset::Other(soroban_sdk::symbol_short!("XYZ")),
+    ];
+    for loosen in loosenings {
+        let mut config = tight.clone();
+        loosen(&mut config);
+        assert_eq!(
+            w.repo.try_guardian_set_asset(&w.tbenji, &config),
+            Err(Ok(Error::Loosens))
+        );
+        // The admin cannot skip the timelock either.
+        assert_eq!(
+            w.repo.try_set_asset(&w.tbenji, &config),
+            Err(Ok(Error::Loosens))
+        );
+    }
+    assert_eq!(w.tbenji_config(), tight);
+
+    for clear in [
+        Pause {
+            no_new_repos: false,
+            no_seize: true,
+        },
+        Pause {
+            no_new_repos: true,
+            no_seize: false,
+        },
+        Pause::default(),
+    ] {
+        assert_eq!(
+            w.repo.try_guardian_set_pause(&w.tbenji, &clear),
+            Err(Ok(Error::Loosens))
+        );
+        assert_eq!(
+            w.repo.try_set_pause(&w.tbenji, &clear),
+            Err(Ok(Error::Loosens))
+        );
+    }
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+
+    // An unlisted asset cannot be listed by the guardian.
+    let unknown = Address::generate(&w.env);
+    assert_eq!(
+        w.repo.try_guardian_set_asset(&unknown, &tight),
+        Err(Ok(Error::AssetNotSupported))
+    );
+}
+
+#[test]
+fn guardian_cannot_propose_or_execute() {
+    let w = world();
+    let guardian = w.guardian();
+    let mut config = w.tbenji_config();
+    config.max_open_debt = 1;
+    w.repo.set_asset(&w.tbenji, &config);
+    config.max_open_debt = NO_CAP;
+
+    w.env.mock_auths(&[MockAuth {
+        address: &guardian,
+        invoke: &MockAuthInvoke {
+            contract: &w.repo.address,
+            fn_name: "propose_asset",
+            args: (w.tbenji.clone(), config.clone()).into_val(&w.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(w.repo.try_propose_asset(&w.tbenji, &config).is_err());
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+}
+
+#[test]
+fn execute_before_eta_fails() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+    let eta = w.repo.propose_asset(&w.tbenji, &config);
+    assert_eq!(eta, NOW + TIMELOCK);
+    assert_eq!(
+        w.repo.pending_asset(&w.tbenji),
+        Some(PendingAsset {
+            config: config.clone(),
+            eta
+        })
+    );
+
+    w.set_time(eta - 1);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    assert_eq!(w.tbenji_config().haircut_bps, 300);
+
+    w.set_time(eta);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config(), config);
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::NoProposal))
+    );
+
+    // Same for clearing a pause.
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(eta - 1);
+    assert_eq!(
+        w.repo.try_execute_pause(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    w.set_time(eta);
+    w.repo.execute_pause(&w.tbenji);
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+    assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+}
+
+#[test]
+fn propose_validates_and_needs_a_listed_asset_to_pause() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 200; // not above the liquidation discount
+    assert_eq!(
+        w.repo.try_propose_asset(&w.tbenji, &config),
+        Err(Ok(Error::InvalidConfig))
+    );
+    let unknown = Address::generate(&w.env);
+    assert_eq!(
+        w.repo.try_propose_pause(&unknown, &Pause::default()),
+        Err(Ok(Error::AssetNotSupported))
+    );
+}
+
+#[test]
+fn cancel_works_for_admin_and_guardian_only() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+
+    // Admin cancels.
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.repo.cancel_asset(&w.admin(), &w.tbenji);
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+    w.set_time(NOW + TIMELOCK);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::NoProposal))
+    );
+
+    // Guardian cancels, also after eta.
+    w.set_time(NOW);
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.set_time(NOW + 2 * TIMELOCK);
+    w.repo.cancel_asset(&w.guardian(), &w.tbenji);
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+    assert_eq!(w.tbenji_config().haircut_bps, 300);
+
+    // Anyone else cannot; nothing pending is an error.
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    let stranger = Address::generate(&w.env);
+    assert_eq!(
+        w.repo.try_cancel_asset(&stranger, &w.tbenji),
+        Err(Ok(Error::NotAdminOrGuardian))
+    );
+    assert_eq!(
+        w.repo.try_cancel_pause(&stranger, &w.tbenji),
+        Err(Ok(Error::NotAdminOrGuardian))
+    );
+    w.repo.cancel_pause(&w.guardian(), &w.tbenji);
+    assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+    assert_eq!(
+        w.repo.try_cancel_pause(&w.guardian(), &w.tbenji),
+        Err(Ok(Error::NoProposal))
+    );
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+}
+
+#[test]
+fn propose_execute_cancel_emit_events() {
+    let w = world();
+    let asset_kind = soroban_sdk::symbol_short!("asset");
+    let pause_kind = soroban_sdk::symbol_short!("pause");
+    let addr = &w.repo.address;
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+
+    let eta = w.repo.propose_asset(&w.tbenji, &config);
+    assert_eq!(
+        w.events(),
+        [events::AssetChangeProposed {
+            asset: w.tbenji.clone(),
+            eta,
+            haircut_bps: 250,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
+            max_open_debt: NO_CAP,
+        }
+        .to_xdr(&w.env, addr)]
+    );
+
+    w.set_time(eta);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalExecuted {
+                asset: w.tbenji.clone(),
+                kind: asset_kind.clone(),
+            }
+            .to_xdr(&w.env, addr),
+            events::AssetConfigured {
+                asset: w.tbenji.clone(),
+                haircut_bps: 250,
+                enabled: true,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
+                max_open_debt: NO_CAP,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
+
+    let eta = w.repo.propose_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(
+        w.events(),
+        [events::PauseChangeProposed {
+            asset: w.tbenji.clone(),
+            eta,
+            no_new_repos: true,
+            no_seize: true,
+        }
+        .to_xdr(&w.env, addr)]
+    );
+    let guardian = w.guardian();
+    w.repo.cancel_pause(&guardian, &w.tbenji);
+    assert_eq!(
+        w.events(),
+        [events::ProposalCancelled {
+            asset: w.tbenji.clone(),
+            kind: pause_kind,
+            by: guardian.clone(),
+        }
+        .to_xdr(&w.env, addr)]
+    );
+
+    // An instant tightening supersedes a pending loosening, so executing it
+    // later cannot undo the guardian's change.
+    let mut raise = w.tbenji_config();
+    raise.max_open_debt = NO_CAP - 1;
+    w.repo.set_asset(&w.tbenji, &raise);
+    raise.max_open_debt = NO_CAP;
+    w.repo.propose_asset(&w.tbenji, &raise);
+    let mut disabled = w.tbenji_config();
+    disabled.enabled = false;
+    w.repo.guardian_set_asset(&w.tbenji, &disabled);
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalCancelled {
+                asset: w.tbenji.clone(),
+                kind: asset_kind,
+                by: guardian,
+            }
+            .to_xdr(&w.env, addr),
+            events::AssetConfigured {
+                asset: w.tbenji.clone(),
+                haircut_bps: 250,
+                enabled: false,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
+                max_open_debt: NO_CAP - 1,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
+    w.set_time(w.env.ledger().timestamp() + TIMELOCK);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::NoProposal))
+    );
+    assert!(!w.tbenji_config().enabled);
+}
+
+#[test]
+fn guardian_haircut_raise_hits_new_takes_only() {
+    // DECISIONS.md #19: the haircut is snapshotted on the repo at take.
+    let w = world();
+    w.fund_takes(2);
+    let live = w.take();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 800;
+    w.repo.guardian_set_asset(&w.tbenji, &config);
+    assert_eq!(w.repo.repo(&live), opened_repo(&w));
+
+    let next = w.take();
+    let repo = w.repo.repo(&next);
+    assert_eq!(repo.haircut_bps, 800);
+    assert!(repo.collateral_amount > TAKE_COLLATERAL);
+}
+
+#[test]
+fn constructor_rejects_zero_timelock() {
+    let env = Env::default();
+    let mut config = demo_config(&env);
+    config.timelock_secs = 0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.register(CaravelRepo, (config,));
+    }));
+    assert!(result.is_err());
+}
+
+// --- QA t_08bda0ce: every loosening as the guardian, guardian-only auth -------
+
+impl World<'_> {
+    /// Authorizes exactly one call, signed by the guardian only.
+    fn sign_as_guardian(&self, fn_name: &'static str, args: soroban_sdk::Vec<soroban_sdk::Val>) {
+        self.sign_as(&self.guardian(), fn_name, args);
+    }
+
+    /// Authorizes exactly one call, signed by `who` only.
+    fn sign_as(
+        &self,
+        who: &Address,
+        fn_name: &'static str,
+        args: soroban_sdk::Vec<soroban_sdk::Val>,
+    ) {
+        self.env.mock_auths(&[MockAuth {
+            address: who,
+            invoke: &MockAuthInvoke {
+                contract: &self.repo.address,
+                fn_name,
+                args,
+                sub_invokes: &[],
+            },
+        }]);
+    }
+}
+
+fn qa_tight_world<'a>() -> (World<'a>, AssetConfig) {
+    let w = world();
+    let mut tight = w.tbenji_config();
+    tight.haircut_bps = 800;
+    tight.max_open_debt = 5 * DEBT;
+    tight.max_nav_age_secs = DEMO_NAV_AGE / 2;
+    tight.enabled = false;
+    tight.max_nav_move_bps = 500;
+    tight.nav_floor = Some(9 * ONE / 10);
+    tight.nav_ceiling = Some(11 * ONE / 10);
+    w.repo.set_asset(&w.tbenji, &tight);
+    w.repo.set_pause(&w.tbenji, &PAUSED_ALL);
+    (w, tight)
+}
+
+fn qa_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfig)> {
+    let mut out = std::vec::Vec::new();
+    let mut c = tight.clone();
+    c.enabled = true;
+    out.push(("enable", c));
+    let mut c = tight.clone();
+    c.haircut_bps -= 1;
+    out.push(("lower haircut", c));
+    let mut c = tight.clone();
+    c.max_open_debt += 1;
+    out.push(("raise cap", c));
+    let mut c = tight.clone();
+    c.max_nav_age_secs += 1;
+    out.push(("raise nav age", c));
+    let mut c = tight.clone();
+    c.oracle_asset = Asset::Other(soroban_sdk::symbol_short!("XYZ"));
+    out.push(("remap oracle", c));
+    // Mixed: tighten one field while loosening another.
+    let mut c = tight.clone();
+    c.haircut_bps = 900;
+    c.max_open_debt = NO_CAP;
+    out.push(("raise haircut + raise cap", c));
+    let mut c = tight.clone();
+    c.max_open_debt = 1;
+    c.enabled = true;
+    out.push(("cut cap + enable", c));
+    let mut c = tight.clone();
+    c.max_nav_age_secs = 1;
+    c.haircut_bps = 300;
+    out.push(("cut nav age + lower haircut", c));
+    out.extend(qa_band_loosenings(tight));
+    out
+}
+
+/// Every way to widen the NAV band (#31), alone and mixed with a tightening.
+fn qa_band_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfig)> {
+    let mut out = std::vec::Vec::new();
+    let mut c = tight.clone();
+    c.max_nav_move_bps += 1;
+    out.push(("raise nav move", c));
+    let mut c = tight.clone();
+    c.nav_floor = c.nav_floor.map(|f| f - 1);
+    out.push(("lower floor", c));
+    let mut c = tight.clone();
+    c.nav_floor = None;
+    out.push(("drop floor", c));
+    let mut c = tight.clone();
+    c.nav_ceiling = c.nav_ceiling.map(|f| f + 1);
+    out.push(("raise ceiling", c));
+    let mut c = tight.clone();
+    c.nav_ceiling = None;
+    out.push(("drop ceiling", c));
+    let mut c = tight.clone();
+    c.nav_floor = None;
+    c.nav_ceiling = None;
+    out.push(("drop both bounds", c));
+    let mut c = tight.clone();
+    c.nav_floor = c.nav_floor.map(|f| f + 1);
+    c.nav_ceiling = c.nav_ceiling.map(|f| f + 1);
+    out.push(("shift band up", c));
+    let mut c = tight.clone();
+    c.max_nav_move_bps = 1;
+    c.nav_floor = None;
+    out.push(("cut nav move + drop floor", c));
+    let mut c = tight.clone();
+    c.haircut_bps = 900;
+    c.max_nav_move_bps += 1;
+    out.push(("raise haircut + raise nav move", c));
+    out
+}
+
+#[test]
+fn nav_band_loosening_fails_for_admin_and_guardian() {
+    let (w, tight) = qa_tight_world();
+    w.env.mock_all_auths();
+    for (name, c) in qa_band_loosenings(&tight) {
+        assert_eq!(
+            w.repo.try_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "set_asset {name}"
+        );
+        assert_eq!(
+            w.repo.try_guardian_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "guardian_set_asset {name}"
+        );
+        assert_eq!(w.tbenji_config(), tight, "{name}");
+    }
+    // The timelocked path still takes any of them.
+    let (_, wide) = qa_band_loosenings(&tight).remove(5);
+    let eta = w.repo.propose_asset(&w.tbenji, &wide);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    w.set_time(eta);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config(), wide);
+}
+
+#[test]
+fn nav_band_tightening_is_instant_for_admin_and_guardian() {
+    let w = world();
+    let mut c = w.tbenji_config();
+    assert_eq!((c.nav_floor, c.nav_ceiling), (None, None));
+    // A pending loosening, so each instant step must also drop it.
+    let mut loose = c.clone();
+    loose.haircut_bps -= 1;
+    type Step = (&'static str, fn(&mut AssetConfig));
+    let steps: [Step; 6] = [
+        ("lower nav move", |c| c.max_nav_move_bps = 500),
+        ("add floor", |c| c.nav_floor = Some(9 * ONE / 10)),
+        ("add ceiling", |c| c.nav_ceiling = Some(11 * ONE / 10)),
+        ("raise floor", |c| c.nav_floor = Some(95 * ONE / 100)),
+        ("lower ceiling", |c| c.nav_ceiling = Some(105 * ONE / 100)),
+        ("equal values", |_| {}),
+    ];
+    for (i, (name, step)) in steps.into_iter().enumerate() {
+        w.repo.propose_asset(&w.tbenji, &loose);
+        step(&mut c);
+        if i % 2 == 0 {
+            w.repo.guardian_set_asset(&w.tbenji, &c);
+        } else {
+            w.repo.set_asset(&w.tbenji, &c);
+        }
+        assert_eq!(w.tbenji_config(), c, "{name}");
+        assert_eq!(w.repo.pending_asset(&w.tbenji), None, "{name}");
+        loose = c.clone();
+        loose.haircut_bps -= 1;
+    }
+}
+
+const QA_CLEARS: [Pause; 3] = [
+    Pause {
+        no_new_repos: false,
+        no_seize: true,
+    },
+    Pause {
+        no_new_repos: true,
+        no_seize: false,
+    },
+    Pause {
+        no_new_repos: false,
+        no_seize: false,
+    },
+];
+
+#[test]
+fn qa_guardian_positive_control_strict_auth() {
+    // Proves sign_as_guardian really authorizes the guardian: a pure
+    // tightening goes through with guardian-only auth.
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 900;
+    w.sign_as_guardian(
+        "guardian_set_asset",
+        (w.tbenji.clone(), c.clone()).into_val(&w.env),
+    );
+    w.repo.guardian_set_asset(&w.tbenji, &c);
+    assert_eq!(w.tbenji_config(), c);
+    w.sign_as_guardian(
+        "guardian_set_pause",
+        (w.tbenji.clone(), PAUSED_ALL).into_val(&w.env),
+    );
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+}
+
+#[test]
+fn qa_guardian_every_asset_loosening_fails_on_every_entry_point() {
+    let (w, tight) = qa_tight_world();
+    for (name, c) in qa_loosenings(&tight) {
+        let args: soroban_sdk::Vec<soroban_sdk::Val> =
+            (w.tbenji.clone(), c.clone()).into_val(&w.env);
+        w.sign_as_guardian("guardian_set_asset", args.clone());
+        assert_eq!(
+            w.repo.try_guardian_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "guardian_set_asset {name}"
+        );
+        w.sign_as_guardian("set_asset", args.clone());
+        assert!(
+            w.repo.try_set_asset(&w.tbenji, &c).is_err(),
+            "set_asset as guardian {name}"
+        );
+        w.sign_as_guardian("propose_asset", args.clone());
+        assert!(
+            w.repo.try_propose_asset(&w.tbenji, &c).is_err(),
+            "propose_asset as guardian {name}"
+        );
+        assert_eq!(w.repo.pending_asset(&w.tbenji), None, "{name}");
+        assert_eq!(w.tbenji_config(), tight, "{name}");
+    }
+}
+
+#[test]
+fn qa_guardian_every_pause_clear_fails_on_every_entry_point() {
+    let (w, _) = qa_tight_world();
+    for clear in QA_CLEARS {
+        let args: soroban_sdk::Vec<soroban_sdk::Val> =
+            (w.tbenji.clone(), clear.clone()).into_val(&w.env);
+        w.sign_as_guardian("guardian_set_pause", args.clone());
+        assert_eq!(
+            w.repo.try_guardian_set_pause(&w.tbenji, &clear),
+            Err(Ok(Error::Loosens))
+        );
+        w.sign_as_guardian("set_pause", args.clone());
+        assert!(w.repo.try_set_pause(&w.tbenji, &clear).is_err());
+        w.sign_as_guardian("propose_pause", args.clone());
+        assert!(w.repo.try_propose_pause(&w.tbenji, &clear).is_err());
+        assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+        assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    }
+}
+
+#[test]
+fn qa_guardian_cannot_execute_a_matured_admin_proposal() {
+    let (w, tight) = qa_tight_world();
+    w.env.mock_all_auths();
+    let mut loose = tight.clone();
+    loose.enabled = true;
+    loose.haircut_bps = 300;
+    w.repo.propose_asset(&w.tbenji, &loose);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(NOW + 10 * TIMELOCK);
+    w.sign_as_guardian("execute_asset", (w.tbenji.clone(),).into_val(&w.env));
+    assert!(w.repo.try_execute_asset(&w.tbenji).is_err());
+    w.sign_as_guardian("execute_pause", (w.tbenji.clone(),).into_val(&w.env));
+    assert!(w.repo.try_execute_pause(&w.tbenji).is_err());
+    assert_eq!(w.tbenji_config(), tight);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    assert!(w.repo.pending_asset(&w.tbenji).is_some());
+}
+
+#[test]
+fn qa_guardian_cannot_list_an_asset_or_whitelist_a_liquidator() {
+    let (w, tight) = qa_tight_world();
+    let unknown = Address::generate(&w.env);
+    let mut c = tight.clone();
+    c.enabled = true;
+    w.sign_as_guardian("set_asset", (unknown.clone(), c.clone()).into_val(&w.env));
+    assert!(w.repo.try_set_asset(&unknown, &c).is_err());
+    w.sign_as_guardian(
+        "guardian_set_asset",
+        (unknown.clone(), c.clone()).into_val(&w.env),
+    );
+    assert_eq!(
+        w.repo.try_guardian_set_asset(&unknown, &c),
+        Err(Ok(Error::AssetNotSupported))
+    );
+    assert!(w.repo.try_asset(&unknown).is_err());
+    let who = Address::generate(&w.env);
+    w.sign_as_guardian("set_liquidator", (who.clone(), true).into_val(&w.env));
+    assert!(w.repo.try_set_liquidator(&who, &true).is_err());
+    assert!(!w.repo.is_liquidator(&who));
+}
+
+#[test]
+fn qa_execute_exactly_at_eta_and_reproposal_restarts_clock() {
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    let eta1 = w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(NOW + TIMELOCK / 2);
+    let eta2 = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(eta2, NOW + TIMELOCK / 2 + TIMELOCK);
+    w.set_time(eta1);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    w.set_time(eta2);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config().haircut_bps, 250);
 }

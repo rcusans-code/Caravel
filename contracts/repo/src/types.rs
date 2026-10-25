@@ -25,6 +25,14 @@ pub struct Config {
     pub margin_window_secs: u64,
     /// Time after maturity before an unpaid repo can be defaulted.
     pub grace_secs: u64,
+    /// Can only make things safer, instantly (DECISIONS.md #33): disable an
+    /// asset, raise a haircut, lower a cap or NAV age, narrow the NAV band,
+    /// set pause switches, cancel a pending proposal. It can never loosen anything.
+    pub guardian: Address,
+    /// Delay between `propose_*` and `execute_*` for every change that adds
+    /// risk (DECISIONS.md #33). 172_800 (2 days) in production, 120 in the
+    /// demo (#5). Must be > 0.
+    pub timelock_secs: u64,
 }
 
 /// SEP-40 asset identifier, same shape as Reflector's, so the mock oracle and
@@ -88,6 +96,24 @@ pub struct Pause {
     /// Blocks `default` (except an auto-repay settle) and `liquidate`. The
     /// default clock keeps running; seizure waits until this clears.
     pub no_seize: bool,
+}
+
+/// An admin `AssetConfig` change waiting out the timelock (DECISIONS.md #33).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAsset {
+    pub config: AssetConfig,
+    /// `execute_asset` works from this ledger timestamp on.
+    pub eta: u64,
+}
+
+/// An admin `Pause` change waiting out the timelock (DECISIONS.md #33).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingPause {
+    pub pause: Pause,
+    /// `execute_pause` works from this ledger timestamp on.
+    pub eta: u64,
 }
 
 /// A lender's standing offer. The lender sets only asset, principal, APR and

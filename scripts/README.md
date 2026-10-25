@@ -172,7 +172,7 @@ The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), 
      The corrected price then counts as fresh until that timestamp + 180 s.
 
    Check with `npm run feeds`. `nav-keeper.sh` re-posts whatever `lastprice` returns: until the price is corrected it keeps re-stamping the bad one as fresh, and afterwards it keeps the good one.
-4. **Re-enable**, only after step 3 shows the right price: run step 2 again with `true`/`false` swapped (or with `$CFG` as read before step 2), then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
+4. **Re-enable**, only after step 3 shows the right price. Enabling loosens risk, so `set_asset` fails with `Error(Contract, #20)` (`Loosens`, DECISIONS #33): queue the config read before step 2 with `"${A[@]}" --id $REPO_ID -- propose_asset --asset $TBENJI_SAC --config "$CFG"`, then after `timelock_secs` (120 s demo) run `execute_asset --asset $TBENJI_SAC`. Then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
 
 What this does not undo:
 - A margin call raised at the bad price stays open until its deadline. Once the price is corrected, `default` after the deadline clears it instead of defaulting (#20), so an absent borrower no longer loses the 2% discount (S2b). If the price is still wrong at the deadline (or stale), the default goes ahead: -20.02 USDC on a 970 USDC repo.

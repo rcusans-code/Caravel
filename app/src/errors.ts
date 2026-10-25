@@ -21,6 +21,10 @@ const REPO_ERRORS: Record<number, string> = {
   17: "This collateral asset is paused for this action. Repay and top-up always work.",
   18: "The NAV jumped outside this asset's sanity band, so new loans, margin calls and liquidations are paused. Repay and top-up still work.",
   19: "This loan would push the collateral past its exposure cap. New loans resume as open repos are repaid or the cap is raised.",
+  20: "This change loosens a risk setting: propose it and execute it after the timelock.",
+  21: "The timelock on this change has not passed yet.",
+  22: "There is no pending change for this asset.",
+  23: "Only the admin or the guardian can cancel a pending change.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.
