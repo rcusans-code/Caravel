@@ -8,7 +8,8 @@
     "set-nav": "tsx src/set-nav.ts",
     "feeds": "tsx src/feeds.ts",
     "seed": "tsx src/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^16.4.1",

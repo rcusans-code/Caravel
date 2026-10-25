@@ -10,10 +10,13 @@
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
 // USDC). --refresh-nav signs set_price with ADMIN_SECRET (the oracle admin).
 // Covers every collateral asset: tBENJI, and tSAFO when TSAFO_ID is set.
+// A NAV that just jumped holds check_margin, missed-margin default and
+// liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 import { readFileSync } from "node:fs";
-import { Address } from "@stellar/stellar-sdk";
+import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
+import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
 import { setNav } from "./set-nav.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
@@ -28,10 +31,6 @@ interface Repo {
   maturity_ts: bigint;
   margin_call_deadline?: bigint | null;
   auto_repay?: boolean;
-}
-interface PriceData {
-  price: bigint;
-  timestamp: bigint;
 }
 
 const args = process.argv.slice(2);
@@ -81,6 +80,66 @@ const fileRepoId = () => {
 };
 const startRepoId = fileRepoId();
 
+// NAV jump hold (navguard.ts): a price that jumped > NAV_JUMP_BPS from the
+// last price that stood holds check_margin, missed-margin default and
+// liquidate until it stood NAV_JUMP_HOLD_SECS; > NAV_JUMP_ACK_BPS holds until
+// NAV_JUMP_ACK in .env lists the exact price (re-read each tick, no restart).
+const NAV_JUMP_BPS = BigInt(process.env.NAV_JUMP_BPS || 200);
+const NAV_JUMP_ACK_BPS = BigInt(process.env.NAV_JUMP_ACK_BPS || 1000);
+const PRICE_HISTORY = 20; // oracle MAX_HISTORY: ~19 min at 60 s re-posts
+const navLatch: NavLatch = new Map();
+const navSeen = new Map<string, string>(); // asset id -> last logged guard state
+
+/** NAV_JUMP_ACK from the .env file (falls back to process.env): exact oracle price integers. */
+const navAcks = (): Set<bigint> => {
+  let raw = process.env.NAV_JUMP_ACK ?? "";
+  try {
+    raw = parseEnv(readFileSync(ENV_FILE)).NAV_JUMP_ACK ?? raw;
+  } catch {
+    /* keep process.env */
+  }
+  const out = new Set<bigint>();
+  for (const s of raw.split(",").map((x) => x.trim()).filter(Boolean)) {
+    try {
+      out.add(BigInt(s));
+    } catch {
+      log(`nav-jump     NAV_JUMP_ACK entry "${s}" is not an integer price, ignored`);
+    }
+  }
+  return out;
+};
+
+/** NAV jump state of one asset this tick: why NAV-driven actions are held, or null. */
+type Guard = { why: string; kind: string } | null;
+
+/** Read prices(asset, 20) and decide the hold; a failed read holds (fail closed). */
+async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): Promise<Guard> {
+  let g: Guard = null;
+  let state: string;
+  try {
+    const hist = (await view<PriceData[] | null>(ORACLE_ID, "prices", [stellarAsset(a.id), nativeToScVal(PRICE_HISTORY, { type: "u32" })])) ?? [];
+    const h = navHold(hist, t, { asset: a.id, jumpBps: NAV_JUMP_BPS, ackBps: NAV_JUMP_ACK_BPS, holdSecs: cfg.holdSecs, acks }, navLatch);
+    state = `${h.reason} ${h.current}`;
+    if (h.hold) {
+      const ack = h.needsAck ? `, set NAV_JUMP_ACK=${h.current} in .env to release` : "";
+      g = { kind: state, why: describeHold(h, cfg.holdSecs, cfg.decimals) + ack };
+    } else if (h.reason === "acked" && navSeen.get(a.id) !== state) {
+      log(`nav-jump     ${a.label} ${describeHold(h, cfg.holdSecs, cfg.decimals)} released by NAV_JUMP_ACK=${h.current}`);
+    }
+  } catch (e) {
+    state = "read-failed";
+    g = { kind: state, why: `prices read FAILED (${(e as Error).message}), holding this tick` };
+    if (navSeen.get(a.id) !== state) log(`nav-jump     ${a.label} ${g.why}`);
+  }
+  navSeen.set(a.id, state);
+  return g;
+}
+
+/** Log a held action once per state change and skip it. */
+function held(next: Map<bigint, string>, r: Repo, action: string, g: NonNullable<Guard>) {
+  note(next, r.id, `hold ${action} ${g.kind}`, `hold         repo ${r.id} ${action}: ${g.why}`);
+}
+
 async function readRepo(id: bigint): Promise<Repo | null> {
   try {
     const r = await view<Repo>(REPO_ID, "repo", [u64(id)]);
@@ -104,7 +163,7 @@ async function liveRepos(): Promise<Repo[]> {
   return out;
 }
 
-type Cfg = { discountBps: bigint; graceSecs: bigint; decimals: number };
+type Cfg = { discountBps: bigint; graceSecs: bigint; decimals: number; holdSecs: bigint };
 
 async function tick(cfg: Cfg) {
   const changed = fileRepoId();
@@ -131,13 +190,22 @@ async function tick(cfg: Cfg) {
     }
   }
 
+  // NAV jump hold per asset, read once per tick.
+  const acks = navAcks();
+  const guards = new Map<string, Guard>();
+  for (const a of ASSETS) guards.set(a.id, await navGuard(a, t, cfg, acks));
+
   const repos = await liveRepos();
   const next = new Map<bigint, string>();
   for (const r of repos) {
     const asset = assetOf(r.collateral_asset);
     const last = navs.get(r.collateral_asset) ?? null;
     const navAge = last ? t - last.timestamp : null;
-    const nav = { last, navAge };
+    // An asset the keeper does not price (not in ASSETS) is held: fail closed.
+    const guard: Guard = guards.has(r.collateral_asset)
+      ? guards.get(r.collateral_asset)!
+      : { kind: "unknown-asset", why: `collateral ${asset.label} is not a keeper asset, NAV jump unchecked` };
+    const nav = { last, navAge, guard };
     const debt = r.principal + r.interest;
     const deadline = r.margin_call_deadline ?? null;
     const matured = t > r.maturity_ts + cfg.graceSecs;
@@ -172,7 +240,13 @@ async function tick(cfg: Cfg) {
 
     // 2. default: margin window missed, or past maturity + grace. Needs no NAV.
     //    An opted-in repo that can pay settles as Repaid here instead;
-    //    otherwise liquidate in the same tick.
+    //    otherwise liquidate in the same tick. A missed margin call is held
+    //    on a NAV jump, so a call from a bad price can still be topped up
+    //    after the correction; a maturity default is not (liquidate is).
+    if (marginMissed && !matured && guard) {
+      held(next, r, "default", guard);
+      continue;
+    }
     if (matured || marginMissed) {
       try {
         const { hash, result } = await invoke(signer, REPO_ID, "default", [u64(r.id)]);
@@ -188,7 +262,7 @@ async function tick(cfg: Cfg) {
         else log(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
-      await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null }, next);
+      await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null, guard }, next);
       continue;
     }
 
@@ -198,10 +272,13 @@ async function tick(cfg: Cfg) {
       continue;
     }
 
-    // 4. Open: simulate check_margin; only send a tx when it would breach.
+    // 4. Open: simulate check_margin; only send a tx when it would breach,
+    //    and not while the NAV just jumped (fix #3).
     try {
       const st = statusOf(await view(REPO_ID, "check_margin", [u64(r.id)], signer.publicKey()));
-      if (st === "MarginCall") {
+      if (st === "MarginCall" && guard) {
+        held(next, r, "check_margin", guard);
+      } else if (st === "MarginCall") {
         const { hash } = await invoke(signer, REPO_ID, "check_margin", [u64(r.id)]);
         log(`MARGIN CALL  ${desc} (trigger ${(100 - Number(cfg.discountBps) / 100).toFixed(2)}%)  ${txLink(hash)}`);
         next.set(r.id, "called");
@@ -239,10 +316,11 @@ async function liquidateRepo(
   r: Repo,
   asset: Collateral,
   cfg: Cfg,
-  nav: { last: PriceData | null; navAge: bigint | null },
+  nav: { last: PriceData | null; navAge: bigint | null; guard: Guard },
   next: Map<bigint, string>,
 ) {
-  const { last, navAge } = nav;
+  const { last, navAge, guard } = nav;
+  if (guard) return held(next, r, "liquidate", guard); // fix #2
   if (!last || navAge === null || navAge > asset.maxAge) {
     const why = last ? `NAV ${navAge}s old > ${asset.maxAge}s` : "no NAV";
     return note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: ${why}, retrying each tick`);
@@ -287,12 +365,16 @@ async function main() {
     discountBps: BigInt(config.liquidation_discount_bps),
     graceSecs: BigInt(config.grace_secs),
     decimals,
+    // A jumped price must outlast a margin window plus a minute before it can
+    // margin-call, default or liquidate (180 s on the demo).
+    holdSecs: BigInt(process.env.NAV_JUMP_HOLD_SECS || BigInt(config.margin_window_secs ?? 120n) + 60n),
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
     `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
-      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})`,
+      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})` +
+      `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps`,
   );
   for (;;) {
     try {
