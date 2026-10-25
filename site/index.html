@@ -508,7 +508,8 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 </div>
 </div>
 <div style="display: flex; flex-direction: column; gap: 14px;">
-<h3 style="margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 32px; line-height: 1.12;">If the borrower doesn't repay, the lender is still paid in full.</h3>
+<h3 style="margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 32px; line-height: 1.12;">If the borrower doesn't repay, the lender is paid first.</h3>
+<p style="margin: 0; font-size: 16px; color: var(--ink-muted);">In full while NAV stays within the haircut; if NAV falls further before the sale, the lender takes all the proceeds and a Shortfall is recorded on-chain.</p>
 <p style="margin: 0; font-size: 16px; color: var(--ink-muted);">Example: a 970 USDC loan for 7 days at 5.20%. The amount due, <span class="cv-num" style="color: var(--ink);">970.97</span>, is fixed on day one. With a 3% haircut, the borrower posts <span class="cv-num" style="color: var(--ink);">1,001</span> fund shares (tBENJI). If the loan isn't repaid, an approved buyer purchases the collateral at 2% below NAV, for <span class="cv-num" style="color: var(--ink);">980.98</span>. The lender receives 970.97, less the protocol fee on interest, and about 10 USDC goes back to the borrower.</p>
 <table class="cv-table" style="font-size: 14px; max-width: 460px;"><tbody>
 <tr><td>Amount due, fixed at start</td><td class="r cv-num">970.97</td></tr>

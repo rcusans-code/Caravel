@@ -16,7 +16,7 @@
 | 8 | **Why Stellar** | The assets already live here; SAC; authorized trustlines; atomic DvP; SEP-40 oracles; sub-cent fees. | |
 | 9 | **Demand** | Binance × Franklin (BENJI as off-exchange collateral), BUIDL accepted on CEXs, Aave Horizon; Spiko itself offers its tokens as collateral for on-chain loans and invites partners. | Dates and links in numbers.md § Demand |
 | 10 | **Competition + model** | Table: Blend, Templar, Aave Horizon, CEX collateral programs vs Caravel (term, daily NAV, permissioned assets, atomic DvP). Revenue: fee on interest (DECISIONS #3). | |
-| 11 | **GTM, roadmap, team** | First deals OTC: one issuer (Spiko or Etherfuse) + one market maker as liquidator. Roadmap: real NAV oracle → liquidation auction → lender vault. Team of four. | |
+| 11 | **GTM, roadmap, team** | First deals OTC: one issuer (Spiko or Etherfuse) + one market maker as liquidator. Roadmap: real NAV oracle → liquidation auction → lender vault, plus the standard term-repo features (collateral substitution, partial unwind, roll, lender termination on an issuer event). Team of four. | |
 
 ## Slide 7: eligible collateral (7-day term)
 

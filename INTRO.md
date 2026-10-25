@@ -20,7 +20,7 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 2. **Borrower** accepts: receives the 1,000 USDC and locks about $1,032 of bond tokens (3% haircut: the loan is at most 97% of the deposit). Both happen in **one transaction**. Either both move or neither does.
 3. **Daily check:** if the bonds' price drops so the deposit no longer covers the loan, the borrower gets a **margin call**: add more bonds within a time window.
 4. **Day 7:** borrower repays 1,000 USDC + interest, gets the bonds back. Done.
-5. **If the borrower doesn't pay:** an approved buyer (**liquidator**) buys the bonds at a 2% discount. The lender is paid in full from that. Anything left goes back to the borrower.
+5. **If the borrower doesn't pay:** an approved buyer (**liquidator**) buys the bonds at a 2% discount. The lender is paid first from that: in full while the price stays within the haircut, otherwise the lender takes everything and the gap (a **Shortfall**) is recorded on-chain. Anything left goes back to the borrower.
 
 ## Who's who
 | Role | Wants | Gives |
@@ -49,12 +49,12 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 ## What the demo shows (2–3 min video)
 1. The problem in one slide: $3.03B of fund tokens vs $133K working in DeFi (DefiLlama, 25 Oct 2026).
 2. Lender posts offer → borrower takes it → one transaction moves both sides.
-3. Price drops → margin call → borrower tops up.
+3. Price drops → margin call (press **Check margin** right after the slide) → borrower tops up.
 4. Day 7 → repay → bonds returned.
-5. Second loan: borrower defaults → liquidator buys → lender paid in full.
-6. Close: "Repo, like banks do it, but 24/7, atomic and open."
+5. Second loan: borrower misses maturity → default → liquidator buys → lender paid first, in full at NAV 1.00 (restore the NAV before this beat).
+6. Close: "Repo, like banks do it, but atomic, on-chain and open."
 
-To make this fit in a video, **1 day = 60 seconds** in the demo. That's just settings, not special code.
+To make this fit in a video, **1 day = 60 seconds** in the demo. That's just settings, not special code. Before recording, read the [demo runbook](scripts/README.md#recording-the-demo): it lists the four things that make the live demo look broken on camera.
 
 ## How we work for the next 24 hours
 - **Hard deadline: Mon 12:00. We submit at 11:30.**
