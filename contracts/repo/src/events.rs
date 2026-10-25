@@ -15,6 +15,7 @@ pub struct AssetConfigured {
     pub max_nav_move_bps: u32,
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
+    pub max_open_debt: i128,
 }
 
 /// Admin set an asset's pause switches (DECISIONS.md #30).

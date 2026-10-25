@@ -79,6 +79,13 @@ export interface AssetConfig {
   enabled: boolean;
   /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
   max_nav_age_secs: bigint;
+  /** Exposure cap: max debt of live repos on this asset, USDC units (DECISIONS.md #32). 0 = no new repos; null = contract predates #32. */
+  max_open_debt: bigint | null;
+  /** NAV sanity band (DECISIONS.md #31): max move in bps against the feed's last 20 records; null = contract predates #31. */
+  max_nav_move_bps: bigint | null;
+  /** Optional hard NAV bounds in the oracle feed's scale (#31); null = unset. */
+  nav_floor: bigint | null;
+  nav_ceiling: bigint | null;
 }
 
 export interface Nav {
@@ -142,13 +149,46 @@ export async function getConfig(): Promise<ProtocolConfig> {
 }
 
 export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
-  const r = (await readRepo.asset({ asset: sac })).result;
-  if (r.isErr()) return null;
-  const a: { haircut_bps: unknown; enabled: boolean; max_nav_age_secs?: unknown } = r.unwrap();
+  // Raw read, not the typed binding: the binding decodes AssetConfig by
+  // position, so it throws on a contract whose struct has fewer fields
+  // (deployed before #25, #31 or #32). Error #8 = AssetNotSupported.
+  let a: {
+    haircut_bps: unknown;
+    enabled: boolean;
+    max_nav_age_secs?: unknown;
+    max_open_debt?: unknown;
+    max_nav_move_bps?: unknown;
+    nav_floor?: unknown;
+    nav_ceiling?: unknown;
+  };
+  try {
+    a = await simulateView(REPO_ID, "asset", new Address(sac).toScVal());
+  } catch (e) {
+    if (/Error\(Contract, #8\)/.test(String((e as Error)?.message ?? e))) return null;
+    throw e;
+  }
   // Contracts deployed before DECISIONS.md #25 keep max_nav_age_secs in config().
   const maxAge =
     a.max_nav_age_secs ?? ((await readRepo.config()).result as unknown as { max_nav_age_secs: unknown }).max_nav_age_secs;
-  return { haircut_bps: big(a.haircut_bps), enabled: a.enabled, max_nav_age_secs: big(maxAge) };
+  return {
+    haircut_bps: big(a.haircut_bps),
+    enabled: a.enabled,
+    max_nav_age_secs: big(maxAge),
+    max_open_debt: a.max_open_debt === undefined ? null : big(a.max_open_debt),
+    max_nav_move_bps: a.max_nav_move_bps === undefined ? null : big(a.max_nav_move_bps),
+    // Option<i128>: None decodes as null (absent on a pre-#31 contract).
+    nav_floor: a.nav_floor == null ? null : big(a.nav_floor),
+    nav_ceiling: a.nav_ceiling == null ? null : big(a.nav_ceiling),
+  };
+}
+
+/** Debt of live repos on this collateral (#32); null on a contract without open_debt(). */
+export async function getOpenDebt(sac: string): Promise<bigint | null> {
+  try {
+    return big((await readRepo.open_debt({ asset: sac })).result);
+  } catch {
+    return null;
+  }
 }
 
 export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {

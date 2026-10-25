@@ -60,6 +60,8 @@ export default function App() {
   // Per collateral token (config.ts COLLATERAL), keyed by token contract id.
   const [assets, setAssets] = useState<Record<string, AssetConfig | null>>({});
   const [navs, setNavs] = useState<Record<string, Nav | null>>({});
+  // Debt of live repos per collateral token, counted against max_open_debt (#32).
+  const [openDebt, setOpenDebt] = useState<Record<string, bigint | null>>({});
   const [offers, setOffers] = useState<Offer[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
@@ -80,8 +82,13 @@ export default function App() {
   // --- data ---------------------------------------------------------------------
   const refreshMarket = useCallback(async () => {
     try {
-      const [n, book] = await Promise.all([Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))), chain.getBook()]);
+      const [n, book, d] = await Promise.all([
+        Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))),
+        chain.getBook(),
+        Promise.all(COLLATERAL.map((a) => chain.getOpenDebt(a.sac))),
+      ]);
       setNavs(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, n[i]])));
+      setOpenDebt(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, d[i]])));
       setOffers(book.offers);
       setRepos(book.repos);
       setLoaded(true);
@@ -200,6 +207,7 @@ export default function App() {
     config,
     assets,
     navs,
+    openDebt,
     stale,
     balances,
     busy,
@@ -341,6 +349,8 @@ interface Ctx {
   /** Asset config per collateral token id; null = not registered with set_asset. */
   assets: Record<string, AssetConfig | null>;
   navs: Record<string, Nav | null>;
+  /** Debt of live repos per collateral token (#32); null = contract has no open_debt(). */
+  openDebt: Record<string, bigint | null>;
   /** NAV for this collateral is older than max_nav_age_secs. */
   stale: (sac: string) => boolean;
   balances: Balances | null;
@@ -603,9 +613,15 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
   const [selected, setSelected] = useState<bigint | null>(null);
   const [receipt, setReceipt] = useState<Receipt>(null);
   const [filter, setFilter] = useState<string>("all");
-  const { config, assets } = ctx;
+  const { config, assets, openDebt } = ctx;
   const offer = offers.find((o) => o.id === selected) ?? null;
   const shown = filter === "all" ? offers : offers.filter((o) => o.collateral_asset === filter);
+  // Exposure cap per asset (#32); hidden on a contract deployed before it.
+  const caps = COLLATERAL.flatMap((a) => {
+    const cap = assets[a.sac]?.max_open_debt;
+    const used = openDebt[a.sac];
+    return cap != null && used != null ? [{ ...a, cap, used }] : [];
+  });
 
   return (
     <section className="app-section">
@@ -615,6 +631,18 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
           Open USDC loan offers. Each one is taken in full.
           <Tip>The lender&apos;s USDC is already locked in the contract, so taking an offer pays you out right away.</Tip>
         </span>
+        {caps.length > 0 && (
+          <span className="small app-muted" data-testid="exposure-caps">
+            Exposure cap used:{" "}
+            {caps.map((a, i) => (
+              <span key={a.sac} data-testid={`cap-${a.code}`}>
+                {i > 0 ? " · " : ""}
+                {a.code} <span className="cv-num">{fmtAmount(a.used, 0)} / {fmtAmount(a.cap, 0)}</span> USDC
+              </span>
+            ))}
+            <Tip>The most USDC that can be owed (principal + interest) on live loans against each collateral. At the cap new loans pause; repaying, topping up and liquidating always work.</Tip>
+          </span>
+        )}
       </div>
 
       {COLLATERAL.length > 1 && (
@@ -729,6 +757,8 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
     : null;
   const held = balances ? chain.holding(balances, offer.collateral_asset) : null;
   const amt = (v: bigint) => fmtAmount(v, 2, token.decimals);
+  const cap = asset.max_open_debt;
+  const used = ctx.openDebt[offer.collateral_asset] ?? null;
 
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to take this offer.`;
@@ -737,6 +767,11 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   else if (!asset.enabled) block = `${token.code} is disabled as collateral right now.`;
   else if (!nav) block = `The oracle has no ${token.code} price yet.`;
   else if (navStale) block = `The ${token.code} price is more than ${Number(asset.max_nav_age_secs) / 60} minutes old. Wait for the next update (or push one from Admin), then try again.`;
+  else if (cap !== null && used !== null && used + debt > cap)
+    block =
+      cap === 0n
+        ? `New ${token.code} loans are paused: its exposure cap is 0.`
+        : `This loan would take ${token.code} past its exposure cap: ${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} USDC used, this loan adds ${fmtAmount(debt)}.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
   else if (held && (held.amount === null || !held.allowed))

@@ -96,6 +96,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_open_debt"
+                      },
+                      "val": {
+                        "i128": "170141183460469231731687303715884105727"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "nav_ceiling"
                       },
                       "val": "void"
@@ -305,6 +313,14 @@
                       },
                       "val": {
                         "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_open_debt"
+                      },
+                      "val": {
+                        "i128": "170141183460469231731687303715884105727"
                       }
                     },
                     {
@@ -1699,6 +1715,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_open_debt"
+                            },
+                            "val": {
+                              "i128": "170141183460469231731687303715884105727"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "nav_ceiling"
                             },
                             "val": "void"
@@ -1770,6 +1794,14 @@
                             },
                             "val": {
                               "u32": 10000
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "max_open_debt"
+                            },
+                            "val": {
+                              "i128": "170141183460469231731687303715884105727"
                             }
                           },
                           {
@@ -1909,6 +1941,36 @@
                       },
                       "val": {
                         "u64": "4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "OpenDebt"
+                          },
+                          {
+                            "address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "9709301370"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "OpenDebt"
+                          },
+                          {
+                            "address": "CD6J4NTZEADXNETD2UY7ALD2N26RY35GGC73JSXXZB2GKB3ZTLR3Y4FH"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "19418602740"
                       }
                     }
                   ]

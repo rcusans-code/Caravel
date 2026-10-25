@@ -286,6 +286,7 @@ mod test {
     };
     use crate::{
         errors::Error,
+        test::NO_CAP,
         types::{Asset, AssetConfig, Config},
         CaravelRepo,
     };
@@ -325,6 +326,7 @@ mod test {
             max_nav_move_bps: crate::test::WIDE_BAND_BPS,
             nav_floor: None,
             nav_ceiling: None,
+            max_open_debt: NO_CAP,
         };
         Setup {
             env,

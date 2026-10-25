@@ -30,4 +30,6 @@ pub enum Error {
     /// NAV outside the asset's sanity band: beyond `nav_floor` / `nav_ceiling`,
     /// or more than `max_nav_move_bps` from a recent oracle record (#31).
     NavOutOfBand = 18,
+    /// `take_offer` would push the asset's open debt past `max_open_debt` (#32).
+    CapExceeded = 19,
 }

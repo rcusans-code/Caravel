@@ -68,6 +68,12 @@ pub struct AssetConfig {
     /// each must be > 0 and `nav_floor <= nav_ceiling`.
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
+    /// Exposure cap (DECISIONS.md #32): total debt (principal + interest, USDC
+    /// 7 decimals) of live repos on this asset. `take_offer` fails with
+    /// `CapExceeded` past it; 0 means no new repos. Exits (repay, auto-repay,
+    /// top-up, liquidate) are never blocked, and lowering the cap below the
+    /// open debt leaves live repos untouched. Must be ≥ 0.
+    pub max_open_debt: i128,
 }
 
 /// Per-asset emergency switches (DECISIONS.md #30), stored apart from
