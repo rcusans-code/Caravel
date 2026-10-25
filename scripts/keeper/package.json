@@ -5,6 +5,7 @@
   "scripts": {
     "keeper": "tsx src/keeper.ts",
     "set-nav": "tsx src/set-nav.ts",
+    "feeds": "tsx src/feeds.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
