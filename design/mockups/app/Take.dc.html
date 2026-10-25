@@ -228,6 +228,13 @@ a{color:var(--primary)}a:hover{color:var(--primary-hover)}
 .app-take__body { gap: var(--space-4); align-items: center; }
 .app-take__terms { gap: var(--space-2); }
 .app-take__head { display: flex; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; }
+/* Hero numbers: the offer fills its column. */
+.app-take__head .cv-figure-xl { font-size: 56px; line-height: 60px; }
+.app-take__head .cv-figure-xl + .cv-unit { font-size: 18px; }
+.app-take__head .cv-apr { font-size: 22px; line-height: 28px; }
+.app-take__head .cv-apr .cv-unit { font-size: 15px; }
+.app-take__terms .cv-terms dd { font-size: 18px; line-height: 26px; }
+@media (max-width: 560px) { .app-take__head .cv-figure-xl { font-size: 40px; line-height: 44px; } }
 .app-take__act { gap: var(--space-3); padding-left: var(--space-4); }
 .app-take .app-preview { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); padding: var(--space-2) var(--space-3); }
 .app-take .app-preview .cv-field__hint { flex-basis: 100%; }
