@@ -96,6 +96,13 @@ body {
   border: 1px solid var(--line);
 }
 .app-block { color: var(--defaulted); margin: 0; }
+
+.app-check { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); align-items: start; cursor: pointer; }
+.app-check > span { display: flex; flex-direction: column; gap: 2px; }
+.app-check__label { color: var(--ink); }
+.app-check input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--primary); cursor: inherit; }
+.app-check input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.app-check:has(input:disabled) { cursor: default; opacity: 0.6; }
 .app-empty { color: var(--ink-subtle); padding: var(--space-4); }
 
 .app-lend__grid {

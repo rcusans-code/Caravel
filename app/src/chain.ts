@@ -55,6 +55,7 @@ export interface Repo {
   maturity_ts: bigint;
   margin_call_deadline: bigint | null;
   status: Status;
+  auto_repay: boolean;
 }
 
 export interface ProtocolConfig {
@@ -201,6 +202,7 @@ const normRepo = (r: Record<string, unknown>): Repo => ({
   maturity_ts: big(r.maturity_ts),
   margin_call_deadline: r.margin_call_deadline == null ? null : big(r.margin_call_deadline),
   status: (Array.isArray(r.status) ? r.status[0] : r.status) as Status,
+  auto_repay: r.auto_repay === true,
 });
 
 export async function getBook(): Promise<{ offers: Offer[]; repos: Repo[] }> {
@@ -302,10 +304,18 @@ export async function cancelOffer(signer: Signer, offerId: bigint): Promise<TxOu
   return { hash: out.hash, value: null };
 }
 
-export async function takeOffer(signer: Signer, offerId: bigint): Promise<TxOutcome<bigint>> {
+/** `autoRepay` also signs a USDC allowance so the debt is pulled at maturity (DECISIONS.md #24). */
+export async function takeOffer(signer: Signer, offerId: bigint, autoRepay: boolean): Promise<TxOutcome<bigint>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
-  const out = await submit(await c.take_offer({ borrower: signer.address, offer_id: offerId }));
+  const out = await submit(await c.take_offer({ borrower: signer.address, offer_id: offerId, auto_repay: autoRepay }));
   return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+export async function setAutoRepay(signer: Signer, repoId: bigint, enabled: boolean): Promise<TxOutcome<null>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.set_auto_repay({ repo_id: repoId, enabled }));
+  unwrapResult(out.value);
+  return { hash: out.hash, value: null };
 }
 
 export async function repay(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {

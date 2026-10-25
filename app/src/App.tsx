@@ -13,7 +13,7 @@ import {
   type DemoRole,
 } from "./config";
 import * as chain from "./chain";
-import type { AssetConfig, Balances, Nav, Offer, ProtocolConfig, Repo } from "./chain";
+import type { AssetConfig, Balances, Nav, Offer, ProtocolConfig, Repo, Status } from "./chain";
 import { explain } from "./errors";
 import {
   BPS,
@@ -626,6 +626,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   const int = calcInterest(offer.principal, offer.apr_bps, offer.term_secs, config.day_secs);
   const debt = offer.principal + int;
   const collateral = nav ? requiredCollateral(debt, nav.price, nav.decimals, asset.haircut_bps) : null;
+  const [autoRepay, setAutoRepay] = useState(true);
 
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to take this offer.`;
@@ -642,7 +643,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
 
   const take = async () => {
     if (!signer || collateral === null) return;
-    const out = await ctx.run("take", `Offer #${offer.id} not taken`, () => chain.takeOffer(signer, offer.id));
+    const out = await ctx.run("take", `Offer #${offer.id} not taken`, () => chain.takeOffer(signer, offer.id, autoRepay));
     if (out)
       onDone({
         left: { eyebrow: "Borrower delivers", amount: fmtAmount(collateral), unit: "tBENJI", hint: "into escrow" },
@@ -701,6 +702,16 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
             )}
         </span>
       </div>
+      <AutoRepayToggle
+        checked={autoRepay}
+        disabled={!!busy}
+        onChange={setAutoRepay}
+        hint={
+          autoRepay
+            ? `At maturity the contract pulls ${fmtAmount(debt)} USDC from this wallet and returns your tBENJI. Keep the USDC here; if it is short, the repo defaults as usual.`
+            : `Repay ${fmtAmount(debt)} USDC yourself by maturity plus ${String(config.grace_secs)} s grace, or your tBENJI is sold at NAV − ${fmtPct(config.liquidation_discount_bps, 1)}.`
+        }
+      />
       {block && <p className="cv-field__hint app-block">{block}</p>}
       <button
         type="button"
@@ -1037,6 +1048,11 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const canRepay = live && side === "borrowed";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
 
+  const toggleAuto = async (enabled: boolean) => {
+    if (!signer) return;
+    await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () => chain.setAutoRepay(signer, repo.id, enabled));
+  };
+
   const doRepay = async () => {
     if (!signer) return;
     const out = await ctx.run(`repay-${repo.id}`, `Repo #${repo.id} not repaid`, () => chain.repay(signer, repo.id));
@@ -1124,7 +1140,45 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${fmtAmount(repo.collateral_amount)} tBENJI back.`}
         </p>
       )}
+      {canRepay && (
+        <AutoRepayToggle
+          checked={repo.auto_repay}
+          disabled={!!busy || !ctx.approved}
+          busy={busy === `auto-${repo.id}`}
+          onChange={toggleAuto}
+          hint={
+            repo.auto_repay
+              ? short
+                ? `On, but this wallet is short: hold ${fmtAmount(debt)} USDC by maturity or the repo defaults.`
+                : `On: at maturity ${fmtAmount(debt)} USDC is pulled from this wallet and your tBENJI comes back.`
+              : `Off: if you do not repay by maturity plus ${String(config.grace_secs)} s grace, your tBENJI is sold at NAV − ${fmtPct(config.liquidation_discount_bps, 1)}.`
+          }
+        />
+      )}
+      {ctx.tx?.key === `auto-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {!live && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config)}</p>}
     </article>
+  );
+}
+
+/** What a settled repo meant for the borrower, so a closed card never just says "Closed". */
+const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig) => string>> = {
+  Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount)} tBENJI returned to this wallet.`,
+  Defaulted: (_, c) =>
+    `Defaulted: not repaid by maturity plus grace. The tBENJI goes to a liquidator at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}; any surplus over the debt comes back to you.`,
+  Liquidated: (_, c) =>
+    `Liquidated: not repaid in time, so the tBENJI was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
+};
+
+function AutoRepayToggle({ checked, disabled, busy, onChange, hint }: { checked: boolean; disabled?: boolean; busy?: boolean; onChange: (v: boolean) => void; hint: string }) {
+  return (
+    <label className="app-check" aria-busy={busy || undefined}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} data-action="auto-repay" />
+      <span>
+        <span className="app-check__label">{busy ? "Updating auto-repay" : "Auto-repay at maturity"}</span>
+        <span className="cv-field__hint">{hint}</span>
+      </span>
+    </label>
   );
 }
 

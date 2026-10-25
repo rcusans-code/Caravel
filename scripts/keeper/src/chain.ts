@@ -136,4 +136,5 @@ export const Err = {
   StaleNav: 9,
   NotDefaultable: 12,
   NoPrice: 13,
+  AutoRepayFailed: 16,
 } as const;

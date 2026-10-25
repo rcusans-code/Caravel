@@ -1,5 +1,5 @@
-// Caravel keeper: polls every repo, fires check_margin and default with nobody
-// touching anything.
+// Caravel keeper: polls every repo, fires auto_repay, check_margin and default
+// with nobody touching anything.
 //
 //   npm run keeper                   # every 10 s
 //   npm run keeper -- --refresh-nav  # also re-post the last NAV every ~120 s
@@ -18,6 +18,7 @@ interface Repo {
   collateral_amount: bigint;
   maturity_ts: bigint;
   margin_call_deadline?: bigint | null;
+  auto_repay?: boolean;
 }
 interface PriceData {
   price: bigint;
@@ -95,11 +96,30 @@ async function tick(cfg: { discountBps: bigint; graceSecs: bigint; decimals: num
     const ltv = last ? Number(debt) / ((Number(r.collateral_amount) * Number(last.price)) / 10 ** cfg.decimals) : NaN;
     const desc = `repo ${r.id} ${r.status} debt ${fmt(debt)} coll ${fmt(r.collateral_amount)} ltv ${(ltv * 100).toFixed(2)}%`;
 
-    // 1. default: margin window missed, or past maturity + grace. Needs no NAV.
+    // 1. auto-repay (DECISIONS.md #24): opted in and due, i.e. at maturity or
+    // with the margin window missed. A failed pull leaves the repo live; the
+    // borrower can still repay by hand and `default` below tries once more.
+    if (r.auto_repay && !matured && (t >= r.maturity_ts || marginMissed)) {
+      try {
+        const { hash } = await invoke(signer, REPO_ID, "auto_repay", [u64(r.id)]);
+        log(`AUTO-REPAID  ${desc}  ${txLink(hash)}`);
+        settled.add(r.id);
+        continue;
+      } catch (e) {
+        if (e instanceof ContractError && e.code === Err.AutoRepayFailed) {
+          note(next, r.id, "short", `auto-repay   ${desc}: borrower USDC or allowance short of the debt, waiting for grace`);
+          if (!marginMissed) continue;
+        } else log(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
+      }
+    }
+
+    // 2. default: margin window missed, or past maturity + grace. Needs no NAV.
+    // An opted-in repo that can pay settles as Repaid here instead.
     if (matured || marginMissed) {
       try {
-        const { hash } = await invoke(signer, REPO_ID, "default", [u64(r.id)]);
-        log(`DEFAULT      ${desc} (${marginMissed ? "margin window missed" : "matured + grace"})  ${txLink(hash)}`);
+        const { hash, result } = await invoke(signer, REPO_ID, "default", [u64(r.id)]);
+        const repaid = statusOf(result) === "Repaid";
+        log(`${repaid ? "AUTO-REPAID " : "DEFAULT     "} ${desc} (${marginMissed ? "margin window missed" : "matured + grace"})  ${txLink(hash)}`);
         settled.add(r.id);
       } catch (e) {
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
@@ -109,13 +129,13 @@ async function tick(cfg: { discountBps: bigint; graceSecs: bigint; decimals: num
       continue;
     }
 
-    // 2. MarginCall already set: wait for top-up / repay or the deadline.
+    // 3. MarginCall already set: wait for top-up / repay or the deadline.
     if (r.status === "MarginCall") {
       note(next, r.id, "waiting", `waiting      ${desc}, default possible in ${deadline! - t + 1n}s`);
       continue;
     }
 
-    // 3. Open: simulate check_margin; only send a tx when it would breach.
+    // 4. Open: simulate check_margin; only send a tx when it would breach.
     try {
       const st = statusOf(await view(REPO_ID, "check_margin", [u64(r.id)], signer.publicKey()));
       if (st === "MarginCall") {

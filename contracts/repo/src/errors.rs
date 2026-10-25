@@ -19,4 +19,10 @@ pub enum Error {
     NotDefaultable = 12,
     /// Oracle has no price for the asset, or it is not positive.
     NoPrice = 13,
+    /// `auto_repay` on a repo that did not opt in.
+    AutoRepayOff = 14,
+    /// `auto_repay` before maturity (and no missed margin call).
+    NotDue = 15,
+    /// The USDC pull failed: short balance, allowance too small or expired.
+    AutoRepayFailed = 16,
 }

@@ -15,6 +15,9 @@ const REPO_ERRORS: Record<number, string> = {
   11: "Only whitelisted liquidators can liquidate.",
   12: "This repo cannot be defaulted yet: it is before maturity plus grace.",
   13: "The oracle has no tBENJI price yet. Push one from Admin.",
+  14: "Auto-repay is off for this repo.",
+  15: "Auto-repay runs from maturity, not before.",
+  16: "Auto-repay could not pull the debt: this wallet holds too little USDC. Top up USDC and repay before grace ends.",
 };
 
 // Built-in Stellar Asset Contract errors (soroban-env-host ContractError).

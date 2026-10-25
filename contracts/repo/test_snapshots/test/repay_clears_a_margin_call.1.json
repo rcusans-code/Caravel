@@ -278,6 +278,9 @@
                 },
                 {
                   "u64": "1"
+                },
+                {
+                  "bool": false
                 }
               ]
             }
@@ -693,6 +696,14 @@
               "durability": "persistent",
               "val": {
                 "map": [
+                  {
+                    "key": {
+                      "symbol": "auto_repay"
+                    },
+                    "val": {
+                      "bool": false
+                    }
+                  },
                   {
                     "key": {
                       "symbol": "borrower"
