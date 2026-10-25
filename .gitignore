@@ -1,4 +1,6 @@
 .env
+# exception: testnet burner keys are committed on purpose
+!/.env
 .env.*
 !.env.example
 target/

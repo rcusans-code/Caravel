@@ -12,8 +12,8 @@ Read [DECISIONS.md](DECISIONS.md) before writing code. Tasks marked ⚠️ imple
 ## G0 · Spike & setup — Sun 12:00–13:00
 Exit: AUTH_REQUIRED go/no-go, repo public, decisions locked.
 
-- [ ] **I** ⚠️ AUTH_REQUIRED spike: issue tBENJI (AUTH_REQUIRED + REVOCABLE + CLAWBACK), deploy dummy contract, `set_authorized(contract)` via SAC, transfer in and out. *Done when: go/no-go posted by 13:00*
-- [ ] **I** ⚠️ Testnet accounts (admin, issuer, lender, borrower, liquidator) + trustlines to **Circle testnet USDC** and tBENJI. Testnet keys in `.env` (gitignored). *Done when: every demo account holds USDC or tBENJI*
+- [x] **I** ⚠️ AUTH_REQUIRED spike: issue tBENJI (AUTH_REQUIRED + REVOCABLE + CLAWBACK), deploy dummy contract, `set_authorized(contract)` via SAC, transfer in and out. *Done when: go/no-go posted by 13:00*
+- [x] **I** ⚠️ Testnet accounts (admin, issuer, lender, borrower, liquidator) + trustlines to **Circle testnet USDC** and tBENJI. Testnet keys in `.env` (gitignored). *Done when: every demo account holds USDC or tBENJI*
 - [x] **C** Contract skeleton: `Offer`, `Repo`, `Status`, `Config`, storage keys (instance = config, persistent = offers/repos), TTL helper, events. *Done when: compiles with stubs*
 - [x] **C** ⚠️ `math.rs` with tests: interest, collateral value, margin threshold, liquidation waterfall incl. fee and shortfall. *Done when: the 3 brief scenarios pass*
 - [ ] **F** Frontend scaffold: Scaffold Stellar or Next.js + `@stellar/stellar-sdk` + Freighter, testnet, role switcher (lender / borrower / liquidator / admin). *Done when: wallet connects, balances show*
@@ -29,7 +29,8 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 - [ ] **I** ⚠️ Mock SEP-40 oracle: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) + admin `set_price`, deployed. *Done when: `lastprice(tBENJI)` returns price + timestamp*
 - [ ] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
 - [ ] **P** Mentor round 1: demand? issuer whitelisting? term vs perpetual? Ask permission to quote. *Done when: one quotable line or a clear no*
-- [ ] **P** Deck outline (9 slides) + every number re-verified with a source
+- [ ] **P** Deck outline (9 slides) + every number re-verified with a source. Sourced numbers and the "every dollar ends in T-bills; the risk is exit" framing: [docs/collateral-research.md](docs/collateral-research.md)
+- [ ] **T** Decide in chat: adopt per-asset haircut tiers + Spiko USTBL→SAFO as asset #2 roadmap (proposals in docs/collateral-research.md §3–4), then record in DECISIONS.md
 
 ## G2 · Full contract — 16:00–19:30
 Exit: margin, default, liquidate tested; one-command deploy.
@@ -86,4 +87,5 @@ Exit: margin call, default, liquidation in the UI.
 
 ## Status log
 - **Sun 12:01** — Repo created, board pushed. All tasks to do.
+- **Sun 13:05** — AUTH_REQUIRED spike: **GO** (contract authorized via SAC `set_authorized`, transfer in/out and freeze verified, see `spikes/auth/README.md`). 5 testnet accounts funded: lender 500 USDC, liquidator 500 USDC, borrower 100 USDC + 1000 tBENJI. Real Circle USDC bought on the testnet DEX (no faucet). Testnet burner keys committed in `.env`.
 - **Sun 13:08** — C: `contracts/repo` skeleton (soroban-sdk 29, testnet is protocol 29) + `math.rs`, 25 tests green incl. surplus / made-whole / shortfall. Flows are `NotImplemented` stubs. Build: `stellar contract build` (stellar-cli ≥ 25.2), test: `cargo test`.

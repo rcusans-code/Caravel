@@ -7,7 +7,7 @@ Fixed-term, fixed-rate USDC loans against tokenized money-market funds, priced o
 
 Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis path · Stellar Unlocked + Stellar Composed.
 
-> 🚧 Work in progress during the hackathon. New to the team? Start with [INTRO.md](INTRO.md) · Team board: [TASKS.md](TASKS.md) · Locked decisions: [DECISIONS.md](DECISIONS.md)
+> 🚧 Work in progress during the hackathon. New to the team? Start with [INTRO.md](INTRO.md) · Team board: [TASKS.md](TASKS.md) · Locked decisions: [DECISIONS.md](DECISIONS.md) · Collateral research (sourced numbers for Problem/Insight/Risks): [docs/collateral-research.md](docs/collateral-research.md)
 
 ## Problem
 _TODO (P): RWA on Stellar vs RWA in lending pools, with sources._
