@@ -1190,7 +1190,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {repo.status === "Defaulted" ? "Awaiting liquidation" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
           </span>
           {live && (
             <span className="cv-countdown__time">
