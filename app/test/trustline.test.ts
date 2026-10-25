@@ -161,7 +161,7 @@ test("a wallet that never answers times out with a plain Error (no auto re-promp
 test("trustlineUi: which alert and button show", () => {
   const b = fresh();
   // Lender demo with only tBENJI missing: no alert, no button (figure only).
-  assert.deepEqual(trustlineUi("demo", { ...b, usdc: 0n }, null), { gated: false, showInfo: false, button: null });
+  assert.deepEqual(trustlineUi("demo", { ...b, usdc: 0n }, null), { gated: false, tbenjiPending: false, showInfo: false, button: null });
   // Demo missing USDC: info alert with the button.
   assert.equal(trustlineUi("demo", b, null).button?.label, "Add USDC + tBENJI trustlines");
   // Wallet missing one line: singular label.
@@ -172,4 +172,30 @@ test("trustlineUi: which alert and button show", () => {
   assert.equal(trustlineUi("wallet", { ...b, exists: false }, null).button, null);
   // Not loaded yet.
   assert.equal(trustlineUi("wallet", null, null).button, null);
+});
+
+test("trustlineUi: per-asset banner, tSAFO-allowlisted wallet without tBENJI authorization", () => {
+  const b = fresh();
+  // Lender GB44-like: USDC line, no tBENJI line, on the tSAFO allowlist. Not "borrowing
+  // not approved"; the tBENJI-pending note carries the same Add trustline button.
+  const noLine = trustlineUi("wallet", { ...b, usdc: 0n, tsafo: 0n, tsafoAllowed: true }, null);
+  assert.equal(noLine.gated, false);
+  assert.equal(noLine.tbenjiPending, true);
+  assert.equal(noLine.showInfo, false);
+  assert.equal(noLine.button?.label, "Add tBENJI trustline");
+  // tBENJI line present but unauthorized, tSAFO allowlisted: no gate, no button.
+  const unauth = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tsafo: 0n, tsafoAllowed: true }, null);
+  assert.deepEqual(unauth, { gated: false, tbenjiPending: true, showInfo: false, button: null });
+  // Approved for neither: the access gate stays.
+  const neither = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n }, null);
+  assert.equal(neither.gated, true);
+  assert.equal(neither.tbenjiPending, false);
+  // tBENJI authorized: neither banner, whatever the tSAFO allowlist says.
+  for (const tsafoAllowed of [false, true]) {
+    const ok = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tbenjiAuthorized: true, tsafoAllowed }, null);
+    assert.equal(ok.gated, false);
+    assert.equal(ok.tbenjiPending, false);
+  }
+  // Demo keys are never gated.
+  assert.equal(trustlineUi("demo", { ...b, tsafoAllowed: true }, null).tbenjiPending, false);
 });

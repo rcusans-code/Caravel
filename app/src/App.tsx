@@ -404,9 +404,11 @@ function AccountAlerts({
   refresh: () => Promise<void>;
   setFlash: Ctx["setFlash"];
 }) {
-  // Wallets without an issuer-authorized tBENJI line are read-only (access gate).
+  // Per-asset access gate: a wallet approved for neither collateral is read-only;
+  // a tSAFO-allowlisted wallet without tBENJI authorization can still borrow tSAFO.
   // The button depends only on chain state + in-flight request, so it survives any failure.
-  const { gated, showInfo: showTrust, button } = trustlineUi(signer.kind, balances, busy);
+  const { gated, tbenjiPending, showInfo: showTrust, button } = trustlineUi(signer.kind, balances, busy);
+  const tsafoCode = TSAFO?.code ?? "tSAFO";
   const missing = button?.missing ?? [];
   // A wallet decline re-prompts once (chain.ensureTrustlines); a second decline or any
   // other failure lands in the flash and the button stays for another try.
@@ -470,14 +472,22 @@ function AccountAlerts({
             : ""}
         </Alert>
       )}
+      {tbenjiPending && balances && (
+        <Alert tone="info" title="tBENJI borrowing not approved yet" action={trustButton || undefined}>
+          {`${tsafoCode} borrowing is open to you: this wallet is on the ${tsafoCode} issuer allowlist. `}
+          {balances.tbenji !== null
+            ? `Your tBENJI trustline is in place; the issuer has not authorized ${signer.address.slice(0, 4)}…${signer.address.slice(-4)} yet.`
+            : "Borrowing against tBENJI also needs a tBENJI trustline and the issuer's authorization."}
+          {balances.usdc === null ? " Add a USDC trustline to lend or receive loan proceeds." : ""}
+        </Alert>
+      )}
       {showTrust && (
         <Alert
           tone="info"
           title={`No ${missing.join(" or ")} trustline`}
           action={trustButton || undefined}
         >
-          Lenders need USDC; borrowers need USDC and tBENJI. tBENJI is AUTH_REQUIRED, so the issuer also has to authorize
-          the account before it can hold any.
+          {`Lenders need USDC. Borrowers need USDC plus approved collateral: tBENJI is AUTH_REQUIRED, so the issuer has to authorize the trustline${TSAFO ? `; ${tsafoCode} needs no trustline, only the issuer allowlist` : ""}.`}
         </Alert>
       )}
     </>

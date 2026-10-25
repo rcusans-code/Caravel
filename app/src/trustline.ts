@@ -110,8 +110,10 @@ export async function addTrustlinesWithRetry(
 }
 
 export interface TrustUi {
-  /** Wallet is read-only: no issuer-authorized tBENJI line (access gate). */
+  /** Wallet can hold no collateral: no issuer-authorized tBENJI line and not tSAFO-allowlisted. */
   gated: boolean;
+  /** Wallet can borrow against tSAFO (allowlisted) but tBENJI is not authorized yet. */
+  tbenjiPending: boolean;
   /** Show the "No … trustline" info alert. */
   showInfo: boolean;
   /** The Add trustline button, or null when no line can be added from here. */
@@ -125,18 +127,23 @@ export interface TrustUi {
  */
 export function trustlineUi(kind: "wallet" | "demo", b: Balances | null, busy: string | null): TrustUi {
   const missing = missingTrustlines(b);
-  const gated = kind === "wallet" && !!b?.exists && !b.tbenjiAuthorized;
+  // Per asset: tBENJI needs an issuer-authorized line, tSAFO the issuer allowlist.
+  // Only a wallet approved for neither is told borrowing is not approved.
+  const noTbenji = kind === "wallet" && !!b?.exists && !b.tbenjiAuthorized;
+  const gated = noTbenji && !b!.tsafoAllowed;
+  const tbenjiPending = noTbenji && b!.tsafoAllowed;
   // Lenders only need USDC, so a missing tBENJI line alone is just shown in the
   // figure, except for browser wallets that may want to borrow.
-  const showInfo = !gated && (missing.includes("USDC") || (kind === "wallet" && missing.length > 0));
+  const showInfo =
+    !gated && !tbenjiPending && (missing.includes("USDC") || (kind === "wallet" && missing.length > 0));
   const waiting = busy === "trust";
   const button =
-    missing.length > 0 && (gated || showInfo)
+    missing.length > 0 && (gated || tbenjiPending || showInfo)
       ? {
           missing,
           label: waiting ? "Waiting for wallet…" : `Add ${missing.join(" + ")} trustline${missing.length > 1 ? "s" : ""}`,
           disabled: waiting,
         }
       : null;
-  return { gated, showInfo, button };
+  return { gated, tbenjiPending, showInfo, button };
 }
