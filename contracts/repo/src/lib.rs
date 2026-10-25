@@ -25,7 +25,7 @@ mod test_spiko;
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 
 pub use errors::Error;
-pub use types::{Asset, AssetConfig, Config, Offer, Repo, Status};
+pub use types::{Asset, AssetConfig, Config, Offer, Pause, Repo, Status};
 
 #[contract]
 pub struct CaravelRepo;
@@ -66,6 +66,12 @@ impl CaravelRepo {
         storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)
     }
 
+    /// The asset's pause switches; all off for an asset never paused (#30).
+    pub fn pause(env: Env, asset: Address) -> Pause {
+        storage::extend_instance(&env);
+        storage::read_pause(&env, &asset)
+    }
+
     // --- admin ------------------------------------------------------------
 
     pub fn set_liquidator(env: Env, liquidator: Address, allowed: bool) {
@@ -99,11 +105,34 @@ impl CaravelRepo {
         Ok(())
     }
 
+    /// Sets an asset's pause switches (DECISIONS.md #30). Each one stops one
+    /// action: `no_new_repos` blocks `create_offer` / `take_offer`,
+    /// `no_seize` blocks `default` and `liquidate`. Nothing pauses `repay`
+    /// or `top_up`. Stored apart from `AssetConfig`, so `set_asset` never
+    /// clears a pause. Plain admin setter for now; the guardian (set
+    /// instantly, clear through a timelock) builds on it.
+    pub fn set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
+        storage::read_config(&env).admin.require_auth();
+        if storage::read_asset(&env, &asset).is_none() {
+            return Err(Error::AssetNotSupported);
+        }
+        storage::extend_instance(&env);
+        storage::write_pause(&env, &asset, &pause);
+        events::PauseSet {
+            asset,
+            no_new_repos: pause.no_new_repos,
+            no_seize: pause.no_seize,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
     // --- lender -----------------------------------------------------------
 
     /// Escrows `principal` USDC from the lender. Returns the offer id.
     /// The haircut comes from the asset's `AssetConfig`, not the lender.
-    /// Rejects a missing or disabled asset with `AssetNotSupported` (#22).
+    /// Rejects a missing or disabled asset with `AssetNotSupported` (#22),
+    /// and `Paused` while the asset's `no_new_repos` switch is on (#30).
     pub fn create_offer(
         env: Env,
         lender: Address,
@@ -120,6 +149,7 @@ impl CaravelRepo {
             Some(asset) if asset.enabled => {}
             _ => return Err(Error::AssetNotSupported),
         }
+        new_repos_allowed(&env, &collateral_asset)?;
         let config = storage::read_config(&env);
         // Fail now, not at take time, if the terms overflow the interest math.
         math::interest(principal, apr_bps, term_secs, config.day_secs)?;
@@ -188,8 +218,9 @@ impl CaravelRepo {
     /// auth on the SAC transfer pins the exact amount, so if NAV moves between
     /// simulate and submit the tx fails instead of overcharging (#21).
     ///
-    /// Rejects stale NAV (#6) and an asset disabled since the offer was
-    /// posted (#23). The haircut is snapshotted on the repo (#19).
+    /// Rejects stale NAV (#6), an asset disabled since the offer was
+    /// posted (#23) and an asset paused with `no_new_repos` (#30). The
+    /// haircut is snapshotted on the repo (#19).
     ///
     /// `auto_repay` opts in to auto-repay (#27): the same signature also
     /// approves this contract to pull the debt in USDC from maturity.
@@ -205,6 +236,7 @@ impl CaravelRepo {
             Some(asset) if asset.enabled => asset,
             _ => return Err(Error::AssetNotSupported),
         };
+        new_repos_allowed(&env, &offer.collateral_asset)?;
         let config = storage::read_config(&env);
         let (nav, nav_decimals) =
             oracle::fresh_collateral_nav(&env, &config, &offer.collateral_asset, &asset)?;
@@ -284,6 +316,7 @@ impl CaravelRepo {
     /// back. The lender receives exactly `principal + interest − fee`, the
     /// treasury the fee (#3). Works from `Open` or `MarginCall`, before or
     /// after maturity until someone calls `default`, and needs no NAV (#6).
+    /// No pause switch blocks it (#30).
     pub fn repay(env: Env, repo_id: u64) -> Result<(), Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         if !matches!(repo.status, Status::Open | Status::MarginCall) {
@@ -358,6 +391,7 @@ impl CaravelRepo {
     /// Adds collateral. Clears a margin call once
     /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds, i.e. the
     /// initial margin is restored (TradFi convention). Works with stale NAV.
+    /// No pause switch blocks it (#30).
     pub fn top_up(env: Env, repo_id: u64, amount: i128) -> Result<(), Error> {
         margin::top_up(&env, repo_id, amount)
     }
@@ -400,6 +434,12 @@ impl CaravelRepo {
     ///
     /// An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
     /// when the pull succeeds. Returns the resulting status.
+    ///
+    /// While the asset's `no_seize` switch is on (#30) a repo that would
+    /// default returns `Paused` and stays `Open` / `MarginCall`, so the
+    /// borrower can still repay or top up. The clock is not extended: once the
+    /// switch clears, anyone can default it at once. Auto-repay still settles
+    /// under the switch: it is a repayment, not a seizure.
     pub fn default(env: Env, repo_id: u64) -> Result<Status, Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         if !matches!(repo.status, Status::Open | Status::MarginCall) {
@@ -414,6 +454,7 @@ impl CaravelRepo {
         if repo.auto_repay && autorepay::try_settle(&env, &mut repo, &config)? {
             return Ok(Status::Repaid);
         }
+        seize_allowed(&env, &repo.collateral_asset)?;
 
         repo.status = Status::Defaulted;
         storage::write_repo(&env, &repo);
@@ -430,6 +471,7 @@ impl CaravelRepo {
     /// principal + interest − fee), then the fee, then the borrower (#3, #4).
     /// If proceeds fall short of what the lender is owed, the lender takes
     /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6).
+    /// The asset's `no_seize` switch returns `Paused` (#30).
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -439,6 +481,7 @@ impl CaravelRepo {
         if repo.status != Status::Defaulted {
             return Err(Error::InvalidStatus);
         }
+        seize_allowed(&env, &repo.collateral_asset)?;
         // A disabled asset still liquidates; only new offers are blocked (#22).
         let asset =
             storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
@@ -490,6 +533,22 @@ impl CaravelRepo {
         }
         Ok(())
     }
+}
+
+/// `no_new_repos` stops new offers and takes (#30).
+fn new_repos_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
+    if storage::read_pause(env, asset).no_new_repos {
+        return Err(Error::Paused);
+    }
+    Ok(())
+}
+
+/// `no_seize` stops defaults and liquidations (#30).
+fn seize_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
+    if storage::read_pause(env, asset).no_seize {
+        return Err(Error::Paused);
+    }
+    Ok(())
 }
 
 fn validate_config(config: &Config) -> Result<(), Error> {

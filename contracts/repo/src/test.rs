@@ -9,7 +9,7 @@ use soroban_sdk::{
 use crate::{
     events,
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
-    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Offer, Repo,
+    storage, Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Offer, Pause, Repo,
     Status,
 };
 
@@ -1839,4 +1839,209 @@ fn stale_nav_blocks_take_margin_and_liquidate_but_never_repay_or_top_up() {
         w.tbenji_token.balance(&w.repo.address),
         TAKE_COLLATERAL // only the defaulted repo's collateral is left
     );
+}
+
+// --- pause switches (#30) ----------------------------------------------------
+
+impl World<'_> {
+    fn pause(&self, no_new_repos: bool, no_seize: bool) {
+        self.repo.set_pause(
+            &self.tbenji,
+            &Pause {
+                no_new_repos,
+                no_seize,
+            },
+        );
+    }
+
+    /// Enough tBENJI for `n` more full takes.
+    fn fund_takes(&self, n: i128) {
+        StellarAssetClient::new(&self.env, &self.tbenji)
+            .mint(&self.borrower, &(n * TAKE_COLLATERAL));
+    }
+}
+
+#[test]
+fn set_pause_is_stored_apart_from_asset_config() {
+    let w = world();
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+
+    w.pause(true, true);
+    let event = events::PauseSet {
+        asset: w.tbenji.clone(),
+        no_new_repos: true,
+        no_seize: true,
+    };
+    assert_eq!(
+        w.env.events().all().filter_by_contract(&w.repo.address),
+        [event.to_xdr(&w.env, &w.repo.address)]
+    );
+
+    // Re-tiering the asset never clears a pause.
+    let mut config = w.repo.asset(&w.tbenji);
+    config.haircut_bps = 500;
+    w.repo.set_asset(&w.tbenji, &config);
+    assert_eq!(
+        w.repo.pause(&w.tbenji),
+        Pause {
+            no_new_repos: true,
+            no_seize: true
+        }
+    );
+
+    w.pause(false, false);
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+
+    let unknown = Address::generate(&w.env);
+    assert_eq!(
+        w.repo.try_set_pause(&unknown, &Pause::default()),
+        Err(Ok(Error::AssetNotSupported))
+    );
+}
+
+#[test]
+#[should_panic]
+fn set_pause_requires_admin_auth() {
+    let env = Env::default();
+    let (client, _) = setup(&env);
+    let token = Address::generate(&env);
+    client.set_pause(
+        &token,
+        &Pause {
+            no_new_repos: true,
+            no_seize: false,
+        },
+    );
+}
+
+#[test]
+fn no_new_repos_blocks_offers_and_takes_only() {
+    let w = world();
+    let offer_id = w.offer();
+    let live = w.take(); // opened before the pause
+    let posted = w.offer();
+    w.fund_takes(1);
+    w.pause(true, false);
+
+    assert_eq!(
+        w.repo
+            .try_create_offer(&w.lender, &w.tbenji, &PRINCIPAL, &APR_BPS, &TERM_SECS),
+        Err(Ok(Error::Paused))
+    );
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &posted, &false),
+        Err(Ok(Error::Paused))
+    );
+    assert_eq!(w.repo.offer(&posted).id, posted);
+
+    // A lender can always get the escrow back.
+    let before = w.usdc.balance(&w.lender);
+    w.repo.cancel_offer(&offer_id);
+    assert_eq!(w.usdc.balance(&w.lender), before + PRINCIPAL);
+
+    // Live repos still default and liquidate.
+    w.set_time(MATURED);
+    w.set_nav(ONE, MATURED);
+    w.repo.default(&live);
+    w.repo.liquidate(&w.liquidator, &live);
+    assert_eq!(w.repo.repo(&live).status, Status::Liquidated);
+
+    // Clearing the switch reopens the asset.
+    w.pause(false, false);
+    w.repo.take_offer(&w.borrower, &posted, &false);
+}
+
+#[test]
+fn disabled_asset_is_an_alias_of_no_new_repos() {
+    // `enabled = false` still blocks new repos (#22, #23) and nothing else.
+    let w = world();
+    let live = w.take();
+    let mut config = w.repo.asset(&w.tbenji);
+    config.enabled = false;
+    w.repo.set_asset(&w.tbenji, &config);
+    assert_eq!(
+        w.repo
+            .try_create_offer(&w.lender, &w.tbenji, &PRINCIPAL, &APR_BPS, &TERM_SECS),
+        Err(Ok(Error::AssetNotSupported))
+    );
+    w.repo.repay(&live);
+    assert_eq!(w.repo.repo(&live).status, Status::Repaid);
+}
+
+#[test]
+fn no_seize_blocks_default_and_liquidate_only() {
+    let w = world();
+    w.fund_takes(2);
+    let matured = w.take();
+    let missed = w.take();
+    w.margin_call(missed, NOW + 200);
+    let defaulted = w.take();
+    w.set_time(MATURED);
+    w.repo.default(&defaulted);
+    w.set_nav(ONE, MATURED);
+
+    w.pause(false, true);
+
+    // The clock ran out, but nothing is seized while the switch is on.
+    assert_eq!(w.repo.try_default(&matured), Err(Ok(Error::Paused)));
+    assert_eq!(w.repo.try_default(&missed), Err(Ok(Error::Paused)));
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &defaulted),
+        Err(Ok(Error::Paused))
+    );
+    assert_eq!(w.repo.repo(&matured).status, Status::Open);
+    assert_eq!(w.repo.repo(&missed).status, Status::MarginCall);
+    assert_eq!(w.repo.repo(&defaulted).status, Status::Defaulted);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), 3 * TAKE_COLLATERAL);
+
+    // A repo not yet due still says so.
+    w.fund_takes(1);
+    let fresh = w.take();
+    assert_eq!(w.repo.try_default(&fresh), Err(Ok(Error::NotDefaultable)));
+
+    // Clearing the switch: the clock was not extended, seizure goes at once.
+    w.pause(false, false);
+    assert_eq!(w.repo.default(&matured), Status::Defaulted);
+    assert_eq!(w.repo.default(&missed), Status::Defaulted);
+    w.repo.liquidate(&w.liquidator, &defaulted);
+    assert_eq!(w.repo.repo(&defaulted).status, Status::Liquidated);
+}
+
+#[test]
+fn repay_and_top_up_work_under_both_switches() {
+    let w = world();
+    w.fund_takes(1);
+    let called = w.take();
+    let overdue = w.take();
+    w.margin_call(called, NOW + 200);
+    w.pause(true, true);
+
+    // Inside the margin window: top-up clears the call.
+    w.repo.top_up(&called, &UNIT);
+    assert_eq!(w.repo.repo(&called).status, Status::Open);
+    assert_eq!(
+        w.repo.repo(&called).collateral_amount,
+        TAKE_COLLATERAL + UNIT
+    );
+
+    // Past maturity + grace: the switch kept `default` off, so repay still works.
+    w.set_time(MATURED);
+    w.repo.top_up(&overdue, &UNIT);
+    w.repo.repay(&overdue);
+    assert_eq!(w.repo.repo(&overdue).status, Status::Repaid);
+    w.repo.repay(&called);
+    assert_eq!(w.repo.repo(&called).status, Status::Repaid);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), 0);
+}
+
+#[test]
+fn auto_repay_settles_under_no_seize() {
+    // Auto-repay is a repayment, not a seizure: `default` still settles it.
+    let w = world();
+    let repo_id = w.take_auto();
+    w.pause(true, true);
+    w.set_time(MATURED);
+    w.env.set_auths(&[]);
+    assert_eq!(w.repo.default(&repo_id), Status::Repaid);
+    w.assert_repaid(repo_id);
 }
