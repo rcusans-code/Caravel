@@ -9,8 +9,7 @@ Fixed-term, fixed-rate USDC loans against tokenized money-market funds, priced o
 
 Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis path · Stellar Unlocked + Stellar Composed.
 
-<!-- REVIEW (Bohdan Koldun): drop this WIP line before submission. -->
-> 🚧 Work in progress during the hackathon. New to the team? Start with [INTRO.md](INTRO.md) · Team board: [TASKS.md](TASKS.md) · Who does what: [DEVS.md](DEVS.md) · Locked decisions: [DECISIONS.md](DECISIONS.md) · Design system: [design/](design/README.md) · Landing page: [site/](site/README.md) · App: [app/](app/README.md) · Collateral research (sourced numbers for Problem/Insight/Risks): [docs/collateral-research.md](docs/collateral-research.md)
+Live: [landing](https://caravel-repo.pages.dev/) · [app on testnet](https://caravel-repo.pages.dev/app/) · Five-minute intro: [INTRO.md](INTRO.md) · Design rulings: [DECISIONS.md](DECISIONS.md) · Mechanics spec: [docs/mechanics.md](docs/mechanics.md) · Collateral research: [docs/collateral-research.md](docs/collateral-research.md) · Design system: [design/](design/README.md) · App: [app/](app/README.md) · Scripts and keeper: [scripts/](scripts/README.md)
 
 ## Problem
 
@@ -52,6 +51,14 @@ One repo, end to end: 1,000 USDC for 7 days at 5% APR against tBENJI at NAV 1.00
 
 In the demo, **1 day = 60 seconds**, so the 7-day repo matures in 7 minutes. That is configuration only: interest uses a 365-day year of the configured day length, so the demo accrues the same coupon as a real 7-day repo.
 
+## FAQ
+
+- **Why borrow at 5% against a fund yielding 3.87%?** For a passive holder the carry is negative, about 1.13% a year against redeeming, and known up front. The borrower is a treasury bridging a cash gap without redeeming, or a desk whose USDC earns more than the loan costs ([Risks: Carry](#risks-and-limits)).
+- **Who liquidates?** Issuer-approved accounts the admin whitelists. On testnet that is one team wallet, driven by the keeper; at launch, a market maker that can redeem with the issuer. Nothing obliges one to buy, so a Defaulted repo can wait.
+- **What if the issuer freezes or pauses the token?** Repay, top-up and liquidation of that asset stop until it lifts, and the haircut does not cover that. The guardian can switch on `no_seize` at once, so no borrower is defaulted for the issuer's action meanwhile.
+- **Who gets the fund's dividends?** Real BENJI pays its yield in new tokens to the holder of record, which during a repo is the contract. Passing it back to the borrower is on the roadmap; the demo tokens pay none.
+- **Is the price feed live?** No. The contract reads a mock SEP-40 feed so the demo can move the NAV on camera; `npm run feeds` reads a live Reflector feed through the same interface, and switching is a config change. The USDC is real Circle testnet USDC.
+
 ## Architecture
 
 ```mermaid
@@ -71,7 +78,7 @@ flowchart LR
   I[tBENJI issuer]
 
   L & B & Q & A --> APP --> R
-  K -->|"check_margin, default"| R
+  K -->|"check_margin, default, auto_repay;<br/>liquidate (whitelisted key)"| R
   R -->|"lastprice, decimals"| O
   APP -.->|"set_price (demo NAV slider)"| O
   R <-->|transfer| U
@@ -82,11 +89,9 @@ flowchart LR
 - **Repo contract** ([contracts/repo](contracts/repo/src/lib.rs)): holds offers, escrow and collateral; runs every flow. All arithmetic lives in one module, [math.rs](contracts/repo/src/math.rs), with its own tests. NAV is read only through [oracle.rs](contracts/repo/src/oracle.rs), which enforces the staleness rule and the NAV sanity band.
 - **Token contracts (SAC):** USDC and tBENJI are classic Stellar assets. The contract moves them through their Stellar Asset Contracts, so balances stay visible in any Stellar wallet.
 - **Price feed:** a mock of the SEP-40 interface Reflector uses (same `Asset` and `PriceData` shapes, 14 decimals). Pointing the contract at a live SEP-40 feed is a config change, not a code change.
-- **Keeper:** an off-chain script that calls `check_margin` on open repos and `default` once a deadline passes. Both calls are permissionless; the keeper has no special rights.
+- **Keeper** ([scripts/keeper](scripts/keeper/src/keeper.ts)): an off-chain script that calls `check_margin` on open repos, `auto_repay` or `default` once a deadline passes, and then `liquidate` on every Defaulted repo. The first three are permissionless, so anyone can run them. `liquidate` is signed with the whitelisted, issuer-approved liquidator key; on testnet the keeper is the only liquidator.
 - **Web app:** lender, borrower, liquidator and admin views on testnet, built on generated TypeScript bindings.
 - **Issuer:** authorizes the repo contract, each borrower and each liquidator on tBENJI. This is the compliance layer; Caravel does no KYC of its own.
-
-<!-- REVIEW: contracts/oracle, scripts/ and packages/ land with Misha's deploy branch; app/ with Bohdan Che's frontend. Check every path resolves before submission. -->
 
 ## Contract spec
 
@@ -140,8 +145,6 @@ stateDiagram-v2
 | `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin or guardian, any time | — | — | — |
 | `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
 
-<!-- REVIEW (Misha): check_margin and top_up rows follow DECISIONS #14, #17 and #20; confirm they match margin.rs once it merges. -->
-
 Every state-changing call checks status first and fails with a named error otherwise. An offer can be taken once; a repo can be repaid, defaulted or liquidated once.
 
 ### Events
@@ -182,7 +185,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta`, and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 206 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 214 tests (14 oracle, 190 repo, 10 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -194,17 +197,17 @@ All durations are configuration, so the demo compresses time without touching co
 | `term_secs` | per offer | 420 (7 demo days) | lender's choice, 7–30 days |
 | `apr_bps` | per offer | 500 | lender's choice; quoted as a spread over T-bills (3.87%) |
 | `haircut_bps` | per asset | 300 (tBENJI), 3,000 (tSAFO, testnet only) | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000; SAFO not enabled until due diligence ([DECISIONS #26](DECISIONS.md)) |
-| `liquidation_discount_bps` | global | 200 | must stay below every haircut; the contract enforces it |
+| `liquidation_discount_bps` | global | 200 | 50–100 bps; the demo's 2% is deliberately generous (about 190 days of fund carry). It must also pay for freeze risk and the liquidator's capital, so 50 is a floor. The contract keeps it below every haircut |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
 | `max_open_debt` | per asset | 100,000 USDC (tBENJI), 50,000 USDC (tSAFO) | BENJI/USTBL/USDY $2M, EUTBL $1M, CETES $0.5M, SAFO 0 ([DECISIONS #32](DECISIONS.md)) |
 | `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
 | `max_nav_move_bps` | per asset | 2,500 (tBENJI, tSAFO), so the Admin NAV slider still works | BENJI/USTBL/USDY 50, EUTBL 150, CETES 300 ([DECISIONS #31](DECISIONS.md)) |
 | `nav_floor` / `nav_ceiling` | per asset | unset | BENJI 0.90 / 1.10; others unset |
-| `fee_bps` | global | 1,000 (10% of interest) | illustrative |
+| `fee_bps` | global | 1,000 (10% of interest) | illustrative; 0% at launch. The fee goes to `treasury`, which production labels a **reserve** (the seed of the insurance fund on the roadmap); the demo uses the admin account |
 | `timelock_secs` | global | 120 (2 demo days) | 172,800 (2 days), so lenders and borrowers see a loosening coming ([DECISIONS #33](DECISIONS.md)) |
 
-<!-- REVIEW (team): production values follow docs/mechanics.md §7 and are intent, not decisions. Confirm or cut. -->
+Production values are intent, not decisions; they follow [docs/mechanics.md §7](docs/mechanics.md). One more production note, **storage lifetime**: on testnet every call keeps instance storage (config, asset settings, open debt, and with it the contract code) alive for about 6 days and each offer or repo for 30 days, because extending the code entry further costs ~240 testnet XLM a day. Production sets the instance bump to at least 30 days, the longest term. An entry that expires anyway is not lost: since protocol 23 an archived entry is restored automatically when a transaction touches it, for a restore fee.
 
 ## Stellar features used
 
@@ -217,7 +220,7 @@ All durations are configuration, so the demo compresses time without touching co
 - **Contract events** for every flow, so the app and the keeper index history without extra storage.
 - **Storage TTL management.** Config and asset settings live in instance storage; offers, repos and the liquidator list in persistent storage, with the TTL extended on every touch so a live repo is never archived mid-term.
 
-<!-- REVIEW (Misha): add the live Reflector/RedStone read here once G3 lands. -->
+The contract reads a mock feed so the demo can move the NAV on camera. `npm run feeds` ([scripts/README](scripts/README.md#npm-run-feeds-mock-nav-next-to-a-live-sep-40-feed-2)) reads the mock and a live Reflector testnet feed through the same two SEP-40 calls the contract makes; both have identical interface specs on-chain.
 
 ## Run it
 
@@ -239,26 +242,43 @@ Build the contract wasm:
 stellar contract build
 ```
 
-Deploy to testnet (oracle + repo, tBENJI config, liquidator whitelist, issuer authorization, IDs written to `.env` and `deployments/testnet.json`). The testnet burner keys are committed in `.env`.
+Deploy to testnet (oracle, tSAFO and repo contracts, collateral config, liquidator whitelist, issuer authorization; IDs written to `.env`, `deployments/testnet.json` and the table below). `.env` is committed on purpose: it holds testnet-only burner keys, and no mainnet key exists anywhere in this repo.
 
 ```bash
 scripts/deploy.sh
 ```
 
-<!-- REVIEW (Misha): deploy.sh lands with misha/deploy-v0. Add the keeper, the seed/reset script and the NAV setter here. -->
-<!-- REVIEW (Bohdan Che): add the app's install and run commands here. -->
+Keeper, NAV setter and demo seed (Node 20+; details in [scripts/README.md](scripts/README.md)):
+
+```bash
+cd scripts/keeper && npm ci
+npm run keeper -- --refresh-nav   # check_margin / auto_repay / default / liquidate every 10 s; re-posts NAV before it goes stale
+npm run set-nav -- 0.97           # push a tBENJI NAV (oracle admin)
+npm run seed -- --reset           # deploy.sh --fresh, then open offers (tBENJI, tSAFO) and one taken repo
+npm run repos                     # every repo with status, maturity and debt
+```
+
+Web app ([app/README.md](app/README.md)):
+
+```bash
+cd app && npm ci                  # also builds the bindings in packages/
+VITE_DEMO_SIGNER=1 npm run dev    # http://localhost:5173, with the demo wallets
+npm run build:public              # production build, demo signer off, secrets check
+```
 
 ## Testnet deployment
 
+<!-- testnet-ids:start: written by scripts/readme-ids.py from deployments/testnet.json; edits here are overwritten -->
 | Contract | ID |
 |---|---|
-| Repo | _final deploy, Mon 06:00_ |
-| Price feed (mock SEP-40) | _final deploy, Mon 06:00_ |
+| Repo (Caravel) | [`CDLNYC24T5VFUMRLHAJ4FKIKATJNWB6ZD4H4BV475B2Q4FI7SGX5T7ZL`](https://stellar.expert/explorer/testnet/contract/CDLNYC24T5VFUMRLHAJ4FKIKATJNWB6ZD4H4BV475B2Q4FI7SGX5T7ZL) |
+| Price feed (mock SEP-40) | [`CALCRP47RLEB3WLC5W2UOW6ZO65TB3UKVHJYDLTJU34QEAEXDFSRNKTO`](https://stellar.expert/explorer/testnet/contract/CALCRP47RLEB3WLC5W2UOW6ZO65TB3UKVHJYDLTJU34QEAEXDFSRNKTO) |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
-| tSAFO (Spiko-style mock, 5 decimals) | [`CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y`](https://stellar.expert/explorer/testnet/contract/CA75VXSUN4NW6KVUXCSTBLSAY33VAXUZOM4IHBX3JSRMWOHJBVK7722Y) (live since the Sun 18:00 redeploy) |
+| tSAFO (Spiko-style mock, 5 decimals) | [`CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2`](https://stellar.expert/explorer/testnet/contract/CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2) |
 
-<!-- REVIEW (Misha): fill repo and oracle IDs after the final deploy, plus a stellar.expert link to one take_offer DvP transaction. -->
+Deployed 2026-10-25T20:45:57Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
+<!-- testnet-ids:end -->
 
 ## Risks and limits
 
@@ -273,9 +293,7 @@ scripts/deploy.sh
 - **Staleness means feed liveness.** The rule catches a feed that stopped updating, not a fund that stopped publishing.
 - **Regulatory scope.** This is a testnet demo, not a public offer. Tokenized fund shares are financial instruments and USDC is an e-money token under MiCA; a live deployment needs a legal analysis per issuer and jurisdiction.
 
-<!-- REVIEW (team): docs/mechanics.md §14 proposes an earlier margin trigger (2.5%) that would leave a cushion between the call and any lender loss. If the team adopts it before freeze, rewrite the Shortfall bullet; if not, it stays as written. -->
-
-**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; timelock the liquidator whitelist and a guardian rotation; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
+**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; the standard term-repo features: collateral substitution, partial unwind, roll into a new term, and lender termination on an issuer event; timelock the liquidator whitelist and a guardian rotation; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
 
 ## Built during HackMeridian
 
@@ -284,16 +302,17 @@ Everything in this repo was written during the hackathon, starting around noon o
 - **Sun 12:00–13:15:** README skeleton, task board and locked decisions; AUTH_REQUIRED spike on testnet (**GO**); testnet accounts funded with real Circle USDC; collateral research.
 - **Sun 13:15–14:10:** repo contract skeleton and `math.rs`; decisions 13–22 (per-asset haircut, margin trigger, fixed debt, full takes); design system and logo.
 - **Sun 14:10–14:30:** protocol mechanics v2 after an [adversarial design review](docs/design-review.md) (nine standpoints, 48 findings); SEP-40 NAV client; `create_offer`, `cancel_offer`, `take_offer`, `repay`, `default`, `liquidate` with 85 tests.
-
-<!-- REVIEW (Bohdan Koldun): extend through Monday: mock oracle, deploy, margin call, keeper, app, video. -->
+- **Sun 14:30–16:35:** core flows merged (PRs #5–#8); margin call, keeper, live-feed read and demo seed (#10–#13); the web app with wallet login (#16, #17); the static landing page; the keeper liquidates defaulted repos.
+- **Sun 16:35–18:05:** auto-repay at maturity (#30); per-asset NAV staleness (#23); Spiko-style tSAFO as collateral #2 (#25); landing and app on one Pages site; the keeper's NAV-jump hold; pitch deck PDF.
+- **Sun 18:05–20:50:** per-asset pause switches (#33), NAV sanity band (#34), exposure caps (#35), the app's Settle now button (#36); guardian and timelock (#39); rule #20 (a missed margin call clears on a recovered NAV); three testnet redeploys, the last at 20:46.
+- **Sun 20:50–21:10:** the landing's ticker and hero card read live testnet deals.
+- **Mon (plan):** final testnet redeploy, demo video, submission at 11:30 (deadline 12:00).
 
 ## Team
 
 | Name | Role | GitHub |
 |---|---|---|
-| Denys Nichoha | Contracts: core flows | _TODO_ |
-| Misha | Integration: oracle, margin, keeper, deploy | _TODO_ |
-| Bohdan Chernenko | Design + frontend | _TODO_ |
-| Bohdan Koldun | Pitch, docs, QA | _TODO_ |
-
-<!-- REVIEW (all): add surnames and handles. -->
+| Denys Nichoha | Contracts: core flows | [@nichoga](https://github.com/nichoga) |
+| Misha | Integration: oracle, margin, keeper, deploy | [@curiositypilot](https://github.com/curiositypilot) |
+| Bohdan Chernenko | Design + frontend | [@rcusans-code](https://github.com/rcusans-code) |
+| Bohdan Koldun | Pitch, docs, QA | — |

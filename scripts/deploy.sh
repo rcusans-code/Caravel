@@ -19,7 +19,8 @@
 # set_asset at SAFO_HAIRCUT_BPS.
 #
 # Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
-# DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app and
+# DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app
+# (and the README "Testnet deployment" table from it, scripts/readme-ids.py) and
 # regenerates TS bindings in packages/ when a contract ID changes.
 set -euo pipefail
 
@@ -343,6 +344,8 @@ out = {
 with open(sys.argv[1], "w") as f:
     json.dump(out, f, indent=2); f.write("\n")
 PY
+# README "Testnet deployment" table follows testnet.json, so the redeploy commit carries it.
+python3 "$ROOT/scripts/readme-ids.py" || log "WARN: README testnet table not updated"
 
 # --- 8. TS bindings for the app (packages/caravel-{repo,oracle}) ---------------
 if [[ -z "${SKIP_BINDINGS:-}" ]]; then
