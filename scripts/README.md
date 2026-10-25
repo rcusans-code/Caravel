@@ -145,6 +145,38 @@ systemctl --user status caravel-keeper; journalctl --user -u caravel-keeper -f
 
 Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. Liquidator USDC runs down by the proceeds of each liquidation (it gets tBENJI instead); top it up with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
 
+## Bad NAV push: admin runbook
+
+A wrong `set_price` (fat finger, wrong decimals, future timestamp) is the real tail risk. Nothing bounds a push: the keeper raises margin calls on its next tick, then `default` and `liquidate` land about 121–140 s after the push, at the wrong price and irreversibly. A wrong price UP is as bad: a `take_offer` in that window locks in too little collateral. All the fixes below are admin calls, no redeploy. Act within 2 minutes, in this order (scenarios from the flash-crash tests: S2, S4b, S6, S7, O2).
+
+```sh
+cd ~/src/caravel && set -a && . ./.env && set +a
+A=(stellar contract invoke --network testnet --source-account "$ADMIN_SECRET")
+TBENJI='{"Stellar":"'$TBENJI_SAC'"}'
+```
+
+The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), use `$TSAFO_ID` in place of `$TBENJI_SAC` in steps 2–3 (`TSAFO='{"Stellar":"'$TSAFO_ID'"}'` in place of `$TBENJI`) and `npm run set-nav -- 1.00 tsafo`. The price scale is the same (NAV × 10^14). Step 1 covers both assets.
+
+1. **Freeze liquidation.** `liquidate` is whitelisted, so this stops every liquidation. Repos can still default; they wait as `Defaulted`.
+   `"${A[@]}" --id $REPO_ID -- set_liquidator --liquidator $LIQUIDATOR_ADDRESS --allowed false`
+2. **Stop takes.** `create_offer` and `take_offer` then return `AssetNotSupported`; live repos are unaffected. `set_asset` replaces the whole config, so flip `enabled` on the current one:
+   `CFG=$("${A[@]}" --send=no --id $REPO_ID -- asset --asset $TBENJI_SAC)`
+   `"${A[@]}" --id $REPO_ID -- set_asset --asset $TBENJI_SAC --config "${CFG/\"enabled\":true/\"enabled\":false}"`
+3. **Correct the price.** Read the bad record: `"${A[@]}" --send=no --id $ORACLE_ID -- lastprice --asset "$TBENJI"` prints `{"price":…,"timestamp":…}`. Price = NAV × 10^14.
+   - Timestamp ≤ now: `cd scripts/keeper && npm run set-nav -- 1.00`.
+   - Timestamp in the future (a `set_price_at` push): `set_price` records sort by timestamp, so a plain `set_price` lands before it and `lastprice` stays bad. That is also why `set-nav`, the app slider and `nav-keeper.sh` cannot fix it. Overwrite that exact record (an equal timestamp overwrites):
+     `"${A[@]}" --id $ORACLE_ID -- set_price_at --asset "$TBENJI" --price 100000000000000 --timestamp <bad timestamp>`
+     The corrected price then counts as fresh until that timestamp + 180 s.
+
+   Check with `npm run feeds`. `nav-keeper.sh` re-posts whatever `lastprice` returns: until the price is corrected it keeps re-stamping the bad one as fresh, and afterwards it keeps the good one.
+4. **Re-enable**, only after step 3 shows the right price: run step 2 again with `true`/`false` swapped (or with `$CFG` as read before step 2), then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
+
+What this does not undo:
+- A margin call raised at the bad price stays (#20). An absent borrower still defaults and loses the 2% discount: -20.02 USDC on a 970 USDC repo (S2b).
+- A take that landed at an inflated price leaves the lender short: -872.74 of 970.84 at a 10× push (S6). Only step 2 before the take prevents it.
+
+Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1, 2 (disable) and the `set_price_at` overwrite all simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026.
+
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 
 Reads `lastprice(asset)` + `decimals()` (the two calls `contracts/repo/src/oracle.rs` makes) from the mock oracle and from one live Reflector testnet feed, through the same code (`scripts/keeper/src/sep40.ts`). The only difference between the two is the contract ID and asset in `.env`:
