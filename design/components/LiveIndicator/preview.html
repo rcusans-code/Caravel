@@ -1,0 +1,20 @@
+<!-- @dsCard group="Motion" height=96 subtitle="Live pulses gently; stale and off never move" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div class="cv-row" style="gap:28px">
+  <span class="cv-live cv-live--on" role="status"><span class="cv-live__dot" aria-hidden="true"></span><span class="cv-live__word">Live</span><span class="cv-live__meta">NAV 1.0004</span></span>
+  <span class="cv-live cv-live--stale" role="status"><span class="cv-live__dot" aria-hidden="true"></span><span class="cv-live__word">Delayed</span><span class="cv-live__meta">4 min ago</span></span>
+  <span class="cv-live cv-live--off" role="status"><span class="cv-live__dot" aria-hidden="true"></span><span class="cv-live__word">Offline</span><span class="cv-live__meta">since 09:12</span></span>
+</div>
+<div class="cv-row" style="margin-top:20px">
+  <span class="cv-live cv-live--on" id="demo" role="status"><span class="cv-live__dot" aria-hidden="true"></span><span class="cv-live__word">Live</span></span>
+  <button class="cv-btn cv-btn--secondary cv-btn--sm" type="button" id="cycle">Change state</button>
+</div>
+<script>
+(function(){var s=[["on","Live"],["stale","Delayed"],["off","Offline"]],i=0,el=document.getElementById("demo");
+document.getElementById("cycle").addEventListener("click",function(){i=(i+1)%3;window.Caravel&&Caravel.live(el,s[i][0],s[i][1]);});})();
+</script>
+</body>
+</html>
