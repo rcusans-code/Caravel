@@ -89,7 +89,13 @@ body {
 /* Closed repos (Repaid, Liquidated): shown only behind "Show closed", visually stepped back. */
 .app-card--closed { opacity: 0.7; }
 
-.app-take { max-width: 560px; }
+.app-take { max-width: none; }
+/* Full-width take panel: offer terms on the left, collateral and the action on the right. */
+.app-take__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.app-take__terms, .app-take__act { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.app-take__act { padding-left: var(--space-6); border-left: 1px solid var(--line); }
+.app-take__act > .cv-btn { align-self: flex-start; min-width: 200px; }
+@media (max-width: 760px) { .app-take__body { grid-template-columns: minmax(0, 1fr); } .app-take__act { padding-left: 0; border-left: 0; } }
 .app-preview {
   display: flex;
   flex-direction: column;
@@ -110,13 +116,23 @@ body {
 
 .app-lend__grid {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   gap: var(--space-6);
   align-items: start;
 }
 @media (max-width: 860px) {
   .app-lend__grid { grid-template-columns: 1fr; }
 }
+/* Compact lend form: fields two by two, summary and the button on one row. */
+.app-lend__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+.app-lend__fields .cv-field__hint { font-size: 12px; line-height: 16px; }
+.app-lend__fields > .cv-field { min-width: 0; }
+.app-lend__fields .cv-field__control { width: 100%; box-sizing: border-box; min-width: 0; }
+.app-lend__fields .cv-field__control input, .app-lend__fields .cv-field__control select { width: 0; flex: 1 1 auto; min-width: 0; }
+.app-lend__fields .cv-field__suffix { flex: none; white-space: nowrap; }
+.app-lend__foot { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); }
+.app-lend__foot .cv-terms { flex: 1 1 280px; min-width: 0; }
+@media (max-width: 560px) { .app-lend__fields { grid-template-columns: minmax(0, 1fr); } }
 .app-select {
   flex: 1;
   border: 0;
@@ -130,7 +146,9 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-6);
+  align-items: start; /* each card keeps its own height */
 }
+
 
 .app-admin { max-width: 560px; }
 .app-slider { display: flex; align-items: center; gap: var(--space-3); }
@@ -158,3 +176,61 @@ body {
 
 /* Margin call: add-collateral form inside a position card. */
 .app-topup { border-top: 1px solid var(--line); padding-top: var(--space-3); }
+
+/* One compact status bar: demo role · balances · NAV feed (replaces three stacked cards). */
+.app-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); padding: var(--space-3) var(--space-4); }
+.app-status__group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.app-status__group + .app-status__group { padding-left: var(--space-6); border-left: 1px solid var(--line); }
+.app-status__label { font-size: 15px; font-weight: 600; color: var(--ink); }
+.app-status__fig { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.app-status__fig b { font-family: var(--font-mono); font-size: 13px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.app-status__fig span { font-family: var(--font-sans); font-size: 15px; font-weight: 600; color: var(--ink); }
+.app-status__nav { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--ink-muted); }
+.app-status .cv-btn--sm { height: 28px; }
+@media (max-width: 720px) { .app-status__group + .app-status__group { padding-left: 0; border-left: 0; } }
+/* Header info button ("i") opens a popover with demo notices instead of a banner in the page. */
+.app-notify { position: relative; margin-left: auto; }
+.app-notify + .app-header__account { margin-left: 0; }
+.app-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px solid var(--line-control); background: var(--surface); color: var(--ink); cursor: pointer; border-radius: 0; }
+.app-bell:hover { background: var(--surface-sunken); }
+.app-bell:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.app-bell[aria-expanded="true"] { border-color: var(--primary); color: var(--primary); }
+.app-bell__dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; background: var(--brand); border: 2px solid var(--surface); }
+.app-pop { position: absolute; top: calc(100% + 10px); right: 0; z-index: 20; width: min(340px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-card), 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--line-strong); }
+.app-pop__head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.app-pop__item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 14px; font-size: 14px; line-height: 20px; }
+.app-pop__item b { display: block; font-weight: 600; margin-bottom: 2px; }
+.app-pop__icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid var(--primary); color: var(--primary); font: 600 12px/1 var(--font-sans); }
+a { color: var(--primary); }
+a:hover { color: var(--primary-hover); }
+
+/* Header: network left, brand centred, info + account right. */
+.app-header__inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
+.app-header__inner > .app-net { justify-self: start; }
+.app-header__inner > .app-brand { justify-self: center; }
+.app-header__end { justify-self: end; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.app-header__end .app-notify, .app-header__end .app-header__account { margin-left: 0; }
+@media (max-width: 760px) {
+  .app-header__inner { row-gap: var(--space-2); padding-top: var(--space-2); padding-bottom: var(--space-3); }
+  .app-header__end { display: contents; }
+  .app-header__end .app-notify { grid-column: 3; grid-row: 1; justify-self: end; }
+  .app-header__end .app-header__account { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; }
+  .app-header__end .app-account { justify-content: space-between; flex-wrap: nowrap; }
+  .app-header__end .app-account > * { white-space: nowrap; flex: none; }
+}
+/* Info button: same square popover as before, "i" instead of a bell. */
+.app-bell--info { font: 600 15px/1 var(--font-serif, Georgia, serif); }
+/* Inline "i" tooltip for the detail behind a plain-language line. */
+.app-tip { position: relative; display: inline-flex; vertical-align: -3px; margin-left: 6px; }
+.app-tip__btn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid var(--primary); border-radius: 0; background: var(--surface); color: var(--primary); font: 600 11px/1 var(--font-sans); cursor: help; }
+.app-tip__btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.app-tip__pop { display: none; position: absolute; left: -8px; top: calc(100% + 8px); z-index: 30; width: min(280px, calc(100vw - 48px)); padding: 10px 12px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--line-strong); color: var(--ink); font: 400 13px/18px var(--font-sans); text-transform: none; letter-spacing: 0; white-space: normal; text-align: left; }
+.app-tip:hover .app-tip__pop, .app-tip:focus-within .app-tip__pop { display: block; }
+/* Take panel: tighter. */
+.app-take__body { gap: var(--space-4); align-items: center; }
+.app-take__terms { gap: var(--space-2); }
+.app-take__head { display: flex; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; }
+.app-take__act { gap: var(--space-3); padding-left: var(--space-4); }
+.app-take .app-preview { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); padding: var(--space-2) var(--space-3); }
+.app-take .app-preview .cv-field__hint { flex-basis: 100%; }
+@media (max-width: 760px) { .app-take__act { padding-left: 0; } }
