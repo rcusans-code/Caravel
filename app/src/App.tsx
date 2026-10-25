@@ -464,9 +464,10 @@ function BalanceFigures({ balances }: { balances: Balances | null }) {
   );
 }
 
-/** "i" button in the header: demo notices live in a popover, not a banner in the page. */
+/** Bell in the header: demo notices live in a popover, not a banner in the page. The dot clears once opened. */
 function DemoInfo({ config, asset }: { config: ProtocolConfig; asset: AssetConfig }) {
   const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(false);
   const daySecs = Number(config.day_secs);
   const dayWord = daySecs === 60 ? "1 minute" : `${daySecs} seconds`;
   const maxAgeMin = Number(asset.max_nav_age_secs) / 60;
@@ -474,21 +475,25 @@ function DemoInfo({ config, asset }: { config: ProtocolConfig; asset: AssetConfi
     <div className="app-notify">
       <button
         type="button"
-        className="app-bell app-bell--info"
-        aria-label="About this demo"
+        className="app-bell"
+        aria-label={seen ? "Notifications" : "Notifications, 1 new"}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setOpen((o) => !o);
+          setSeen(true);
+        }}
       >
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square">
-          <circle cx="12" cy="12" r="8.5" />
-          <path d="M12 7.5V12l3 2" />
+          <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+          <path d="M10 20.5h4" />
         </svg>
+        {!seen && <span className="app-bell__dot" />}
       </button>
       {open && (
-        <div className="app-pop" role="dialog" aria-label="About this demo">
+        <div className="app-pop" role="dialog" aria-label="Notifications">
           <div className="app-pop__head">
-            <span>About this demo</span>
+            <span>Notifications</span>
             <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={() => setOpen(false)}>
               Close
             </button>
