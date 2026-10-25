@@ -26,10 +26,11 @@ Weak spots from the project brief, turned into day-zero decisions. Changing thes
 | 20 | **Top-up clears a margin call only at initial margin**: once `ltv_ok(debt, collateral, nav, repo.haircut_bps)` holds. The minimum to leave breach (`required_collateral` at the liquidation discount) is shown for info only. | TradFi convention; avoids a repo flapping in and out of margin call at the trigger. |
 | 21 | **`take_offer` computes the collateral, no amount argument** (#16): `required_collateral(debt, nav, dec, haircut)`, rounded up. The borrower's auth on the SAC transfer pins the exact amount. | If NAV moves between simulate and submit, the tx fails instead of overcharging. |
 | 22 | **Asset configs live in instance storage**, keyed by token address, with a SEP-40 `Asset` (`Stellar(Address)` / `Other(Symbol)`) for the oracle. Missing or disabled asset → `AssetNotSupported` on `create_offer`; live repos unaffected. | Few assets, shared instance TTL; same asset shape as Reflector so the mock and live feeds accept it. |
+| 23 | **`take_offer` re-checks the asset.** An offer whose collateral asset was disabled (or removed) after `create_offer` cannot be taken: `AssetNotSupported`. The lender can still `cancel_offer`; live repos are unaffected (#22). | Admin stops new risk on an asset in one call, including offers already on the board. |
 
 ## Open
 
-- `take_offer` on an existing offer whose asset was disabled after `create_offer`: reject or allow? Decide in G1.
+- None.
 
 ## Risk register
 

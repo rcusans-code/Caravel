@@ -67,8 +67,8 @@ If a handoff slips by more than an hour, say so in chat right away and use the c
 Work in `contracts/repo/src/lib.rs`. `math.rs` already has the formulas and tests; the flows are stubs that return `NotImplemented`. Read NAV only through Misha's `oracle::fresh_nav`, never call the oracle directly.
 
 **G1 · by Sun 16:00**
-- [ ] Decide the open question in DECISIONS.md: `take_offer` on an offer whose asset was disabled after it was created. Suggested: reject with `AssetNotSupported`, so admin can stop new risk at once. Log it as #23.
-- [ ] `create_offer` / `cancel_offer`: lender escrows USDC; cancel returns it to the lender only. Reject a missing or disabled asset (#22). *Done when: balance test passes.*
+- [x] Decide the open question in DECISIONS.md: `take_offer` on an offer whose asset was disabled after it was created. Suggested: reject with `AssetNotSupported`, so admin can stop new risk at once. Log it as #23.
+- [x] `create_offer` / `cancel_offer`: lender escrows USDC; cancel returns it to the lender only. Reject a missing or disabled asset (#22). *Done when: balance test passes.*
 - [ ] `take_offer`: full take, the contract computes collateral (#16, #21), snapshots the haircut (#19), fixes debt = principal + full-term interest (#15), atomic DvP. Reject stale NAV and LTV breach. *Done when: success, LTV-reject and stale-reject tests pass.*
 - [ ] `repay`: fee taken from interest (#3), collateral back, works with stale NAV (#6), also from `MarginCall`. *Done when: lender receives exactly principal + interest − fee.*
 - [ ] Emit the event for every flow (`OfferCreated`, `RepoOpened`, `Repaid` ...). Bohdan Che reads them for history and Misha's keeper reads them to find open repos.
