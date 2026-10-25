@@ -42,7 +42,7 @@ Takes need a NAV younger than 180 s: on sim-server the `caravel-nav-keeper` user
 | (header) | anyone | XLM / USDC / tBENJI balances (Horizon), tBENJI NAV + feed timestamp + fresh/stale (`oracle.lastprice`) |
 | Offers | borrower | Offers board read from ledger entries; Take shows debt and collateral at the current NAV and haircut, then `take_offer` and a DvP receipt |
 | Lend | lender | `create_offer` (amount, term in demo days, APR, collateral asset) with interest and fee preview; `cancel_offer` for your open offers |
-| My positions | borrower / lender | Repo cards: status pill, collateral cover vs the margin-call line, maturity countdown, `repay` with a DvP receipt. Liquidator desk: `default`, `liquidate` |
+| My positions | borrower / lender | Repo cards: status pill, collateral cover vs the margin-call line, maturity countdown, `repay` with a DvP receipt. Repaid and Liquidated repos are hidden behind "Show closed (N)" and shown muted when on; Defaulted repos stay visible with an "Awaiting liquidation" note. Liquidator desk: `default`, `liquidate` |
 | Admin | oracle admin | NAV slider → mock oracle `set_price` (pushing the same value refreshes the timestamp) |
 
 Every confirmed transaction shows a TxHash chip linked to stellar.expert.
