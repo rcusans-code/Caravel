@@ -65,3 +65,30 @@ How it works: Spiko (Paris, AMF-regulated SICAV, CACEIS depositary) records fund
 
 - Issuers redeem only for approved holders on business days, so a seized fund share can't be dumped 24/7. The Aquarius USTRY pool loses ≈20% on a 250K sale.
 - So the **whitelisted liquidator** in Decision 7 isn't just a demo shortcut. It's required: the liquidator must be an issuer-approved holder who can redeem at NAV. Put this in the pitch, because Aave Horizon uses the same model.
+
+
+## 7. Whitelist vs KYC on Stellar (supports Decision 7 and the Innovation pitch)
+
+KYC checks a **person**, off-chain. A whitelist is an on-chain rule about which **addresses** may hold or move an asset. KYC is usually how an address gets onto the whitelist, but the two are separate, and either can exist without the other.
+
+| | KYC | Whitelist (allowlist) |
+|---|---|---|
+| What it is | Identity check: documents, address, sanctions screening | List of approved accounts or contracts |
+| Where it lives | Off-chain, run by the issuer or an anchor | On-chain, enforced by the network or the token contract |
+| Stellar standard | [SEP-12](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0012.md) (KYC data exchange), used by SEP-6/24/31 anchors | Classic assets: issuer flags `AUTH_REQUIRED`, `AUTH_REVOCABLE`, clawback, plus per-trustline authorization ([docs](https://developers.stellar.org/docs/tokens/control-asset-access)). [SEP-8](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0008.md): an approval server co-signs every transfer. Soroban: a token contract with a role/allowlist check |
+| What the protocol knows | Nothing | Everything: transfers to unapproved addresses fail |
+
+Either one alone:
+- **KYC without a whitelist:** a stablecoin that checks identity only at mint and redeem, after which the token moves freely.
+- **Whitelist without KYC:** a contract address cannot pass KYC, yet an issuer can still allowlist it. That is how a lending or repo contract holds a gated fund share.
+
+How this maps to the collateral we target:
+- **BENJI:** classic asset with `AUTH_REQUIRED`. Franklin must authorize the trustline of every holder, including the Caravel contract.
+- **Spiko:** a Soroban token whose `transfer` requires `WHITELISTED_ROLE` on **both** `from` and `to` ([contract.rs#L297-L302](https://github.com/spiko-tech/stellar-contracts/blob/main/contracts/token/src/contract.rs#L297-L302)). Spiko grants the role through its permission manager.
+- **USDY, USTRY, CETES:** revocable and clawback, but no `AUTH_REQUIRED`. Anyone can hold them, which is why existing lenders already accept them.
+
+What it means for Caravel:
+1. **Gating is not our edge.** XOXNO already supports an issuer-allowlisted fund token in tested code: the pool, holders and liquidators must all be allowlisted ([liqvid_rwa_collateral.rs](https://github.com/XOXNO/rs-lending-xlm/blob/30d59905/tests/test-harness/tests/controller/liqvid_rwa_collateral.rs)). Its six Spiko markets are configured but `"enabled": false` on mainnet ([markets.json#L425](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/mainnet/markets.json#L425)), and no public reason was found.
+2. **The barrier is issuer approval, not code.** Writing the whitelist check is cheap. What is hard is getting Franklin or Spiko to approve the contract and every liquidator: legal and onboarding work for each issuer.
+3. **Our design keeps the approval small.** Lenders hold only USDC and never the fund share, so they need no KYC. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
+4. **Pitch line:** "gated *and* on the fund's clock". Fixed term, fixed rate and NAV-timed margin calls are what no live lender offers. Gating alone is not.
