@@ -1,0 +1,17 @@
+<!-- @dsCard group="Motion" height=120 subtitle="A figure that just changed glows once, then rests" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div class="cv-row" style="gap:28px;align-items:baseline">
+  <div><div class="caption" style="color:var(--ink-muted);text-transform:uppercase">Fund NAV</div><span class="figure-xl" id="nav" style="padding:0 4px">1.0004</span></div>
+  <div><div class="caption" style="color:var(--ink-muted);text-transform:uppercase">Collateral cover</div><span class="figure-xl" id="cov" style="padding:0 4px">101.6%</span></div>
+  <button class="cv-btn cv-btn--secondary cv-btn--sm" type="button" id="tick">New price</button>
+</div>
+<script>
+(function(){var n=1.0004,nav=document.getElementById("nav"),cov=document.getElementById("cov");
+document.getElementById("tick").addEventListener("click",function(){var d=(Math.random()<.5?-1:1)*0.0002;n=+(n+d).toFixed(4);nav.textContent=n.toFixed(4);cov.textContent=(101.6+(n-1.0004)*1000).toFixed(1)+"%";
+if(window.Caravel){Caravel.flash(nav);Caravel.flash(cov,d>0?"up":"down");}});})();
+</script>
+</body>
+</html>
