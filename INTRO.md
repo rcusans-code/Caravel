@@ -17,9 +17,9 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 
 ## How it works (one example)
 1. **Lender** offers: "1,000 USDC for 7 days at 5% a year." Their USDC sits in our contract.
-2. **Borrower** accepts: locks $1,000 of bond tokens, receives $970 USDC. Both happen in **one transaction**. Either both move or neither does.
+2. **Borrower** accepts: receives the 1,000 USDC and locks about $1,032 of bond tokens (3% haircut: the loan is at most 97% of the deposit). Both happen in **one transaction**. Either both move or neither does.
 3. **Daily check:** if the bonds' price drops so the deposit no longer covers the loan, the borrower gets a **margin call**: add more bonds within a time window.
-4. **Day 7:** borrower repays $970 + interest, gets the bonds back. Done.
+4. **Day 7:** borrower repays 1,000 USDC + interest, gets the bonds back. Done.
 5. **If the borrower doesn't pay:** an approved buyer (**liquidator**) buys the bonds at a 2% discount. The lender is paid in full from that. Anything left goes back to the borrower.
 
 ## Who's who

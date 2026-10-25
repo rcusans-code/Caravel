@@ -16,6 +16,11 @@ Weak spots from the project brief, turned into day-zero decisions. Changing thes
 | 10 | **Target user is active, not passive.** Repo rate above fund yield = negative carry for passive holders. Pitch to traders/MMs whose USDC earns more than the repo costs. | Pre-empt the obvious economics question. |
 | 11 | **Commit history starts today.** Small, frequent commits; README "Built during HackMeridian" section. | Hackathon Progress is 10% and judges check git log. |
 | 12 | **Smart wallet only after G3 is green.** Freighter first; passkey login (OpenZeppelin smart accounts / Stellar Passport) only if the happy path works on testnet by 00:00. | Stated priority, but not at the cost of the core demo. |
+| 13 | **Haircut is per asset, in contract config.** `AssetConfig { oracle_asset, haircut_bps, enabled }`, admin-updatable without redeploy. Offers name the collateral asset but carry no haircut; the UI shows the asset's haircut. Tier numbers tuned later (proposal: docs/collateral-research.md §3). | Agile: re-tier an asset in one call; lenders can't undercut the floor. |
+| 14 | **Margin trigger** = `debt > collateral × NAV × (1 − liq_discount_bps)`. At the trigger a liquidation still pays the lender in full. Initial LTV check uses the asset haircut (`debt ≤ value × (1 − haircut_bps)`). Both bps are config; numbers tuned later. | Without a separate trigger, any NAV tick after a max-LTV take fires a margin call. |
+| 15 | **Debt = principal + full-term interest**, fixed at `take_offer`. Early repay pays the same amount; no pro-rata. | Repo convention; one number for lender, borrower and margin math. |
+| 16 | **Full takes only.** Borrower receives the whole offer principal and posts `collateral = debt / (NAV × (1 − haircut))`, rounded up. | No partial-fill state in `Offer`. |
+| 17 | **Stale NAV also blocks `check_margin`** (extends decision 6). `default` on maturity + grace needs no NAV. | No margin call on an old price. |
 
 ## Risk register
 

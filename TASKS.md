@@ -30,7 +30,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 - [ ] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
 - [ ] **P** Mentor round 1: demand? issuer whitelisting? term vs perpetual? Ask permission to quote. *Done when: one quotable line or a clear no*
 - [ ] **P** Deck outline (9 slides) + every number re-verified with a source. Sourced numbers and the "every dollar ends in T-bills; the risk is exit" framing: [docs/collateral-research.md](docs/collateral-research.md)
-- [ ] **T** Decide in chat: adopt per-asset haircut tiers + Spiko USTBL→SAFO as asset #2 roadmap (proposals in docs/collateral-research.md §3–4), then record in DECISIONS.md
+- [ ] **T** Decide in chat: Spiko USTBL→SAFO as asset #2 roadmap + haircut tier numbers (proposals in docs/collateral-research.md §3–4). Per-asset haircut itself is decided (DECISIONS #13).
 
 ## G2 · Full contract — 16:00–19:30
 Exit: margin, default, liquidate tested; one-command deploy.
