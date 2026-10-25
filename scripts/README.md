@@ -143,6 +143,8 @@ systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper
 systemctl --user status caravel-keeper; journalctl --user -u caravel-keeper -f
 ```
 
+The unit sets `SuccessExitStatus=143` because `tsx` relays `SIGTERM` on service stop and exits 143 (`128 + 15`), which systemd otherwise treats as abnormal exit-code failure.
+
 Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. Liquidator USDC runs down by the proceeds of each liquidation (it gets tBENJI instead); top it up with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
 
 ## Bad NAV push: admin runbook
