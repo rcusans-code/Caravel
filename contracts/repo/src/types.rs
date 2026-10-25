@@ -1,0 +1,80 @@
+use soroban_sdk::{contracttype, Address};
+
+/// Protocol parameters, set once at deploy. Stored in instance storage.
+///
+/// All durations are config so the demo can compress time without touching
+/// contract logic (DECISIONS.md #5).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Config {
+    pub admin: Address,
+    /// Circle testnet USDC SAC.
+    pub usdc: Address,
+    /// SEP-40 price feed for collateral NAV.
+    pub oracle: Address,
+    /// Receives the protocol fee.
+    pub treasury: Address,
+    /// Protocol fee as a share of interest, in bps (DECISIONS.md #3).
+    pub fee_bps: u32,
+    /// Liquidator buys collateral at NAV × (1 − discount). 200 = 2%.
+    pub liquidation_discount_bps: u32,
+    /// Length of one "day" in seconds. 86_400 in production, 60 in the demo.
+    /// Interest uses a 365-day year of this length.
+    pub day_secs: u64,
+    /// Time a borrower has to top up after a margin call.
+    pub margin_window_secs: u64,
+    /// Time after maturity before an unpaid repo can be defaulted.
+    pub grace_secs: u64,
+    /// NAV older than this blocks `take_offer` and `liquidate`.
+    pub max_nav_age_secs: u64,
+}
+
+/// A lender's standing offer. The principal is escrowed in the contract
+/// from `create_offer` until it is taken or cancelled.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Offer {
+    pub id: u64,
+    pub lender: Address,
+    /// Collateral token the lender accepts (e.g. tBENJI SAC).
+    pub collateral_asset: Address,
+    /// USDC lent, 7-decimal units.
+    pub principal: i128,
+    pub apr_bps: u32,
+    /// Collateral value must cover principal / (1 − haircut).
+    pub haircut_bps: u32,
+    pub term_secs: u64,
+    pub created_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Status {
+    Open,
+    MarginCall,
+    Repaid,
+    Defaulted,
+    Liquidated,
+}
+
+/// A live or settled repo, created when a borrower takes an offer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Repo {
+    pub id: u64,
+    pub offer_id: u64,
+    pub lender: Address,
+    pub borrower: Address,
+    pub collateral_asset: Address,
+    /// Collateral held by the contract, in the asset's 7-decimal units.
+    pub collateral_amount: i128,
+    pub principal: i128,
+    /// Fixed at take time for the full term (term repo, fixed rate).
+    pub interest: i128,
+    pub haircut_bps: u32,
+    pub start_ts: u64,
+    pub maturity_ts: u64,
+    /// Set once on the first margin breach; cleared by a healthy top-up.
+    pub margin_call_deadline: Option<u64>,
+    pub status: Status,
+}
