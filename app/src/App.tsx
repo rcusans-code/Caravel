@@ -146,7 +146,7 @@ export default function App() {
     setTab(role === "lender" ? "lend" : role === "admin" ? "admin" : role === "borrower" ? "offers" : "positions");
   };
   const onDisconnect = async () => {
-    if (signer?.kind === "wallet") await disconnectWallet();
+    await disconnectWallet(); // also forgets the demo role, so reload stays logged out
     setSigner(null);
     setBalances(null);
     setFlash(null);
