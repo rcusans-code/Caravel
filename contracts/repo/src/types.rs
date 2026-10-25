@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, Symbol};
 
 /// Protocol parameters, set once at deploy. Stored in instance storage.
 ///
@@ -25,11 +25,37 @@ pub struct Config {
     pub margin_window_secs: u64,
     /// Time after maturity before an unpaid repo can be defaulted.
     pub grace_secs: u64,
-    /// NAV older than this blocks `take_offer` and `liquidate`.
+    /// Older NAV blocks `take_offer`, `check_margin` and `liquidate`
+    /// (DECISIONS.md #6, #17). Never blocks `repay` or `top_up`.
     pub max_nav_age_secs: u64,
 }
 
-/// A lender's standing offer. The principal is escrowed in the contract
+/// SEP-40 asset identifier, same shape as Reflector's, so the mock oracle and
+/// live feeds accept it unchanged.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Asset {
+    Stellar(Address),
+    Other(Symbol),
+}
+
+/// Per-collateral-asset risk parameters, admin-updatable without a redeploy
+/// (DECISIONS.md #13). Stored in instance storage, keyed by the token address.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetConfig {
+    /// How the oracle names this asset.
+    pub oracle_asset: Asset,
+    /// Initial LTV: `debt ≤ value × (1 − haircut)`. Always above
+    /// `Config.liquidation_discount_bps`, so a max-LTV take opens below the
+    /// margin trigger.
+    pub haircut_bps: u32,
+    /// Disabled assets reject new offers; live repos are unaffected.
+    pub enabled: bool,
+}
+
+/// A lender's standing offer. The lender sets only asset, principal, APR and
+/// term; the haircut comes from the asset's `AssetConfig`. The principal is escrowed in the contract
 /// from `create_offer` until it is taken or cancelled.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,8 +67,6 @@ pub struct Offer {
     /// USDC lent, 7-decimal units.
     pub principal: i128,
     pub apr_bps: u32,
-    /// Collateral value must cover principal / (1 − haircut).
-    pub haircut_bps: u32,
     pub term_secs: u64,
     pub created_at: u64,
 }
@@ -69,8 +93,11 @@ pub struct Repo {
     /// Collateral held by the contract, in the asset's 7-decimal units.
     pub collateral_amount: i128,
     pub principal: i128,
-    /// Fixed at take time for the full term (term repo, fixed rate).
+    /// Full-term interest, fixed at take time. Debt = principal + interest,
+    /// the same amount on early repay (DECISIONS.md #15).
     pub interest: i128,
+    /// Snapshot of the asset haircut at take time. The top-up target: a
+    /// margin call clears once `ltv_ok` holds at this haircut again.
     pub haircut_bps: u32,
     pub start_ts: u64,
     pub maturity_ts: u64,

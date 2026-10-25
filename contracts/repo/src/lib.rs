@@ -17,7 +17,7 @@ mod test;
 use soroban_sdk::{contract, contractimpl, Address, Env};
 
 pub use errors::Error;
-pub use types::{Config, Offer, Repo, Status};
+pub use types::{Asset, AssetConfig, Config, Offer, Repo, Status};
 
 #[contract]
 pub struct CaravelRepo;
