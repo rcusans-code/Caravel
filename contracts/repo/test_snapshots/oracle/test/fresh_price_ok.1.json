@@ -39,7 +39,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "Price"
+                            "symbol": "History"
                           },
                           {
                             "vec": [
@@ -54,22 +54,26 @@
                         ]
                       },
                       "val": {
-                        "map": [
+                        "vec": [
                           {
-                            "key": {
-                              "symbol": "price"
-                            },
-                            "val": {
-                              "i128": "100000000000000"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "timestamp"
-                            },
-                            "val": {
-                              "u64": "999990"
-                            }
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "price"
+                                },
+                                "val": {
+                                  "i128": "100000000000000"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "timestamp"
+                                },
+                                "val": {
+                                  "u64": "999990"
+                                }
+                              }
+                            ]
                           }
                         ]
                       }

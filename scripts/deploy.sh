@@ -46,11 +46,13 @@ TSAFO_BORROWER_MINT="${TSAFO_BORROWER_MINT:-2000}" # whole tSAFO minted to BORRO
 DAY_SECS="${DAY_SECS:-60}"                       # 1 day = 60 s (#5)
 MARGIN_WINDOW_SECS="${MARGIN_WINDOW_SECS:-120}"
 GRACE_SECS="${GRACE_SECS:-60}"
-TIMELOCK_SECS="${TIMELOCK_SECS:-120}"             # loosening risk settings waits 2 demo days (#32)
+TIMELOCK_SECS="${TIMELOCK_SECS:-120}"             # loosening risk settings waits 2 demo days (#33)
 MAX_NAV_AGE_SECS="${MAX_NAV_AGE_SECS:-180}"     # tBENJI NAV staleness, per asset (#25)
 SAFO_MAX_NAV_AGE_SECS="${SAFO_MAX_NAV_AGE_SECS:-$MAX_NAV_AGE_SECS}" # tSAFO NAV staleness (#25)
-MAX_OPEN_DEBT="${MAX_OPEN_DEBT:-100000}"          # tBENJI exposure cap, whole USDC (#31)
-SAFO_MAX_OPEN_DEBT="${SAFO_MAX_OPEN_DEBT:-50000}" # tSAFO exposure cap, whole USDC (#31)
+NAV_MOVE_BPS="${NAV_MOVE_BPS:-2500}"             # tBENJI NAV sanity band; demo wide enough for the 0.90-1.10 slider (#31)
+SAFO_NAV_MOVE_BPS="${SAFO_NAV_MOVE_BPS:-$NAV_MOVE_BPS}" # tSAFO NAV sanity band (#31)
+MAX_OPEN_DEBT="${MAX_OPEN_DEBT:-100000}"          # tBENJI exposure cap, whole USDC (#32)
+SAFO_MAX_OPEN_DEBT="${SAFO_MAX_OPEN_DEBT:-50000}" # tSAFO exposure cap, whole USDC (#32)
 ORACLE_DECIMALS=14                               # same as Reflector
 ORACLE_RESOLUTION=60
 ORACLE_BASE='{"Other":"USD"}'
@@ -67,7 +69,7 @@ for v in ADMIN_ADDRESS ADMIN_SECRET ISSUER_ADDRESS ISSUER_SECRET LIQUIDATOR_ADDR
   [[ -n "${!v:-}" ]] || die "$v not set in $ENV_FILE"
 done
 TREASURY_ADDRESS="${TREASURY_ADDRESS:-$ADMIN_ADDRESS}"
-GUARDIAN_ADDRESS="${GUARDIAN_ADDRESS:-$ADMIN_ADDRESS}" # tighten-only key (#32); set a separate one outside the demo
+GUARDIAN_ADDRESS="${GUARDIAN_ADDRESS:-$ADMIN_ADDRESS}" # tighten-only key (#33); set a separate one outside the demo
 export STELLAR_NETWORK="${NETWORK:-testnet}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
@@ -222,14 +224,14 @@ PY
   then
     log "$label asset config already set"
   else
-    # Instant only for a first listing or a pure tightening (#32); a loosening
-    # fails with Error #19 and needs propose_asset + execute_asset after the timelock.
+    # Instant only for a first listing or a pure tightening (#33); a loosening
+    # fails with Error #20 and needs propose_asset + execute_asset after the timelock.
     log "set_asset $label $want"
     as_admin --id "$REPO_ID" -- set_asset --asset "$token" --config "$want" >/dev/null
   fi
 }
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\"}"
-TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\"}"
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\"}"
+TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\"}"
 ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 

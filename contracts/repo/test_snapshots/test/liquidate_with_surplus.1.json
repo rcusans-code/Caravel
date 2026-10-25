@@ -88,11 +88,31 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_move_bps"
+                      },
+                      "val": {
+                        "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_open_debt"
                       },
                       "val": {
                         "i128": "170141183460469231731687303715884105727"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_ceiling"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_floor"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -613,7 +633,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "Price"
+                            "symbol": "History"
                           },
                           {
                             "vec": [
@@ -628,22 +648,46 @@
                         ]
                       },
                       "val": {
-                        "map": [
+                        "vec": [
                           {
-                            "key": {
-                              "symbol": "price"
-                            },
-                            "val": {
-                              "i128": "100000000000000"
-                            }
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "price"
+                                },
+                                "val": {
+                                  "i128": "100000000000000"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "timestamp"
+                                },
+                                "val": {
+                                  "u64": "1000"
+                                }
+                              }
+                            ]
                           },
                           {
-                            "key": {
-                              "symbol": "timestamp"
-                            },
-                            "val": {
-                              "u64": "1481"
-                            }
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "price"
+                                },
+                                "val": {
+                                  "i128": "100000000000000"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "timestamp"
+                                },
+                                "val": {
+                                  "u64": "1481"
+                                }
+                              }
+                            ]
                           }
                         ]
                       }
@@ -920,11 +964,31 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_nav_move_bps"
+                            },
+                            "val": {
+                              "u32": 10000
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "max_open_debt"
                             },
                             "val": {
                               "i128": "170141183460469231731687303715884105727"
                             }
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_ceiling"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_floor"
+                            },
+                            "val": "void"
                           },
                           {
                             "key": {

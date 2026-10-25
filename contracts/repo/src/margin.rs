@@ -1,15 +1,16 @@
 //! Margin calls: `check_margin` (anyone, keeper) and `top_up` (borrower).
 //!
 //! - Trigger (DECISIONS.md #14): `debt > collateral × NAV × (1 − liq_discount)`.
-//! - `check_margin` needs a fresh NAV (#17). The first breach sets
+//! - `check_margin` needs a fresh NAV inside the asset's sanity band (#17,
+//!   #31). The first breach sets
 //!   `margin_call_deadline = now + margin_window_secs` and moves the repo to
 //!   `MarginCall`; later checks never move the deadline or re-emit.
 //!   A margin call is never cleared by NAV recovering, only by a top-up (#20).
 //! - `top_up` never needs a fresh NAV (#6). It clears a margin call only once
 //!   the initial margin holds again: `ltv_ok` at the repo's snapshotted
 //!   haircut (#19, #20). The clear decision uses the last known NAV, stale or
-//!   not; if there is no price at all the collateral is still accepted and the
-//!   call stays open.
+//!   not; if there is no price at all, or the NAV is outside the sanity band
+//!   (#31), the collateral is still accepted and the call stays open.
 
 use soroban_sdk::{token, Env};
 
@@ -19,7 +20,8 @@ use crate::{errors::Error, events, math, oracle, storage, types::Status};
 ///
 /// Settled repos (`Repaid`, `Defaulted`, `Liquidated`) return their status
 /// unchanged without reading NAV, so a keeper can poll any id. Live repos
-/// (`Open`, `MarginCall`) need a fresh NAV, else `StaleNav`.
+/// (`Open`, `MarginCall`) need a fresh NAV, else `StaleNav`, inside the
+/// sanity band, else `NavOutOfBand` (#31).
 pub fn check_margin(env: &Env, repo_id: u64) -> Result<Status, Error> {
     let mut repo = storage::read_repo(env, repo_id).ok_or(Error::RepoNotFound)?;
     if !matches!(repo.status, Status::Open | Status::MarginCall) {
@@ -104,15 +106,16 @@ pub fn top_up(env: &Env, repo_id: u64, amount: i128) -> Result<(), Error> {
 }
 
 /// `ltv_ok` at the snapshotted haircut, on the last known NAV (no staleness
-/// check, #6). No price (or no asset config) means "cannot tell": not cleared,
-/// but the top-up itself still goes through.
+/// check, #6). No price, no asset config, or a NAV outside the sanity band
+/// (#31) means "cannot tell": not cleared, but the top-up itself still goes
+/// through.
 fn initial_margin_restored(env: &Env, repo: &crate::types::Repo) -> Result<bool, Error> {
     let Some(asset) = storage::read_asset(env, &repo.collateral_asset) else {
         return Ok(false);
     };
     let config = storage::read_config(env);
-    let Ok((nav, nav_decimals, _)) =
-        oracle::collateral_nav(env, &config, &repo.collateral_asset, &asset)
+    let Ok((nav, nav_decimals)) =
+        oracle::banded_collateral_nav(env, &config, &repo.collateral_asset, &asset)
     else {
         return Ok(false);
     };

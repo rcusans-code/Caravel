@@ -15,7 +15,7 @@ use soroban_sdk::{
 use crate::{
     math,
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
-    test::NO_CAP,
+    test::{NO_CAP, WIDE_BAND_BPS},
     Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Status,
 };
 
@@ -109,6 +109,9 @@ fn world_with_decimals<'a>(decimals: u32) -> World<'a> {
             haircut_bps: SAFO_HAIRCUT_BPS,
             enabled: true,
             max_nav_age_secs: 180,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );

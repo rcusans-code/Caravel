@@ -27,15 +27,18 @@ pub enum Error {
     AutoRepayFailed = 16,
     /// The asset's `no_new_repos` or `no_seize` switch blocks this call (#30).
     Paused = 17,
-    /// `take_offer` would push the asset's open debt past `max_open_debt`.
-    CapExceeded = 18,
+    /// NAV outside the asset's sanity band: beyond `nav_floor` / `nav_ceiling`,
+    /// or more than `max_nav_move_bps` from a recent oracle record (#31).
+    NavOutOfBand = 18,
+    /// `take_offer` would push the asset's open debt past `max_open_debt` (#32).
+    CapExceeded = 19,
     /// The change loosens risk: it must go through `propose_*`, wait out
-    /// `timelock_secs`, then `execute_*` (#32).
-    Loosens = 19,
+    /// `timelock_secs`, then `execute_*` (#33).
+    Loosens = 20,
     /// `execute_*` before the proposal's `eta`.
-    TimelockNotDone = 20,
+    TimelockNotDone = 21,
     /// `execute_*` or `cancel_*` with no pending proposal for the asset.
-    NoProposal = 21,
+    NoProposal = 22,
     /// `cancel_*` by someone who is neither admin nor guardian.
-    NotAdminOrGuardian = 22,
+    NotAdminOrGuardian = 23,
 }

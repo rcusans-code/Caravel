@@ -46,11 +46,31 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_move_bps"
+                      },
+                      "val": {
+                        "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_open_debt"
                       },
                       "val": {
                         "i128": "170141183460469231731687303715884105727"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_ceiling"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_floor"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -117,11 +137,31 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_move_bps"
+                      },
+                      "val": {
+                        "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_open_debt"
                       },
                       "val": {
                         "i128": "170141183460469231731687303715884105727"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_ceiling"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_floor"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -253,11 +293,31 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_nav_move_bps"
+                            },
+                            "val": {
+                              "u32": 10000
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "max_open_debt"
                             },
                             "val": {
                               "i128": "170141183460469231731687303715884105727"
                             }
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_ceiling"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_floor"
+                            },
+                            "val": "void"
                           },
                           {
                             "key": {

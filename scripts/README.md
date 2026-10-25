@@ -19,14 +19,14 @@ What it does, idempotently (each step reads chain state first and only sends a t
 3. Mock oracle: reused if the on-chain wasm matches the build, otherwise deployed with admin = ADMIN, base `Other("USD")`, 14 decimals, resolution 60. Sets tBENJI (`Stellar(TBENJI_SAC)`) to 1.00 if it has no price.
    tSAFO (collateral #2, issue #20): `contracts/spiko-mock`, a Spiko-style token (allowlist checked on every transfer, no `approve`/`transfer_from`, issuer pause, 5 decimals like Spiko's mainnet tokens). Reused if the wasm matches, otherwise deployed with admin = ISSUER; `TSAFO_ID` goes into `.env`. Priced at 1.00 if it has none.
 4. Repo contract: reused if wasm and `config()` match, otherwise deployed with the demo profile (#5): fee 1000 bps (#3), liquidation discount 200 bps (#4), `day_secs` 60, margin window 120 s, grace 60 s. Treasury = ADMIN (override with `TREASURY_ADDRESS`).
-5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, enabled, max NAV age 180 s, max open debt 100,000 USDC })` (#18: haircut > discount; #25: staleness is per asset; #31: exposure cap) and `set_asset(tSAFO, { Stellar(TSAFO_ID), haircut 3000 bps, enabled, max NAV age 180 s, max open debt 50,000 USDC })` (testnet only, DECISIONS #29; override with `SAFO_HAIRCUT_BPS`, `SAFO_MAX_NAV_AGE_SECS`, `MAX_OPEN_DEBT`, `SAFO_MAX_OPEN_DEBT`, in whole USDC).
+5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 100,000 USDC })` (#18: haircut > discount; #25: staleness is per asset; #31: NAV sanity band; #32: exposure cap) and `set_asset(tSAFO, { Stellar(TSAFO_ID), haircut 3000 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 50,000 USDC })` (testnet only, DECISIONS #29; override with `SAFO_HAIRCUT_BPS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, `SAFO_MAX_OPEN_DEBT`, in whole USDC).
 6. `set_liquidator(LIQUIDATOR, true)`.
 7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`).
    Issuer `set_whitelisted(…, true)` on tSAFO for the repo contract, the liquidator, the borrower and lender wallets, plus any `TSAFO_HOLDERS` (space-separated). Without the repo contract and every liquidator on the list, takes and liquidations revert with the token's `NotWhitelisted` (#100). Then mints `TSAFO_BORROWER_MINT` (2,000) tSAFO to the borrower if it holds none.
 8. Writes `ORACLE_ID`, `REPO_ID`, `TSAFO_ID`, `DEPLOYED_AT` into `.env` and the public `deployments/testnet.json` (IDs, addresses, params) for the app.
 9. Regenerates TS bindings in `packages/caravel-repo` and `packages/caravel-oracle` when a contract ID changes.
 
-Every param can be overridden from the environment (`HAIRCUT_BPS`, `SAFO_HAIRCUT_BPS`, `TSAFO_DECIMALS`, `MAX_NAV_AGE_SECS`, `SAFO_MAX_NAV_AGE_SECS`, `MAX_OPEN_DEBT`, …); see the top of the script.
+Every param can be overridden from the environment (`HAIRCUT_BPS`, `SAFO_HAIRCUT_BPS`, `TSAFO_DECIMALS`, `MAX_NAV_AGE_SECS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, …); see the top of the script.
 
 Dry run, 25 Oct, on throwaway keys and a separate `ENV_FILE` (the app's deployment untouched): fresh deploy in 129 s (oracle, tSAFO, repo, both `set_asset`, allowlist, mint), a re-run in 14 s with no tx. On that deployment, with the CLI: tSAFO `take_offer` with no approve (100 USDC against 142.99413 tSAFO at 30%), `repay`, `default` → `liquidate` to the allowlisted liquidator; a borrower off the allowlist fails with `Error(Contract, #100)`, a paused token with `#101`, and the offer stays open.
 
@@ -112,8 +112,8 @@ NAV jump hold (flash-crash fixes #2 and #3, `src/navguard.ts`). The oracle accep
 A maturity `default` still runs (it needs no NAV); its `liquidate` is held. Rules:
 
 - Jump > `NAV_JUMP_BPS` (200): held until the new price has stood `NAV_JUMP_HOLD_SECS` (default margin window + 60 s, 180 s on the demo). A correction inside that time (1.00 → 0.50 → 1.00) is measured against 1.00 and not held; small steps (1.00 → 0.985 → 0.97) add up against 1.00.
-- Jump > `NAV_JUMP_ACK_BPS` (1000): held until a human acks that exact price: add the oracle integer from the log line to `NAV_JUMP_ACK` in `.env` (comma-separated, e.g. `NAV_JUMP_ACK=97000000000000`). It is re-read every tick, no restart needed, and an acked price is not held at all. An ack never releases a different price. The hold stays on after the old price leaves the 20-record history (an in-memory latch; a keeper restart forgets it).
-- If a >10% price stood longer than the hold before it was corrected, it becomes the anchor, so the correction needs an ack as well; the log line names the price to ack.
+- Jump > `NAV_JUMP_ACK_BPS` (1000): held until a human acks that exact price: add the oracle integer from the log line to `NAV_JUMP_ACK` in `.env` (comma-separated, e.g. `NAV_JUMP_ACK=97000000000000`). It is re-read every tick, no restart needed, and an acked price is not held at all. An ack never releases a different price. The first needs-ack jump latches the pre-jump price (in memory; a keeper restart forgets it). While the latch lives, every later price is measured against that price, never against a latched bad one, so a second bad price (0.50 then 0.49) is held as well. The latch is dropped by an ack, or once no latched bad price is left in the 20-record history.
+- A correction back to within `NAV_JUMP_BPS` of the latched pre-jump price is released without an ack, even after the bad price stood longer than the hold; a correction to 0.97 is a normal 300 bps jump hold. After a keeper restart the latch is gone, and a bad price that stood longer than the hold is the anchor, so its correction needs an ack (the log line names the price to ack).
 - A price timestamped more than 30 s in the future, a failed `prices` read, or a repo whose collateral is not a keeper asset: held, retried every tick.
 
 Log lines, once per state change: `hold         repo 3 liquidate: NAV -50.00% vs 1.00 (stood 45s/180s), set NAV_JUMP_ACK=50000000000000 in .env to release`. The start line ends with `nav-jump hold 200bps/180s, ack >1000bps`. The cost: a real NAV move over 2% margin-calls up to 180 s later, and over 10% waits for a human, while the lender's exposure grows. Treasury NAVs move a few bps a day; the demo's `set-nav 0.97` margin call (-3%) fires ~180 s after the push. Third parties calling the permissionless `check_margin` / `default` (e.g. the app's Check margin button) are not held.
@@ -143,6 +143,8 @@ systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper
 systemctl --user status caravel-keeper; journalctl --user -u caravel-keeper -f
 ```
 
+The unit sets `SuccessExitStatus=143` because `tsx` relays `SIGTERM` on service stop and exits 143 (`128 + 15`), which systemd otherwise treats as abnormal exit-code failure.
+
 Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. Liquidator USDC runs down by the proceeds of each liquidation (it gets tBENJI instead); top it up with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
 
 ## Bad NAV push: admin runbook
@@ -169,7 +171,7 @@ The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), 
      The corrected price then counts as fresh until that timestamp + 180 s.
 
    Check with `npm run feeds`. `nav-keeper.sh` re-posts whatever `lastprice` returns: until the price is corrected it keeps re-stamping the bad one as fresh, and afterwards it keeps the good one.
-4. **Re-enable**, only after step 3 shows the right price: run step 2 again with `true`/`false` swapped (or with `$CFG` as read before step 2), then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
+4. **Re-enable**, only after step 3 shows the right price. Enabling loosens risk, so `set_asset` fails with `Error(Contract, #20)` (`Loosens`, DECISIONS #33): queue the config read before step 2 with `"${A[@]}" --id $REPO_ID -- propose_asset --asset $TBENJI_SAC --config "$CFG"`, then after `timelock_secs` (120 s demo) run `execute_asset --asset $TBENJI_SAC`. Then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
 
 What this does not undo:
 - A margin call raised at the bad price stays (#20). An absent borrower still defaults and loses the 2% discount: -20.02 USDC on a 970 USDC repo (S2b).

@@ -16,9 +16,12 @@ use crate::{
 pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
 /// Demo tBENJI staleness limit: 3 demo days at 60 s per day.
 pub(crate) const DEMO_NAV_AGE: u64 = 180;
-/// No exposure cap in play (#31); the cap tests set their own.
+/// NAV sanity band (#31) for tests about other rules: 100%, so NAV moves the
+/// tests make on purpose never trip it. Band tests set their own.
+pub(crate) const WIDE_BAND_BPS: u32 = 10_000;
+/// No exposure cap in play (#32); the cap tests set their own.
 pub(crate) const NO_CAP: i128 = i128::MAX;
-/// Demo timelock (#32): 2 demo days at 60 s per day.
+/// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
 pub(crate) fn demo_config(env: &Env) -> Config {
@@ -82,6 +85,9 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
         max_open_debt: NO_CAP,
     };
 
@@ -91,6 +97,9 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
         max_open_debt: NO_CAP,
     };
     assert_eq!(
@@ -118,6 +127,9 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
             haircut_bps,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         };
         assert_eq!(
@@ -140,6 +152,9 @@ fn set_asset_rejects_zero_max_nav_age() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: 0,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
         max_open_debt: NO_CAP,
     };
     assert_eq!(
@@ -162,6 +177,9 @@ fn set_asset_requires_admin_auth() {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -228,6 +246,9 @@ fn world<'a>() -> World<'a> {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -380,6 +401,9 @@ fn create_offer_rejects_missing_or_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -662,6 +686,9 @@ fn take_offer_rejects_asset_disabled_after_offer() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -717,6 +744,9 @@ fn retiering_asset_does_not_touch_live_repo() {
             haircut_bps: 800,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -1359,6 +1389,9 @@ fn liquidate_works_on_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         },
     );
@@ -1745,6 +1778,9 @@ impl World<'_> {
                 haircut_bps: 300,
                 enabled: true,
                 max_nav_age_secs,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
                 max_open_debt: NO_CAP,
             },
         );
@@ -1862,7 +1898,7 @@ fn stale_nav_blocks_take_margin_and_liquidate_but_never_repay_or_top_up() {
 
 impl World<'_> {
     /// Sets tBENJI's switches: instantly when it only switches on, through
-    /// the timelock when it clears one (#32).
+    /// the timelock when it clears one (#33).
     fn pause(&self, no_new_repos: bool, no_seize: bool) {
         let pause = Pause {
             no_new_repos,
@@ -1881,6 +1917,15 @@ impl World<'_> {
         self.set_time(now + TIMELOCK);
         execute();
         self.set_time(now);
+    }
+
+    /// Admin re-tiers tBENJI: instantly if `config` only tightens, else
+    /// propose + execute after the timelock, with the clock put back (#33).
+    fn set_tbenji(&self, config: AssetConfig) {
+        if self.repo.try_set_asset(&self.tbenji, &config) == Err(Ok(Error::Loosens)) {
+            self.repo.propose_asset(&self.tbenji, &config);
+            self.after_timelock(|| self.repo.execute_asset(&self.tbenji));
+        }
     }
 
     /// Enough tBENJI for `n` more full takes.
@@ -1929,18 +1974,19 @@ fn set_pause_is_stored_apart_from_asset_config() {
 }
 
 #[test]
-#[should_panic]
 fn set_pause_requires_admin_auth() {
-    let env = Env::default();
-    let (client, _) = setup(&env);
-    let token = Address::generate(&env);
-    client.set_pause(
-        &token,
-        &Pause {
-            no_new_repos: true,
-            no_seize: false,
-        },
-    );
+    // On a listed asset, so only auth can fail: guardian-only and
+    // stranger-only auth are refused, admin auth goes through.
+    let w = world();
+    let args: soroban_sdk::Vec<soroban_sdk::Val> = (w.tbenji.clone(), PAUSED_ALL).into_val(&w.env);
+    w.sign_as_guardian("set_pause", args.clone());
+    assert!(w.repo.try_set_pause(&w.tbenji, &PAUSED_ALL).is_err());
+    w.sign_as(&Address::generate(&w.env), "set_pause", args.clone());
+    assert!(w.repo.try_set_pause(&w.tbenji, &PAUSED_ALL).is_err());
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+    w.sign_as(&w.admin(), "set_pause", args);
+    w.repo.set_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
 }
 
 #[test]
@@ -2075,23 +2121,301 @@ fn auto_repay_settles_under_no_seize() {
     w.assert_repaid(repo_id);
 }
 
-// --- exposure cap (#31) -------------------------------------------------------
+// --- NAV sanity band (DECISIONS.md #31) ---------------------------------------
+
+/// Launch band for BENJI / USTBL (#31).
+const BAND_BPS: u32 = 50;
+/// A fresh, good NAV record a minute before MATURED.
+const GOOD_TS: u64 = MATURED - 60;
+
+/// Repos and an offer for the band tests, all opened at NAV 1.00.
+struct BandScene {
+    topped: u64,
+    repaid: u64,
+    defaulted: u64,
+    offer: u64,
+}
 
 impl World<'_> {
-    /// Re-sets tBENJI at the world's terms with exposure cap `cap`: a cut
-    /// applies instantly, a raise through the timelock (#32).
-    fn set_cap(&self, cap: i128) {
-        let config = AssetConfig {
+    /// Re-tiers tBENJI with a NAV sanity band; everything else as `world()`.
+    /// A narrower band applies instantly, a wider one through the
+    /// timelock (#33).
+    fn set_band(&self, max_nav_move_bps: u32, nav_floor: Option<i128>, nav_ceiling: Option<i128>) {
+        self.set_tbenji(AssetConfig {
             oracle_asset: Asset::Stellar(self.tbenji.clone()),
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
-            max_open_debt: cap,
-        };
-        if self.repo.try_set_asset(&self.tbenji, &config) == Err(Ok(Error::Loosens)) {
-            self.repo.propose_asset(&self.tbenji, &config);
-            self.after_timelock(|| self.repo.execute_asset(&self.tbenji));
+            max_nav_move_bps,
+            nav_floor,
+            nav_ceiling,
+            max_open_debt: NO_CAP,
+        });
+    }
+
+    /// Two open repos, one defaulted repo and an untaken offer. Time is
+    /// MATURED, the NAV 1.00 is fresh (printed at GOOD_TS) and tBENJI has
+    /// the 50 bps launch band.
+    fn band_scene(&self) -> BandScene {
+        StellarAssetClient::new(&self.env, &self.tbenji).mint(&self.borrower, &(3_000 * UNIT));
+        let topped = self.take();
+        let repaid = self.take();
+        let defaulted = self.take();
+        let offer = self.offer();
+        self.set_time(MATURED);
+        self.repo.default(&defaulted);
+        self.set_nav(ONE, GOOD_TS);
+        self.set_band(BAND_BPS, None, None);
+        BandScene {
+            topped,
+            repaid,
+            defaulted,
+            offer,
         }
+    }
+
+    /// `take_offer`, `check_margin` and `liquidate` all fail with
+    /// `NavOutOfBand` and nothing moves.
+    fn assert_band_blocks(&self, s: &BandScene) {
+        assert_eq!(
+            self.repo.try_take_offer(&self.borrower, &s.offer, &false),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(
+            self.repo.try_check_margin(&s.topped),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(
+            self.repo.try_liquidate(&self.liquidator, &s.defaulted),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(self.repo.offer(&s.offer).id, s.offer);
+        assert_eq!(self.repo.repo(&s.topped).status, Status::Open);
+        assert_eq!(self.repo.repo(&s.defaulted).status, Status::Defaulted);
+    }
+
+    /// `take_offer`, `check_margin` and `liquidate` all go through.
+    fn assert_band_passes(&self, s: &BandScene) {
+        assert!(self.repo.try_check_margin(&s.topped).is_ok());
+        self.repo.take_offer(&self.borrower, &s.offer, &false);
+        self.repo.liquidate(&self.liquidator, &s.defaulted);
+        assert_eq!(self.repo.repo(&s.defaulted).status, Status::Liquidated);
+    }
+
+    /// The exits a bad NAV must never block (#6, #31).
+    fn assert_exits_work(&self, s: &BandScene) {
+        self.repo.top_up(&s.topped, &UNIT);
+        assert_eq!(
+            self.repo.repo(&s.topped).collateral_amount,
+            TAKE_COLLATERAL + UNIT
+        );
+        self.repo.repay(&s.repaid);
+        assert_eq!(self.repo.repo(&s.repaid).status, Status::Repaid);
+        self.repo.repay(&s.topped);
+        assert_eq!(self.repo.repo(&s.topped).status, Status::Repaid);
+    }
+}
+
+#[test]
+fn set_asset_validates_nav_band() {
+    let w = world();
+    let bad = [
+        (0, None, None),
+        (BAND_BPS, Some(0), None),
+        (BAND_BPS, Some(-ONE), None),
+        (BAND_BPS, None, Some(0)),
+        (BAND_BPS, Some(ONE + 1), Some(ONE)),
+    ];
+    for (bps, floor, ceiling) in bad {
+        let config = AssetConfig {
+            oracle_asset: Asset::Stellar(w.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: bps,
+            nav_floor: floor,
+            nav_ceiling: ceiling,
+            max_open_debt: NO_CAP,
+        };
+        assert_eq!(
+            w.repo.try_set_asset(&w.tbenji, &config),
+            Err(Ok(Error::InvalidConfig))
+        );
+    }
+    // Unchanged by the rejected calls.
+    assert_eq!(w.repo.asset(&w.tbenji).max_nav_move_bps, WIDE_BAND_BPS);
+
+    w.set_band(BAND_BPS, Some(ONE), Some(ONE));
+    let got = w.repo.asset(&w.tbenji);
+    assert_eq!(
+        (got.max_nav_move_bps, got.nav_floor, got.nav_ceiling),
+        (BAND_BPS, Some(ONE), Some(ONE))
+    );
+}
+
+#[test]
+fn nav_band_in_band_passes() {
+    // +50 bps, the edge of the band: everything goes through.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE + ONE / 200, MATURED);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn nav_band_jump_up_blocks_risk_actions_but_never_repay_or_top_up() {
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(102 * ONE / 100, MATURED);
+    w.assert_band_blocks(&s);
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_jump_down_blocks_risk_actions_but_never_repay_or_top_up() {
+    // 0.98 is below the margin trigger (~0.98977): without the band this
+    // print would margin-call every repo and liquidate at a 2% loss.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(98 * ONE / 100, MATURED);
+    w.assert_band_blocks(&s);
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_single_record_uses_only_floor_and_ceiling() {
+    // world() prints exactly one NAV record: nothing to measure a move
+    // against, so the move limit passes and only the bounds apply.
+    let w = world();
+    w.set_band(BAND_BPS, Some(ONE + 1), None);
+    let offer = w.offer();
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer, &false),
+        Err(Ok(Error::NavOutOfBand))
+    );
+    w.set_band(BAND_BPS, None, Some(ONE - 1));
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer, &false),
+        Err(Ok(Error::NavOutOfBand))
+    );
+    w.set_band(BAND_BPS, Some(ONE), Some(ONE));
+    w.repo.take_offer(&w.borrower, &offer, &false);
+}
+
+#[test]
+fn nav_band_holds_after_nav_keeper_reposts() {
+    // Issue #26 comment / QA qa_fix2_jump_invisible_after_nav_keeper_reposts:
+    // a bad 0.50 push, then nav-keeper re-posts it every 60 s. From the first
+    // re-post the two newest records are both 0.50, so a prices(asset, 2)
+    // check passes it. The band measures against the whole window.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    let mut ts = MATURED;
+    for _ in 0..3 {
+        ts += 60;
+        w.set_time(ts);
+        w.set_nav(ONE / 2, ts);
+        w.assert_band_blocks(&s);
+    }
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_second_push_next_to_a_bad_one_stays_blocked() {
+    // 0.50 then 0.5001: within 50 bps of each other, not of the good record.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    w.set_time(MATURED + 60);
+    w.set_nav(ONE / 2 + ONE / 10_000, MATURED + 60);
+    w.assert_band_blocks(&s);
+}
+
+#[test]
+fn nav_band_accepts_a_price_once_it_fills_the_window() {
+    // Defined limit: a price every record of the window agrees with is
+    // accepted. With 20 records that is 19 re-posts after the push (~19 min
+    // at nav-keeper's 60 s); the off-chain keeper hold covers that window.
+    let w = world();
+    let s = w.band_scene();
+    let jumped = 102 * ONE / 100;
+    let mut ts = MATURED;
+    w.set_nav(jumped, ts);
+    for _ in 0..(crate::oracle::NAV_BAND_RECORDS - 2) {
+        ts += 60;
+        w.set_time(ts);
+        w.set_nav(jumped, ts);
+    }
+    // 19 records of 1.02 and the good 1.00 at GOOD_TS still in the window.
+    w.assert_band_blocks(&s);
+    ts += 60;
+    w.set_time(ts);
+    w.set_nav(jumped, ts);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn nav_band_admin_widens_the_band_to_accept_a_real_move() {
+    // Recovery path: a genuine move (or a correction back after a bad push)
+    // is accepted once the admin widens the band. Widening loosens risk, so
+    // it waits out the timelock (#33): set_asset refuses, propose + execute.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    w.set_time(MATURED + 60);
+    w.set_nav(ONE, MATURED + 60); // correction: 1.00 is still 100% from 0.50
+    w.assert_band_blocks(&s);
+    let mut wide = w.repo.asset(&w.tbenji);
+    wide.max_nav_move_bps = WIDE_BAND_BPS;
+    assert_eq!(
+        w.repo.try_set_asset(&w.tbenji, &wide),
+        Err(Ok(Error::Loosens))
+    );
+    let eta = w.repo.propose_asset(&w.tbenji, &wide);
+    w.set_time(eta);
+    w.set_nav(ONE, eta);
+    w.repo.execute_asset(&w.tbenji);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn top_up_does_not_clear_margin_call_on_out_of_band_nav() {
+    // A bad high print must not clear a real margin call; the collateral is
+    // still accepted (top_up is never blocked). An in-band price clears it.
+    let w = world();
+    let repo_id = w.breached();
+    w.set_band(BAND_BPS, None, None);
+    w.set_time(NOW + 60);
+    w.set_nav(110 * ONE / 100, NOW + 60);
+
+    w.repo.top_up(&repo_id, &UNIT);
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::MarginCall);
+    assert_eq!(repo.collateral_amount, TAKE_COLLATERAL + UNIT);
+
+    // Same price, band wide enough: the same top-up clears the call.
+    w.set_band(WIDE_BAND_BPS, None, None);
+    w.repo.top_up(&repo_id, &UNIT);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
+}
+
+// --- exposure cap (#32) -------------------------------------------------------
+
+impl World<'_> {
+    /// Re-sets tBENJI at the world's terms with exposure cap `cap`: a cut
+    /// applies instantly, a raise through the timelock (#33).
+    fn set_cap(&self, cap: i128) {
+        self.set_tbenji(AssetConfig {
+            oracle_asset: Asset::Stellar(self.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
+            max_open_debt: cap,
+        });
     }
 
     fn open_debt(&self) -> i128 {
@@ -2154,6 +2478,9 @@ fn set_asset_rejects_negative_cap() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
         max_open_debt: -1,
     };
     assert_eq!(
@@ -2270,7 +2597,7 @@ fn lowering_cap_below_open_debt_leaves_live_repos_alone() {
     assert_eq!(w.open_debt(), DEBT);
 }
 
-// --- guardian and timelock (#32) ----------------------------------------------
+// --- guardian and timelock (#33) ----------------------------------------------
 
 impl World<'_> {
     fn tbenji_config(&self) -> AssetConfig {
@@ -2542,6 +2869,9 @@ fn propose_execute_cancel_emit_events() {
             haircut_bps: 250,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
             max_open_debt: NO_CAP,
         }
         .to_xdr(&w.env, addr)]
@@ -2562,6 +2892,9 @@ fn propose_execute_cancel_emit_events() {
                 haircut_bps: 250,
                 enabled: true,
                 max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
                 max_open_debt: NO_CAP,
             }
             .to_xdr(&w.env, addr),
@@ -2615,6 +2948,9 @@ fn propose_execute_cancel_emit_events() {
                 haircut_bps: 250,
                 enabled: false,
                 max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
                 max_open_debt: NO_CAP - 1,
             }
             .to_xdr(&w.env, addr),
@@ -2654,4 +2990,322 @@ fn constructor_rejects_zero_timelock() {
         env.register(CaravelRepo, (config,));
     }));
     assert!(result.is_err());
+}
+
+// --- QA t_08bda0ce: every loosening as the guardian, guardian-only auth -------
+
+impl World<'_> {
+    /// Authorizes exactly one call, signed by the guardian only.
+    fn sign_as_guardian(&self, fn_name: &'static str, args: soroban_sdk::Vec<soroban_sdk::Val>) {
+        self.sign_as(&self.guardian(), fn_name, args);
+    }
+
+    /// Authorizes exactly one call, signed by `who` only.
+    fn sign_as(
+        &self,
+        who: &Address,
+        fn_name: &'static str,
+        args: soroban_sdk::Vec<soroban_sdk::Val>,
+    ) {
+        self.env.mock_auths(&[MockAuth {
+            address: who,
+            invoke: &MockAuthInvoke {
+                contract: &self.repo.address,
+                fn_name,
+                args,
+                sub_invokes: &[],
+            },
+        }]);
+    }
+}
+
+fn qa_tight_world<'a>() -> (World<'a>, AssetConfig) {
+    let w = world();
+    let mut tight = w.tbenji_config();
+    tight.haircut_bps = 800;
+    tight.max_open_debt = 5 * DEBT;
+    tight.max_nav_age_secs = DEMO_NAV_AGE / 2;
+    tight.enabled = false;
+    tight.max_nav_move_bps = 500;
+    tight.nav_floor = Some(9 * ONE / 10);
+    tight.nav_ceiling = Some(11 * ONE / 10);
+    w.repo.set_asset(&w.tbenji, &tight);
+    w.repo.set_pause(&w.tbenji, &PAUSED_ALL);
+    (w, tight)
+}
+
+fn qa_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfig)> {
+    let mut out = std::vec::Vec::new();
+    let mut c = tight.clone();
+    c.enabled = true;
+    out.push(("enable", c));
+    let mut c = tight.clone();
+    c.haircut_bps -= 1;
+    out.push(("lower haircut", c));
+    let mut c = tight.clone();
+    c.max_open_debt += 1;
+    out.push(("raise cap", c));
+    let mut c = tight.clone();
+    c.max_nav_age_secs += 1;
+    out.push(("raise nav age", c));
+    let mut c = tight.clone();
+    c.oracle_asset = Asset::Other(soroban_sdk::symbol_short!("XYZ"));
+    out.push(("remap oracle", c));
+    // Mixed: tighten one field while loosening another.
+    let mut c = tight.clone();
+    c.haircut_bps = 900;
+    c.max_open_debt = NO_CAP;
+    out.push(("raise haircut + raise cap", c));
+    let mut c = tight.clone();
+    c.max_open_debt = 1;
+    c.enabled = true;
+    out.push(("cut cap + enable", c));
+    let mut c = tight.clone();
+    c.max_nav_age_secs = 1;
+    c.haircut_bps = 300;
+    out.push(("cut nav age + lower haircut", c));
+    out.extend(qa_band_loosenings(tight));
+    out
+}
+
+/// Every way to widen the NAV band (#31), alone and mixed with a tightening.
+fn qa_band_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfig)> {
+    let mut out = std::vec::Vec::new();
+    let mut c = tight.clone();
+    c.max_nav_move_bps += 1;
+    out.push(("raise nav move", c));
+    let mut c = tight.clone();
+    c.nav_floor = c.nav_floor.map(|f| f - 1);
+    out.push(("lower floor", c));
+    let mut c = tight.clone();
+    c.nav_floor = None;
+    out.push(("drop floor", c));
+    let mut c = tight.clone();
+    c.nav_ceiling = c.nav_ceiling.map(|f| f + 1);
+    out.push(("raise ceiling", c));
+    let mut c = tight.clone();
+    c.nav_ceiling = None;
+    out.push(("drop ceiling", c));
+    let mut c = tight.clone();
+    c.nav_floor = None;
+    c.nav_ceiling = None;
+    out.push(("drop both bounds", c));
+    let mut c = tight.clone();
+    c.nav_floor = c.nav_floor.map(|f| f + 1);
+    c.nav_ceiling = c.nav_ceiling.map(|f| f + 1);
+    out.push(("shift band up", c));
+    let mut c = tight.clone();
+    c.max_nav_move_bps = 1;
+    c.nav_floor = None;
+    out.push(("cut nav move + drop floor", c));
+    let mut c = tight.clone();
+    c.haircut_bps = 900;
+    c.max_nav_move_bps += 1;
+    out.push(("raise haircut + raise nav move", c));
+    out
+}
+
+#[test]
+fn nav_band_loosening_fails_for_admin_and_guardian() {
+    let (w, tight) = qa_tight_world();
+    w.env.mock_all_auths();
+    for (name, c) in qa_band_loosenings(&tight) {
+        assert_eq!(
+            w.repo.try_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "set_asset {name}"
+        );
+        assert_eq!(
+            w.repo.try_guardian_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "guardian_set_asset {name}"
+        );
+        assert_eq!(w.tbenji_config(), tight, "{name}");
+    }
+    // The timelocked path still takes any of them.
+    let (_, wide) = qa_band_loosenings(&tight).remove(5);
+    let eta = w.repo.propose_asset(&w.tbenji, &wide);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    w.set_time(eta);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config(), wide);
+}
+
+#[test]
+fn nav_band_tightening_is_instant_for_admin_and_guardian() {
+    let w = world();
+    let mut c = w.tbenji_config();
+    assert_eq!((c.nav_floor, c.nav_ceiling), (None, None));
+    // A pending loosening, so each instant step must also drop it.
+    let mut loose = c.clone();
+    loose.haircut_bps -= 1;
+    type Step = (&'static str, fn(&mut AssetConfig));
+    let steps: [Step; 6] = [
+        ("lower nav move", |c| c.max_nav_move_bps = 500),
+        ("add floor", |c| c.nav_floor = Some(9 * ONE / 10)),
+        ("add ceiling", |c| c.nav_ceiling = Some(11 * ONE / 10)),
+        ("raise floor", |c| c.nav_floor = Some(95 * ONE / 100)),
+        ("lower ceiling", |c| c.nav_ceiling = Some(105 * ONE / 100)),
+        ("equal values", |_| {}),
+    ];
+    for (i, (name, step)) in steps.into_iter().enumerate() {
+        w.repo.propose_asset(&w.tbenji, &loose);
+        step(&mut c);
+        if i % 2 == 0 {
+            w.repo.guardian_set_asset(&w.tbenji, &c);
+        } else {
+            w.repo.set_asset(&w.tbenji, &c);
+        }
+        assert_eq!(w.tbenji_config(), c, "{name}");
+        assert_eq!(w.repo.pending_asset(&w.tbenji), None, "{name}");
+        loose = c.clone();
+        loose.haircut_bps -= 1;
+    }
+}
+
+const QA_CLEARS: [Pause; 3] = [
+    Pause {
+        no_new_repos: false,
+        no_seize: true,
+    },
+    Pause {
+        no_new_repos: true,
+        no_seize: false,
+    },
+    Pause {
+        no_new_repos: false,
+        no_seize: false,
+    },
+];
+
+#[test]
+fn qa_guardian_positive_control_strict_auth() {
+    // Proves sign_as_guardian really authorizes the guardian: a pure
+    // tightening goes through with guardian-only auth.
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 900;
+    w.sign_as_guardian(
+        "guardian_set_asset",
+        (w.tbenji.clone(), c.clone()).into_val(&w.env),
+    );
+    w.repo.guardian_set_asset(&w.tbenji, &c);
+    assert_eq!(w.tbenji_config(), c);
+    w.sign_as_guardian(
+        "guardian_set_pause",
+        (w.tbenji.clone(), PAUSED_ALL).into_val(&w.env),
+    );
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+}
+
+#[test]
+fn qa_guardian_every_asset_loosening_fails_on_every_entry_point() {
+    let (w, tight) = qa_tight_world();
+    for (name, c) in qa_loosenings(&tight) {
+        let args: soroban_sdk::Vec<soroban_sdk::Val> =
+            (w.tbenji.clone(), c.clone()).into_val(&w.env);
+        w.sign_as_guardian("guardian_set_asset", args.clone());
+        assert_eq!(
+            w.repo.try_guardian_set_asset(&w.tbenji, &c),
+            Err(Ok(Error::Loosens)),
+            "guardian_set_asset {name}"
+        );
+        w.sign_as_guardian("set_asset", args.clone());
+        assert!(
+            w.repo.try_set_asset(&w.tbenji, &c).is_err(),
+            "set_asset as guardian {name}"
+        );
+        w.sign_as_guardian("propose_asset", args.clone());
+        assert!(
+            w.repo.try_propose_asset(&w.tbenji, &c).is_err(),
+            "propose_asset as guardian {name}"
+        );
+        assert_eq!(w.repo.pending_asset(&w.tbenji), None, "{name}");
+        assert_eq!(w.tbenji_config(), tight, "{name}");
+    }
+}
+
+#[test]
+fn qa_guardian_every_pause_clear_fails_on_every_entry_point() {
+    let (w, _) = qa_tight_world();
+    for clear in QA_CLEARS {
+        let args: soroban_sdk::Vec<soroban_sdk::Val> =
+            (w.tbenji.clone(), clear.clone()).into_val(&w.env);
+        w.sign_as_guardian("guardian_set_pause", args.clone());
+        assert_eq!(
+            w.repo.try_guardian_set_pause(&w.tbenji, &clear),
+            Err(Ok(Error::Loosens))
+        );
+        w.sign_as_guardian("set_pause", args.clone());
+        assert!(w.repo.try_set_pause(&w.tbenji, &clear).is_err());
+        w.sign_as_guardian("propose_pause", args.clone());
+        assert!(w.repo.try_propose_pause(&w.tbenji, &clear).is_err());
+        assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+        assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    }
+}
+
+#[test]
+fn qa_guardian_cannot_execute_a_matured_admin_proposal() {
+    let (w, tight) = qa_tight_world();
+    w.env.mock_all_auths();
+    let mut loose = tight.clone();
+    loose.enabled = true;
+    loose.haircut_bps = 300;
+    w.repo.propose_asset(&w.tbenji, &loose);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(NOW + 10 * TIMELOCK);
+    w.sign_as_guardian("execute_asset", (w.tbenji.clone(),).into_val(&w.env));
+    assert!(w.repo.try_execute_asset(&w.tbenji).is_err());
+    w.sign_as_guardian("execute_pause", (w.tbenji.clone(),).into_val(&w.env));
+    assert!(w.repo.try_execute_pause(&w.tbenji).is_err());
+    assert_eq!(w.tbenji_config(), tight);
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    assert!(w.repo.pending_asset(&w.tbenji).is_some());
+}
+
+#[test]
+fn qa_guardian_cannot_list_an_asset_or_whitelist_a_liquidator() {
+    let (w, tight) = qa_tight_world();
+    let unknown = Address::generate(&w.env);
+    let mut c = tight.clone();
+    c.enabled = true;
+    w.sign_as_guardian("set_asset", (unknown.clone(), c.clone()).into_val(&w.env));
+    assert!(w.repo.try_set_asset(&unknown, &c).is_err());
+    w.sign_as_guardian(
+        "guardian_set_asset",
+        (unknown.clone(), c.clone()).into_val(&w.env),
+    );
+    assert_eq!(
+        w.repo.try_guardian_set_asset(&unknown, &c),
+        Err(Ok(Error::AssetNotSupported))
+    );
+    assert!(w.repo.try_asset(&unknown).is_err());
+    let who = Address::generate(&w.env);
+    w.sign_as_guardian("set_liquidator", (who.clone(), true).into_val(&w.env));
+    assert!(w.repo.try_set_liquidator(&who, &true).is_err());
+    assert!(!w.repo.is_liquidator(&who));
+}
+
+#[test]
+fn qa_execute_exactly_at_eta_and_reproposal_restarts_clock() {
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    let eta1 = w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(NOW + TIMELOCK / 2);
+    let eta2 = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(eta2, NOW + TIMELOCK / 2 + TIMELOCK);
+    w.set_time(eta1);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::TimelockNotDone))
+    );
+    w.set_time(eta2);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config().haircut_bps, 250);
 }

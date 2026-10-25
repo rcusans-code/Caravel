@@ -79,8 +79,13 @@ export interface AssetConfig {
   enabled: boolean;
   /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
   max_nav_age_secs: bigint;
-  /** Exposure cap: max debt of live repos on this asset, USDC units (DECISIONS.md #31). 0 = no new repos; null = contract predates #31. */
+  /** Exposure cap: max debt of live repos on this asset, USDC units (DECISIONS.md #32). 0 = no new repos; null = contract predates #32. */
   max_open_debt: bigint | null;
+  /** NAV sanity band (DECISIONS.md #31): max move in bps against the feed's last 20 records; null = contract predates #31. */
+  max_nav_move_bps: bigint | null;
+  /** Optional hard NAV bounds in the oracle feed's scale (#31); null = unset. */
+  nav_floor: bigint | null;
+  nav_ceiling: bigint | null;
 }
 
 export interface Nav {
@@ -146,8 +151,16 @@ export async function getConfig(): Promise<ProtocolConfig> {
 export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
   // Raw read, not the typed binding: the binding decodes AssetConfig by
   // position, so it throws on a contract whose struct has fewer fields
-  // (deployed before #25 or #31). Error #8 = AssetNotSupported.
-  let a: { haircut_bps: unknown; enabled: boolean; max_nav_age_secs?: unknown; max_open_debt?: unknown };
+  // (deployed before #25, #31 or #32). Error #8 = AssetNotSupported.
+  let a: {
+    haircut_bps: unknown;
+    enabled: boolean;
+    max_nav_age_secs?: unknown;
+    max_open_debt?: unknown;
+    max_nav_move_bps?: unknown;
+    nav_floor?: unknown;
+    nav_ceiling?: unknown;
+  };
   try {
     a = await simulateView(REPO_ID, "asset", new Address(sac).toScVal());
   } catch (e) {
@@ -162,10 +175,14 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     enabled: a.enabled,
     max_nav_age_secs: big(maxAge),
     max_open_debt: a.max_open_debt === undefined ? null : big(a.max_open_debt),
+    max_nav_move_bps: a.max_nav_move_bps === undefined ? null : big(a.max_nav_move_bps),
+    // Option<i128>: None decodes as null (absent on a pre-#31 contract).
+    nav_floor: a.nav_floor == null ? null : big(a.nav_floor),
+    nav_ceiling: a.nav_ceiling == null ? null : big(a.nav_ceiling),
   };
 }
 
-/** Debt of live repos on this collateral (#31); null on a contract without open_debt(). */
+/** Debt of live repos on this collateral (#32); null on a contract without open_debt(). */
 export async function getOpenDebt(sac: string): Promise<bigint | null> {
   try {
     return big((await readRepo.open_debt({ asset: sac })).result);
@@ -413,6 +430,38 @@ export async function declareDefault(signer: Signer, repoId: bigint): Promise<Tx
   const out = await submit(await callDefault({ repo_id: repoId }));
   unwrapResult(out.value);
   return { hash: out.hash, value: null };
+}
+
+/**
+ * The lender's "Declare default" once a repo is past maturity + grace (#31):
+ * sends `default` only. The contract's `default` tries auto-repay first for an
+ * opted-in borrower (repo -> Repaid), else marks it Defaulted for liquidation.
+ * A repo that is no longer live throws "already settled" (keeper raced us).
+ */
+export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promise<TxOutcome<Status>> {
+  try {
+    const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+    // `default_` at runtime: see declareDefault.
+    const callDefault = (c as unknown as { default_: RepoClient["default"] }).default_.bind(c);
+    const out = await submit(await callDefault({ repo_id: repo.id }));
+    const status = unwrapResult<{ tag: Status } | Status>(out.value);
+    return { hash: out.hash, value: typeof status === "string" ? status : status.tag };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // InvalidStatus (#7) in simulation, or a tx that lost the race on-chain:
+    // either way, if the repo is no longer live someone else settled it.
+    const settledElsewhere =
+      /Error\(Contract, #7\)/.test(msg) || (await getRepoStatus(repo.id).catch(() => null))?.match(/^(Repaid|Defaulted|Liquidated)$/);
+    if (settledElsewhere)
+      throw new Error(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`);
+    throw e;
+  }
+}
+
+async function getRepoStatus(id: bigint): Promise<Status | null> {
+  const res = await server.getLedgerEntries(contractDataKey(dataKey("Repo", id)));
+  const e = res.entries[0];
+  return e ? normRepo(scValToNative(e.val.contractData().val()) as Record<string, unknown>).status : null;
 }
 
 export async function liquidate(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {

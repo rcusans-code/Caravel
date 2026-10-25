@@ -12,6 +12,9 @@ pub struct AssetConfigured {
     pub haircut_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
+    pub max_nav_move_bps: u32,
+    pub nav_floor: Option<i128>,
+    pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
 }
 
@@ -25,7 +28,7 @@ pub struct PauseSet {
     pub no_seize: bool,
 }
 
-/// Admin queued an asset change behind the timelock (DECISIONS.md #32).
+/// Admin queued an asset change behind the timelock (DECISIONS.md #33).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetChangeProposed {
@@ -35,10 +38,13 @@ pub struct AssetChangeProposed {
     pub haircut_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
+    pub max_nav_move_bps: u32,
+    pub nav_floor: Option<i128>,
+    pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
 }
 
-/// Admin queued a pause change behind the timelock (DECISIONS.md #32).
+/// Admin queued a pause change behind the timelock (DECISIONS.md #33).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PauseChangeProposed {

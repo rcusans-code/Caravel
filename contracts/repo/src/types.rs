@@ -25,12 +25,12 @@ pub struct Config {
     pub margin_window_secs: u64,
     /// Time after maturity before an unpaid repo can be defaulted.
     pub grace_secs: u64,
-    /// Can only make things safer, instantly (DECISIONS.md #32): disable an
-    /// asset, raise a haircut, lower a cap or NAV age, set pause switches,
-    /// cancel a pending proposal. It can never loosen anything.
+    /// Can only make things safer, instantly (DECISIONS.md #33): disable an
+    /// asset, raise a haircut, lower a cap or NAV age, narrow the NAV band,
+    /// set pause switches, cancel a pending proposal. It can never loosen anything.
     pub guardian: Address,
     /// Delay between `propose_*` and `execute_*` for every change that adds
-    /// risk (DECISIONS.md #32). 172_800 (2 days) in production, 120 in the
+    /// risk (DECISIONS.md #33). 172_800 (2 days) in production, 120 in the
     /// demo (#5). Must be > 0.
     pub timelock_secs: u64,
 }
@@ -63,7 +63,20 @@ pub struct AssetConfig {
     /// a fund that prints NAV only on business days needs ~96 h to cover a
     /// weekend, a daily-priced token less. Must be > 0.
     pub max_nav_age_secs: u64,
-    /// Exposure cap (DECISIONS.md #31): total debt (principal + interest, USDC
+    /// NAV sanity band (DECISIONS.md #31): the latest NAV may differ from
+    /// every one of the oracle's last `oracle::NAV_BAND_RECORDS` records by
+    /// at most this many bps, else `NavOutOfBand`. Measuring against the
+    /// whole window, not just the previous record, means re-posts of a bad
+    /// price cannot hide the jump. Blocks `take_offer`, `check_margin` and
+    /// `liquidate`, the same set as a stale NAV; never `repay` or `top_up`.
+    /// Must be > 0.
+    pub max_nav_move_bps: u32,
+    /// Optional hard bounds on the latest NAV, in the feed's own scale
+    /// (`decimals()`), inclusive. Same effect as the move limit. If set,
+    /// each must be > 0 and `nav_floor <= nav_ceiling`.
+    pub nav_floor: Option<i128>,
+    pub nav_ceiling: Option<i128>,
+    /// Exposure cap (DECISIONS.md #32): total debt (principal + interest, USDC
     /// 7 decimals) of live repos on this asset. `take_offer` fails with
     /// `CapExceeded` past it; 0 means no new repos. Exits (repay, auto-repay,
     /// top-up, liquidate) are never blocked, and lowering the cap below the
@@ -85,7 +98,7 @@ pub struct Pause {
     pub no_seize: bool,
 }
 
-/// An admin `AssetConfig` change waiting out the timelock (DECISIONS.md #32).
+/// An admin `AssetConfig` change waiting out the timelock (DECISIONS.md #33).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingAsset {
@@ -94,7 +107,7 @@ pub struct PendingAsset {
     pub eta: u64,
 }
 
-/// An admin `Pause` change waiting out the timelock (DECISIONS.md #32).
+/// An admin `Pause` change waiting out the timelock (DECISIONS.md #33).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingPause {

@@ -27,10 +27,10 @@ pub enum DataKey {
     Asset(Address),
     /// Per-asset pause switches (#30). Absent = nothing paused.
     Pause(Address),
-    /// Debt of live repos on this collateral asset (#31). Kept apart from
+    /// Debt of live repos on this collateral asset (#32). Kept apart from
     /// `Asset` so `set_asset` never resets it.
     OpenDebt(Address),
-    /// Admin change waiting out the timelock (#32). At most one per asset.
+    /// Admin change waiting out the timelock (#33). At most one per asset.
     PendingAsset(Address),
     PendingPause(Address),
     // persistent
@@ -94,7 +94,7 @@ pub fn write_pause(env: &Env, asset: &Address, pause: &Pause) {
     }
 }
 
-// --- timelocked proposals (#32) ---------------------------------------------
+// --- timelocked proposals (#33) ---------------------------------------------
 
 pub fn read_pending_asset(env: &Env, asset: &Address) -> Option<PendingAsset> {
     env.storage()
@@ -132,7 +132,7 @@ pub fn remove_pending_pause(env: &Env, asset: &Address) {
         .remove(&DataKey::PendingPause(asset.clone()));
 }
 
-// --- exposure (#31) ---------------------------------------------------------
+// --- exposure (#32) ---------------------------------------------------------
 
 pub fn read_open_debt(env: &Env, asset: &Address) -> i128 {
     env.storage()

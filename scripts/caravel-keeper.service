@@ -22,6 +22,9 @@ WorkingDirectory=%h/.local/lib/caravel/keeper
 ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/keeper.ts
 Restart=always
 RestartSec=10
+# tsx forwards SIGTERM to the keeper child and exits 143 (128 + SIGTERM).
+# Tell systemd 143 is an expected clean exit on service stop.
+SuccessExitStatus=143
 
 [Install]
 WantedBy=default.target

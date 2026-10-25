@@ -74,20 +74,20 @@ impl CaravelRepo {
         storage::read_pause(&env, &asset)
     }
 
-    /// The admin asset change waiting out the timelock, if any (#32).
+    /// The admin asset change waiting out the timelock, if any (#33).
     pub fn pending_asset(env: Env, asset: Address) -> Option<PendingAsset> {
         storage::extend_instance(&env);
         storage::read_pending_asset(&env, &asset)
     }
 
-    /// The admin pause change waiting out the timelock, if any (#32).
+    /// The admin pause change waiting out the timelock, if any (#33).
     pub fn pending_pause(env: Env, asset: Address) -> Option<PendingPause> {
         storage::extend_instance(&env);
         storage::read_pending_pause(&env, &asset)
     }
 
     /// Debt (principal + interest) of live repos on `asset`, the amount
-    /// counted against `AssetConfig.max_open_debt` (#31). 0 for an unknown asset.
+    /// counted against `AssetConfig.max_open_debt` (#32). 0 for an unknown asset.
     pub fn open_debt(env: Env, asset: Address) -> i128 {
         storage::extend_instance(&env);
         storage::read_open_debt(&env, &asset)
@@ -104,15 +104,18 @@ impl CaravelRepo {
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
     /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
     /// haircut means a take at max LTV opens strictly below the margin trigger.
-    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25) and
-    /// `max_open_debt ≥ 0` (#31). Re-setting an asset keeps its open debt;
-    /// a cap below it only stops new takes.
+    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25), a
+    /// valid NAV sanity band (#31): `max_nav_move_bps > 0`, each bound > 0 if
+    /// set, and `nav_floor <= nav_ceiling`, and `max_open_debt ≥ 0` (#32).
+    /// Re-setting an asset keeps its open debt; a cap below it only stops new
+    /// takes.
     ///
     /// Instant only for a first listing (no offer can exist on an unlisted
-    /// asset) or a change that only tightens (#32: disable, raise the
-    /// haircut, lower the NAV age or the cap). Anything that loosens fails
-    /// with `Loosens`: use `propose_asset`. An instant change drops a
-    /// pending proposal for the asset, so it cannot undo the change later.
+    /// asset) or a change that only tightens (#33: disable, raise the
+    /// haircut, lower the NAV age or the cap, narrow the NAV band). Anything
+    /// that loosens fails with `Loosens`: use `propose_asset`. An instant
+    /// change drops a pending proposal for the asset, so it cannot undo the
+    /// change later.
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
@@ -132,7 +135,7 @@ impl CaravelRepo {
     /// action: `no_new_repos` blocks `create_offer` / `take_offer`,
     /// `no_seize` blocks `default` and `liquidate`. Nothing pauses `repay`
     /// or `top_up`. Stored apart from `AssetConfig`, so `set_asset` never
-    /// clears a pause. Instant only for switching on (#32); clearing a
+    /// clears a pause. Instant only for switching on (#33); clearing a
     /// switch fails with `Loosens`: use `propose_pause`.
     pub fn set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
@@ -140,10 +143,11 @@ impl CaravelRepo {
         tighten_pause(&env, &protocol.admin, asset, &pause)
     }
 
-    // --- guardian (#32): instant, tighten only ----------------------------
+    // --- guardian (#33): instant, tighten only ----------------------------
 
     /// The guardian's instant `set_asset` on a listed asset: disable it,
-    /// raise the haircut, lower the NAV age or the cap. Fails with
+    /// raise the haircut, lower the NAV age or the cap, narrow the NAV
+    /// band. Fails with
     /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
@@ -166,7 +170,7 @@ impl CaravelRepo {
         tighten_pause(&env, &protocol.guardian, asset, &pause)
     }
 
-    // --- admin, timelocked (#32): every change that adds risk -------------
+    // --- admin, timelocked (#33): every change that adds risk -------------
 
     /// Queues `config` for `asset`; `execute_asset` applies it from the
     /// returned `eta` (now + `timelock_secs`). A new proposal replaces the
@@ -191,6 +195,9 @@ impl CaravelRepo {
             haircut_bps: config.haircut_bps,
             enabled: config.enabled,
             max_nav_age_secs: config.max_nav_age_secs,
+            max_nav_move_bps: config.max_nav_move_bps,
+            nav_floor: config.nav_floor,
+            nav_ceiling: config.nav_ceiling,
             max_open_debt: config.max_open_debt,
         }
         .publish(&env);
@@ -376,11 +383,11 @@ impl CaravelRepo {
     /// auth on the SAC transfer pins the exact amount, so if NAV moves between
     /// simulate and submit the tx fails instead of overcharging (#21).
     ///
-    /// Rejects stale NAV (#6), an asset disabled since the offer was
-    /// posted (#23) and an asset paused with `no_new_repos` (#30). The
-    /// haircut is snapshotted on the repo (#19). Rejects with `CapExceeded`
-    /// if the asset's open debt plus this debt would pass `max_open_debt`
-    /// (#31); the offer stays on the board.
+    /// Rejects stale NAV (#6), NAV outside the asset's sanity band (#31), an
+    /// asset disabled since the offer was posted (#23) and an asset paused
+    /// with `no_new_repos` (#30). The haircut is snapshotted on the repo (#19).
+    /// Rejects with `CapExceeded` if the asset's open debt plus this debt
+    /// would pass `max_open_debt` (#32); the offer stays on the board.
     ///
     /// `auto_repay` opts in to auto-repay (#27): the same signature also
     /// approves this contract to pull the debt in USDC from maturity.
@@ -413,7 +420,7 @@ impl CaravelRepo {
         if !math::ltv_ok(debt, collateral, nav, nav_decimals, asset.haircut_bps)? {
             return Err(Error::InsufficientCollateral);
         }
-        // Exposure cap (#31): exactly at the cap passes, one unit over fails.
+        // Exposure cap (#32): exactly at the cap passes, one unit over fails.
         let open_debt = storage::read_open_debt(&env, &offer.collateral_asset)
             .checked_add(debt)
             .ok_or(Error::MathOverflow)?;
@@ -559,8 +566,9 @@ impl CaravelRepo {
 
     /// Adds collateral. Clears a margin call once
     /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds, i.e. the
-    /// initial margin is restored (TradFi convention). Works with stale NAV.
-    /// No pause switch blocks it (#30).
+    /// initial margin is restored (TradFi convention). Works with stale NAV
+    /// and with NAV outside the sanity band; an out-of-band NAV never clears
+    /// a call (#31). No pause switch blocks it (#30).
     pub fn top_up(env: Env, repo_id: u64, amount: i128) -> Result<(), Error> {
         margin::top_up(&env, repo_id, amount)
     }
@@ -591,7 +599,8 @@ impl CaravelRepo {
     }
 
     /// Sets `margin_call_deadline` on the first `margin_breached`. Returns the
-    /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17).
+    /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17), NAV outside
+    /// the asset's sanity band `NavOutOfBand` (#31).
     pub fn check_margin(env: Env, repo_id: u64) -> Result<Status, Error> {
         margin::check_margin(&env, repo_id)
     }
@@ -639,8 +648,9 @@ impl CaravelRepo {
     /// NAV × (1 − discount), rounded up. The USDC goes lender first (capped at
     /// principal + interest − fee), then the fee, then the borrower (#3, #4).
     /// If proceeds fall short of what the lender is owed, the lender takes
-    /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6).
-    /// The asset's `no_seize` switch returns `Paused` (#30).
+    /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6),
+    /// NAV outside the asset's sanity band `NavOutOfBand` (#31). The asset's
+    /// `no_seize` switch returns `Paused` (#30).
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -727,12 +737,13 @@ fn seize_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
     Ok(())
 }
 
-// --- risk-parameter changes (#32) ---------------------------------------------
+// --- risk-parameter changes (#33) ---------------------------------------------
 
 fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> {
     if config.haircut_bps <= protocol.liquidation_discount_bps
         || config.haircut_bps as i128 >= math::BPS
         || config.max_nav_age_secs == 0
+        || !band_ok(config)
         || config.max_open_debt < 0
     {
         return Err(Error::InvalidConfig);
@@ -741,13 +752,32 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
 }
 
 /// True when `new` adds no risk over `old`: same oracle mapping, not
-/// re-enabled, haircut not lower, NAV age and cap not higher.
+/// re-enabled, haircut not lower, NAV age and cap not higher, NAV band
+/// (#31) not wider.
 fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
     new.oracle_asset == old.oracle_asset
         && (old.enabled || !new.enabled)
         && new.haircut_bps >= old.haircut_bps
         && new.max_nav_age_secs <= old.max_nav_age_secs
         && new.max_open_debt <= old.max_open_debt
+        && band_tightens(old, new)
+}
+
+/// True when the NAV band (#31) is not wider: move limit not higher; a
+/// floor added or raised, never removed or lowered; a ceiling added or
+/// lowered, never removed or raised.
+fn band_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
+    let floor_ok = match (old.nav_floor, new.nav_floor) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(o), Some(n)) => n >= o,
+    };
+    let ceiling_ok = match (old.nav_ceiling, new.nav_ceiling) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(o), Some(n)) => n <= o,
+    };
+    new.max_nav_move_bps <= old.max_nav_move_bps && floor_ok && ceiling_ok
 }
 
 /// True when `new` only switches pauses on.
@@ -775,6 +805,9 @@ fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
         haircut_bps: config.haircut_bps,
         enabled: config.enabled,
         max_nav_age_secs: config.max_nav_age_secs,
+        max_nav_move_bps: config.max_nav_move_bps,
+        nav_floor: config.nav_floor,
+        nav_ceiling: config.nav_ceiling,
         max_open_debt: config.max_open_debt,
     }
     .publish(env);
@@ -841,4 +874,17 @@ fn validate_config(config: &Config) -> Result<(), Error> {
         return Err(Error::InvalidConfig);
     }
     Ok(())
+}
+
+/// NAV sanity band settings for `set_asset` / `propose_asset` (DECISIONS.md #31).
+fn band_ok(config: &AssetConfig) -> bool {
+    let positive = |bound: Option<i128>| bound.is_none_or(|b| b > 0);
+    let ordered = match (config.nav_floor, config.nav_ceiling) {
+        (Some(floor), Some(ceiling)) => floor <= ceiling,
+        _ => true,
+    };
+    config.max_nav_move_bps > 0
+        && positive(config.nav_floor)
+        && positive(config.nav_ceiling)
+        && ordered
 }
