@@ -3,6 +3,8 @@
 
 use soroban_sdk::{contractevent, Address, Symbol};
 
+use crate::types::DefaultReason;
+
 /// Admin added or re-tiered a collateral asset (DECISIONS.md #13).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,6 +130,10 @@ pub struct MarginCall {
     #[topic]
     pub repo_id: u64,
     pub deadline: u64,
+    /// NAV that showed the breach, scaled for the collateral token
+    /// (`nav_decimals`, DECISIONS.md #28).
+    pub nav: i128,
+    pub nav_decimals: u32,
 }
 
 /// `default` on a missed margin call found the loan out of breach at a fresh
@@ -175,6 +181,7 @@ pub struct AutoRepaySet {
 pub struct Defaulted {
     #[topic]
     pub repo_id: u64,
+    pub reason: DefaultReason,
 }
 
 #[contractevent]
@@ -188,6 +195,10 @@ pub struct Liquidated {
     pub lender_amount: i128,
     pub fee: i128,
     pub borrower_amount: i128,
+    /// NAV the proceeds were priced at, scaled for the collateral token
+    /// (`nav_decimals`, DECISIONS.md #28).
+    pub nav: i128,
+    pub nav_decimals: u32,
 }
 
 /// Liquidation proceeds did not cover what the lender was owed

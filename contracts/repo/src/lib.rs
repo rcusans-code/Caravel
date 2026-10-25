@@ -20,13 +20,16 @@ mod test;
 #[cfg(test)]
 mod test_allowlist;
 #[cfg(test)]
+mod test_attack_a8;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
 
 pub use errors::Error;
 pub use types::{
-    Asset, AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo, Status,
+    Asset, AssetConfig, Config, DefaultReason, Offer, Pause, PendingAsset, PendingPause, Repo,
+    Status,
 };
 
 #[contract]
@@ -654,7 +657,12 @@ impl CaravelRepo {
         storage::write_repo(&env, &repo);
         storage::extend_instance(&env);
 
-        events::Defaulted { repo_id }.publish(&env);
+        let reason = if matured {
+            DefaultReason::Maturity
+        } else {
+            DefaultReason::MarginCall
+        };
+        events::Defaulted { repo_id, reason }.publish(&env);
         Ok(repo.status)
     }
 
@@ -666,13 +674,19 @@ impl CaravelRepo {
     /// If proceeds fall short of what the lender is owed, the lender takes
     /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6),
     /// NAV outside the asset's sanity band `NavOutOfBand` (#31). The asset's
-    /// `no_seize` switch returns `Paused` (#30).
+    /// `no_seize` switch returns `Paused` (#30). The repo's own borrower is
+    /// never a liquidator of it (`NotLiquidator`), whitelisted or not.
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
             return Err(Error::NotLiquidator);
         }
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        // A whitelisted borrower must not buy back its own collateral at the
+        // discount and leave the lender the shortfall.
+        if liquidator == repo.borrower {
+            return Err(Error::NotLiquidator);
+        }
         if repo.status != Status::Defaulted {
             return Err(Error::InvalidStatus);
         }
@@ -724,6 +738,8 @@ impl CaravelRepo {
             lender_amount: split.lender,
             fee: split.fee,
             borrower_amount: split.borrower,
+            nav,
+            nav_decimals,
         }
         .publish(&env);
         if split.shortfall > 0 {
@@ -880,12 +896,17 @@ fn admin_or_guardian(env: &Env, caller: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Shortest accepted `timelock_secs`: a loosening must stay visible on-chain
+/// for at least a minute before it can execute (#33).
+pub(crate) const MIN_TIMELOCK_SECS: u64 = 60;
+
 fn validate_config(config: &Config) -> Result<(), Error> {
     let bps = math::BPS as u32;
-    if config.fee_bps > bps
+    if config.fee_bps >= bps
+        || config.liquidation_discount_bps == 0
         || config.liquidation_discount_bps >= bps
         || config.day_secs == 0
-        || config.timelock_secs == 0
+        || config.timelock_secs < MIN_TIMELOCK_SECS
     {
         return Err(Error::InvalidConfig);
     }

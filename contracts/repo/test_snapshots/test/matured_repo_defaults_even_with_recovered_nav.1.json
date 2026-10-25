@@ -1672,7 +1672,20 @@
               }
             ],
             "data": {
-              "map": []
+              "map": [
+                {
+                  "key": {
+                    "symbol": "reason"
+                  },
+                  "val": {
+                    "vec": [
+                      {
+                        "symbol": "Maturity"
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           }
         }

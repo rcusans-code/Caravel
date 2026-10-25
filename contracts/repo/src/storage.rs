@@ -8,11 +8,19 @@ use soroban_sdk::{contracttype, Address, Env};
 use crate::types::{AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
-                                    // Extending the instance also extends the contract code entry. On testnet,
-                                    // pushing this contract's code past its fresh ~7-day TTL costs ~240 XLM per
-                                    // extra day (a 30-day bump at deploy quoted 5,512 XLM). 6 days stays inside
-                                    // the TTL a fresh upload/deploy already has, so deploy pays no code rent.
+
+/// Testnet instance TTL. Extending the instance also extends the contract
+/// code entry. On testnet, pushing this contract's code past its fresh ~7-day
+/// TTL costs ~240 XLM per extra day (a 30-day bump at deploy quoted 5,512
+/// XLM). 6 days stays inside the TTL a fresh upload/deploy already has, so
+/// deploy pays no code rent.
+///
+/// PRODUCTION: set this to [`PROD_INSTANCE_BUMP`].
 const INSTANCE_BUMP: u32 = 6 * DAY_IN_LEDGERS;
+/// Production instance TTL: 30 days, matching persistent entries, so config,
+/// asset settings and open-debt counters cannot lapse while repos live.
+#[allow(dead_code)]
+const PROD_INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const INSTANCE_THRESHOLD: u32 = INSTANCE_BUMP - DAY_IN_LEDGERS;
 const PERSISTENT_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const PERSISTENT_THRESHOLD: u32 = PERSISTENT_BUMP - DAY_IN_LEDGERS;
