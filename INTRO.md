@@ -10,8 +10,8 @@ Someone holds a token that represents US Treasury bills (a "tokenized fund"). Th
 Banks have done this for decades. It's called a **repo** (sale and repurchase). We're bringing it on-chain on **Stellar**.
 
 ## Why it matters
-- About **$2.4B** of these fund tokens already live on Stellar (DefiLlama, 25 Oct). The biggest issuers are Spiko (≈$1.78B) and Franklin Templeton (BENJI, $475M).
-- Almost none of it can be borrowed against. Lending pools that accept them hold about **$2M**.
+- About **$3.03B** of these fund tokens already live on Stellar (DefiLlama, 25 Oct 2026). Spiko is the biggest issuer; Franklin Templeton's BENJI is the other anchor. Breakdown: [docs/numbers.md](docs/numbers.md).
+- Almost none of it can be borrowed against: only about **$133K** of it is used in DeFi at all (same source).
 - Reason: existing crypto lending sells your deposit the moment its price dips, 24/7. Bond funds only publish a price once a day and markets close on weekends. The models don't fit.
 - Our fix: **fixed-term loans** that only check the price once a day. Like a bank, not like a crypto exchange.
 
@@ -47,7 +47,7 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 - **Testnet**: Stellar's free practice network. Everything we deploy lives there.
 
 ## What the demo shows (2–3 min video)
-1. The problem in one slide: $4B of bonds vs $2M usable.
+1. The problem in one slide: $3.03B of fund tokens vs $133K working in DeFi (DefiLlama, 25 Oct 2026).
 2. Lender posts offer → borrower takes it → one transaction moves both sides.
 3. Price drops → margin call → borrower tops up.
 4. Day 7 → repay → bonds returned.
