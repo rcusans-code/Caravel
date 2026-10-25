@@ -959,7 +959,8 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
               </thead>
               <tbody>
                 {repos.filter((r) => r.status !== "Repaid" && r.status !== "Liquidated").map((r) => {
-                  const defaultable = live(r) && ctx.now > Number(r.maturity_ts + config.grace_secs);
+                  const marginMissed = r.status === "MarginCall" && r.margin_call_deadline !== null && ctx.now > Number(r.margin_call_deadline);
+                  const defaultable = live(r) && (ctx.now > Number(r.maturity_ts + config.grace_secs) || marginMissed);
                   return (
                     <tr key={String(r.id)}>
                       <td className="cv-num">#{String(r.id).padStart(3, "0")}</td>
@@ -970,12 +971,31 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                         <StatusPill status={r.status} />
                       </td>
                       <td className="r">
+                        {r.status === "Open" && (
+                          <button
+                            type="button"
+                            className="cv-btn cv-btn--secondary cv-btn--sm"
+                            style={{ marginRight: 8 }}
+                            disabled={!!ctx.busy || ctx.navStale || !ctx.approved}
+                            title={ctx.navStale ? "NAV is stale; check_margin needs a fresh price" : "Raise a margin call if cover is below 100%"}
+                            onClick={async () => {
+                              const out = await ctx.run(`check-${r.id}`, `Repo #${r.id} not checked`, () => chain.checkMargin(signer!, r.id));
+                              if (out)
+                                setNotice({
+                                  text: out.value === "MarginCall" ? `Margin call raised on Repo #${r.id}` : `Repo #${r.id} is above the margin line`,
+                                  hash: out.hash,
+                                });
+                            }}
+                          >
+                            {ctx.busy === `check-${r.id}` ? "Checking" : "Check margin"}
+                          </button>
+                        )}
                         {live(r) && (
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
                             disabled={!defaultable || !!ctx.busy || !ctx.approved}
-                            title={defaultable ? "" : "Before maturity plus grace"}
+                            title={defaultable ? "" : "Before maturity plus grace, and no missed margin call"}
                             onClick={async () => {
                               const out = await ctx.run(`default-${r.id}`, `Repo #${r.id} not defaulted`, () => chain.declareDefault(signer!, r.id));
                               if (out) setNotice({ text: `Repo #${r.id} defaulted`, hash: out.hash });
@@ -1030,12 +1050,44 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
     return Number((v * (BPS - config.liquidation_discount_bps) * 10_000n) / (debt * BPS)) / 100;
   }, [nav, config, repo, debt]);
   const coverRef = useFlash(cover, (a, b) => (b > a ? "up" : b < a ? "down" : undefined));
+  // Top-up to clear a margin call: back to initial margin at the repo's own haircut (DECISIONS.md #20).
+  const topUpNeed = useMemo(() => {
+    if (!nav) return null;
+    const need = requiredCollateral(debt, nav.price, nav.decimals, repo.haircut_bps) - repo.collateral_amount;
+    return need > 0n ? need : 0n;
+  }, [nav, debt, repo]);
+  const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
   const live = repo.status === "Open" || repo.status === "MarginCall";
+  const inMarginCall = repo.status === "MarginCall";
+  const deadline = repo.margin_call_deadline !== null ? Number(repo.margin_call_deadline) : null;
+  const toDeadline = deadline !== null ? deadline - now : null;
+  const breached = cover !== null && cover < 100;
   const fill = cover === null ? 0 : Math.min(100, Math.max(0, ((cover - 90) / 20) * 100));
   const toMaturity = Number(repo.maturity_ts) - now;
   const canRepay = live && side === "borrowed";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
+  const canTopUp = canRepay && (inMarginCall || breached);
+  const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? fmtAmount(topUpNeed).replace(/,/g, "") : "");
+  const topUpAmount = parseAmount(topUpText);
+  const topUpErr = topUpAmount === null || topUpAmount <= 0n ? "Enter an amount above 0.00 tBENJI." : null;
+  const topUpShort =
+    !topUpErr && balances?.tbenji !== null && balances?.tbenji !== undefined && topUpAmount !== null && balances.tbenji < topUpAmount
+      ? `You hold ${fmtAmount(balances.tbenji)} tBENJI.`
+      : null;
+
+  const doTopUp = async () => {
+    if (!signer || topUpAmount === null || topUpErr) return;
+    const out = await ctx.run(`topup-${repo.id}`, `Repo #${repo.id} not topped up`, () => chain.topUp(signer, repo.id, topUpAmount));
+    if (out) {
+      setTopUpInput(null);
+      ctx.setFlash({
+        tone: "info",
+        title: `Topped up Repo #${String(repo.id).padStart(3, "0")}`,
+        body: `Added ${fmtAmount(topUpAmount)} tBENJI. ${inMarginCall ? "The margin call clears once collateral is back at the initial margin." : ""}`,
+      });
+    }
+  };
 
   const doRepay = async () => {
     if (!signer) return;
@@ -1058,6 +1110,18 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         </span>
         <StatusPill status={repo.status} />
       </div>
+      {live && (inMarginCall || breached) && (
+        <Alert tone="margin" title={inMarginCall ? `Margin call on Repo #${String(repo.id).padStart(3, "0")}` : "Below the margin-call line"}>
+          {`Collateral cover is ${cover !== null ? cover.toFixed(1) : "—"}%. `}
+          {side === "borrowed"
+            ? topUpNeed !== null && topUpNeed > 0n
+              ? `Add ${fmtAmount(topUpNeed)} tBENJI${inMarginCall && toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
+              : "Repay, or wait for the next NAV."
+            : inMarginCall
+              ? "The borrower has until the deadline to add collateral; after it, anyone can default the repo."
+              : "A margin call can be raised on the next check."}
+        </Alert>
+      )}
       <div>
         <span className="cv-figure-xl">{fmtAmount(repo.principal)}</span>
         <span className="cv-unit">USDC</span>
@@ -1095,18 +1159,20 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {live ? (toMaturity > 0 ? "Matures in" : "Matured, grace ends in") : "Closed"}
+            {!live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
           </span>
           {live && (
             <span className="cv-countdown__time">
-              {fmtCountdown(toMaturity > 0 ? toMaturity : Number(repo.maturity_ts + config.grace_secs) - now, Number(config.day_secs))}
+              {inMarginCall && toDeadline !== null
+                ? fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))
+                : fmtCountdown(toMaturity > 0 ? toMaturity : Number(repo.maturity_ts + config.grace_secs) - now, Number(config.day_secs))}
             </span>
           )}
         </span>
         {canRepay && (
           <button
             type="button"
-            className={`cv-btn ${primary ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
+            className={`cv-btn ${primary && !canTopUp ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
             disabled={!!busy || !!short || !ctx.approved}
             title={ctx.approved ? "" : ACCESS_LIMITED}
             onClick={doRepay}
@@ -1117,6 +1183,39 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         )}
       </div>
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {canTopUp && (
+        <form
+          className="cv-stack app-topup"
+          onSubmit={(e) => {
+            e.preventDefault();
+            doTopUp();
+          }}
+        >
+          <Field
+            id={`topup-${repo.id}`}
+            label="Add collateral"
+            value={topUpText}
+            onChange={setTopUpInput}
+            suffix="tBENJI"
+            error={topUpErr ?? topUpShort}
+            hint={
+              topUpNeed !== null && nav
+                ? `${fmtAmount(topUpNeed)} tBENJI brings the repo back to the initial margin (${fmtPct(repo.haircut_bps, 1)} haircut at NAV ${fmtNav(nav.price, nav.decimals)}), which clears the margin call.`
+                : "Waiting for NAV."
+            }
+          />
+          <button
+            type="submit"
+            className="cv-btn cv-btn--primary"
+            disabled={!!busy || !!topUpErr || !!topUpShort || !ctx.approved}
+            title={ctx.approved ? "" : ACCESS_LIMITED}
+            data-action="top-up"
+          >
+            {busy === `topup-${repo.id}` ? "Topping up" : "Top up"}
+          </button>
+          {ctx.tx?.key === `topup-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+        </form>
+      )}
       {canRepay && (
         <p className="cv-field__hint">
           {short
