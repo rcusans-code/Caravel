@@ -8,7 +8,9 @@
     "postinstall": "npm run bindings",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -p . && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "build:public": "VITE_DEMO_SIGNER= npm run build && node scripts/check-no-secrets.mjs",
+    "deploy:pages": "npm run build:public && npx -y wrangler@4 pages deploy dist --project-name ${PAGES_PROJECT:-caravel-repo} --branch main --commit-dirty=true"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.7.1",
