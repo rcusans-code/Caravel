@@ -43,6 +43,12 @@ const fmtAge = (s: number) => {
   return `${Math.floor(a / 3600)} h ${Math.floor((a % 3600) / 60)} min ago`;
 };
 
+const ACCESS_LIMITED =
+  "Access is limited to approved team wallets during the hackathon. Add the tBENJI trustline, then send your address to the team.";
+const isAdminNow = (signer: Signer | null, config: ProtocolConfig | null) =>
+  !!(signer && config && signer.address === config.admin);
+const CONNECT = DEMO_ENABLED ? "Connect a wallet or pick a demo account" : "Connect a wallet";
+
 export default function App() {
   const [signer, setSigner] = useState<Signer | null>(null);
   const [config, setConfig] = useState<ProtocolConfig | null>(null);
@@ -150,11 +156,20 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (tab === "admin" && !isAdminNow(signer, config)) setTab("offers");
+  }, [tab, signer, config]);
+
   const navAge = nav ? now - Number(nav.timestamp) : null;
   const navStale = !!(config && navAge !== null && navAge > Number(config.max_nav_age_secs));
-  const isAdmin = !!(signer && config && signer.address === config.admin);
+  const isAdmin = isAdminNow(signer, config);
+  // Access gate: writes need an issuer-AUTHORIZED tBENJI trustline. The on-chain
+  // flag is the only allowlist (scripts/onboard.sh sets it). Demo burner keys
+  // exist only in dev builds (VITE_DEMO_SIGNER=1) and are team accounts.
+  const approved = !!signer && (signer.kind === "demo" || !!balances?.tbenjiAuthorized);
   const ctx: Ctx = {
     signer,
+    approved,
     config,
     asset,
     nav,
@@ -249,7 +264,7 @@ export default function App() {
               ["offers", "Offers"],
               ["lend", "Lend"],
               ["positions", "My positions"],
-              ["admin", "Admin"],
+              ...(isAdmin ? [["admin", "Admin"]] : []),
             ] as [Tab, string][]
           ).map(([t, label]) => (
             <button
@@ -269,7 +284,7 @@ export default function App() {
         {tab === "offers" && <OffersView ctx={ctx} offers={offers} loaded={loaded} />}
         {tab === "lend" && <LendView ctx={ctx} offers={offers} />}
         {tab === "positions" && <PositionsView ctx={ctx} repos={repos} liquidatorOk={liquidatorOk} loaded={loaded} />}
-        {tab === "admin" && <AdminView ctx={ctx} isAdmin={isAdmin} />}
+        {tab === "admin" && isAdmin && <AdminView ctx={ctx} isAdmin={isAdmin} />}
       </main>
 
       <footer className="app-wrap app-footer small">
@@ -286,6 +301,8 @@ export default function App() {
 
 interface Ctx {
   signer: Signer | null;
+  /** Connected and allowed to send writes (authorized tBENJI trustline). */
+  approved: boolean;
   config: ProtocolConfig | null;
   asset: AssetConfig | null;
   nav: Nav | null;
@@ -330,7 +347,9 @@ function BalancesBar({
   const missing = balances?.exists
     ? (["USDC", "tBENJI"] as const).filter((c) => (c === "USDC" ? balances.usdc : balances.tbenji) === null)
     : [];
-  const showTrust = missing.includes("USDC") || (signer.kind === "wallet" && missing.length > 0);
+  // Wallets without an issuer-authorized tBENJI line are read-only (access gate).
+  const gated = signer.kind === "wallet" && !!balances?.exists && !balances.tbenjiAuthorized;
+  const showTrust = !gated && (missing.includes("USDC") || (signer.kind === "wallet" && missing.length > 0));
   return (
     <section className="cv-card app-balances" aria-label="Balances">
       <div className="app-balances__grid">
@@ -357,6 +376,29 @@ function BalancesBar({
           }
         >
           {`${signer.address.slice(0, 4)}… has no XLM yet. Fund it with 10,000 testnet XLM to pay fees.`}
+        </Alert>
+      )}
+      {gated && balances && (
+        <Alert
+          tone="margin"
+          title="Read-only: wallet not approved yet"
+          action={
+            missing.length > 0 ? (
+              <button
+                type="button"
+                className="cv-btn cv-btn--secondary cv-btn--sm"
+                data-action="add-trustline"
+                onClick={() => run("trust", "Trustline not added", () => chain.addTrustlines(signer, [...missing]))}
+              >
+                {`Add ${missing.join(" + ")} trustline${missing.length > 1 ? "s" : ""}`}
+              </button>
+            ) : undefined
+          }
+        >
+          {ACCESS_LIMITED}{" "}
+          {balances.tbenji !== null
+            ? `Your tBENJI trustline is in place; the issuer has not authorized ${signer.address.slice(0, 4)}…${signer.address.slice(-4)} yet.`
+            : ""}
         </Alert>
       )}
       {showTrust && (
@@ -519,7 +561,8 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   const collateral = nav ? requiredCollateral(debt, nav.price, nav.decimals, asset.haircut_bps) : null;
 
   let block: string | null = null;
-  if (!signer) block = "Connect a wallet or pick a demo account to take this offer.";
+  if (!signer) block = `${CONNECT} to take this offer.`;
+  else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
   else if (!nav) block = "The oracle has no tBENJI price yet.";
   else if (navStale) block = "NAV is older than 3 minutes. Wait for the next update (or push one from Admin), then try again.";
@@ -627,7 +670,8 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   const fee = config ? protocolFee(int, config.fee_bps) : 0n;
 
   let block: string | null = null;
-  if (!signer) block = "Connect a wallet or pick a demo account to post an offer.";
+  if (!signer) block = `${CONNECT} to post an offer.`;
+  else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline first.";
   else if (balances && principal && balances.usdc !== null && balances.usdc < principal)
@@ -748,7 +792,8 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                       <button
                         type="button"
                         className="cv-btn cv-btn--secondary cv-btn--sm"
-                        disabled={!!busy}
+                        disabled={!!busy || !ctx.approved}
+                        title={ctx.approved ? "" : ACCESS_LIMITED}
                         aria-busy={busy === `cancel-${o.id}` ? "true" : undefined}
                         onClick={async () => {
                           const out = await ctx.run(`cancel-${o.id}`, `Offer #${o.id} not cancelled`, () => chain.cancelOffer(signer!, o.id));
@@ -792,7 +837,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
           {notice.text} <TxHash kind="TX" value={notice.hash} />
         </p>
       )}
-      {!signer && <p className="app-empty">Connect a wallet or pick a demo account to see positions.</p>}
+      {!signer && <p className="app-empty">{CONNECT} to see positions.</p>}
       {signer && mine.length === 0 && <p className="app-empty">{loaded ? "No repos for this account yet." : "Reading repos…"}</p>}
       <div className="app-cards">
         {config &&
@@ -846,7 +891,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!defaultable || !!ctx.busy}
+                            disabled={!defaultable || !!ctx.busy || !ctx.approved}
                             title={defaultable ? "" : "Before maturity plus grace"}
                             onClick={async () => {
                               const out = await ctx.run(`default-${r.id}`, `Repo #${r.id} not defaulted`, () => chain.declareDefault(signer!, r.id));
@@ -860,7 +905,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!liquidatorOk || !!ctx.busy || ctx.navStale}
+                            disabled={!liquidatorOk || !!ctx.busy || ctx.navStale || !ctx.approved}
                             title={ctx.navStale ? "NAV is stale" : ""}
                             onClick={async () => {
                               const out = await ctx.run(`liq-${r.id}`, `Repo #${r.id} not liquidated`, () => chain.liquidate(signer!, r.id));
@@ -976,7 +1021,8 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           <button
             type="button"
             className={`cv-btn ${primary ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
-            disabled={!!busy || !!short}
+            disabled={!!busy || !!short || !ctx.approved}
+            title={ctx.approved ? "" : ACCESS_LIMITED}
             aria-busy={busy === `repay-${repo.id}` ? "true" : undefined}
             onClick={doRepay}
             data-action="repay"
