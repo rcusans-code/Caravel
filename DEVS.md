@@ -74,7 +74,7 @@ Work in `contracts/repo/src/lib.rs`. `math.rs` already has the formulas and test
 - [x] Emit the event for every flow (`OfferCreated`, `RepoOpened`, `Repaid` ...). Bohdan Che reads them for history and Misha's keeper reads them to find open repos.
 
 **G2 · by Sun 19:30**
-- [ ] `default` / `liquidate`: anyone can call `default` after maturity + grace, or once `margin_call_deadline` (set by Misha's `check_margin`) has passed; only whitelisted liquidators can `liquidate`; pays NAV × (1 − discount); waterfall; `Shortfall` event when proceeds fall short (#4). *Done when: made-whole, surplus and shortfall tests pass.*
+- [x] `default` / `liquidate`: anyone can call `default` after maturity + grace, or once `margin_call_deadline` (set by Misha's `check_margin`) has passed; only whitelisted liquidators can `liquidate`; pays NAV × (1 − discount); waterfall; `Shortfall` event when proceeds fall short (#4). *Done when: made-whole, surplus and shortfall tests pass.*
 
 **G4 · by Mon 06:00**
 - [ ] Hardening: auth on every state-changing call, no double take, only valid status transitions, TTL bumps on offers and repos.

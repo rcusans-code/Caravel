@@ -36,7 +36,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 Exit: margin, default, liquidate tested; one-command deploy.
 
 - [ ] **I** `check_margin` / `top_up` in `margin.rs` — stale NAV blocks `check_margin` (#17); breach (#14) sets `margin_call_deadline` once; top-up clears at initial margin (#20). *Done when: breach, clear, no-double-call tests*
-- [ ] **C** ⚠️ `default` / `liquidate` — whitelist, pays NAV × (1 − 2%), waterfall, collateral to liquidator, `Shortfall` event when short. *Done when: made-whole, surplus, shortfall tests*
+- [x] **C** ⚠️ `default` / `liquidate` — whitelist, pays NAV × (1 − 2%), waterfall, collateral to liquidator, `Shortfall` event when short. *Done when: made-whole, surplus, shortfall tests*
 - [ ] **I** One-command deploy: build, deploy oracle + repo, init demo config, authorize contract + liquidator on tBENJI, mint demo balances, write IDs to `.env`. *Done when: clean deploy < 5 min*
 - [ ] **I** Keeper script (TS): `check_margin` on open repos every 10 s + NAV setter CLI. *Done when: margin call fires unattended*
 - [ ] **F** Create offer + take offer flows, with collateral preview at current NAV and haircut. *Done when: both txs succeed from UI*
