@@ -270,6 +270,7 @@ async function tick(cfg: Cfg) {
       } catch (e) {
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
         if (e instanceof ContractError && e.code === Err.NotDefaultable) note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
+        else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-default", `skip         repo ${r.id} default: asset paused (no_seize), skipping until cleared`);
         else log(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
@@ -357,6 +358,7 @@ async function liquidateRepo(
     next.delete(r.id);
   } catch (e) {
     if (e instanceof ContractError && e.code === Err.StaleNav) note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: StaleNav on-chain, retrying each tick`);
+    else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-liquidate", `skip         repo ${r.id} liquidate: asset paused (no_seize), skipping until cleared`);
     else note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
   }
 }
