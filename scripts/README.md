@@ -77,7 +77,7 @@ It reads keys and `ORACLE_ID` from `~/src/caravel/.env` every round, so a redepl
 
 **Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
 
-The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. Until the repo contract is redeployed from current main, the deployed one returns `NotImplemented` for `check_margin` (the keeper logs that once per repo and skips it); maturity default and liquidate work.
+The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main f07a8bf, before the tSAFO merge: margin calls, auto-repay and per-asset NAV staleness (DECISIONS #25) are live; tSAFO collateral (issue #20) needs the next redeploy. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
 
 ## `keeper/`: keeper + NAV setter

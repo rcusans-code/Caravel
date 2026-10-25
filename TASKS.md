@@ -42,7 +42,7 @@ Exit: margin, default, liquidate tested; one-command deploy.
 - [x] **F** Create offer + take offer flows, with collateral preview at current NAV and haircut. *Done when: both txs succeed from UI*
 - [ ] **P** README core: architecture diagram, state machine, method table, parameters
 
-- [ ] **I** ⚠️ Per-asset NAV staleness (DECISIONS #25): move `max_nav_age_secs` into `AssetConfig`, `fresh_nav` reads it; deploy config 96h prod / 180 s demo. Tests: Friday NAV still fresh on Sunday; stale blocks `take_offer` + `check_margin` only. *Done when: tests pass, redeployed*
+- [x] **I** ⚠️ Per-asset NAV staleness (DECISIONS #25): move `max_nav_age_secs` into `AssetConfig`, `fresh_nav` reads it; deploy config 96h prod / 180 s demo. Tests: Friday NAV still fresh on Sunday; stale blocks `take_offer` + `check_margin` only. *Done when: tests pass, redeployed*
 - [x] **C** Compliance-agnostic check (DECISIONS #24): `take_offer` + `repay` + `liquidate` against a Spiko-style SEP-41 token with an allowlist and no `approve`. *Done when: test passes with a mock permissioned token* Done on `simon/safo-collateral` (issue #20): `contracts/repo/src/test_spiko.rs` on `contracts/spiko-mock`.
 - [ ] **T** Decide: `liquidate` on stale NAV (DECISIONS → Open)
 ## G3 · Happy path on testnet — 19:30–00:00
