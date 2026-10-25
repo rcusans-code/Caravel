@@ -12,6 +12,8 @@ const run = (h: PriceData[], now: number, o = opts(), latch: NavLatch = new Map(
 
 // QA2: a 0.50 fat-finger at 1005, re-posted by nav-keeper at 1065 and 1125.
 const QA2 = [rec(0.5, 1125), rec(0.5, 1065), rec(0.5, 1005), rec(1.0, 1000)];
+// 20 re-posts of 0.50, newest 2300: the 1.00 anchor is no longer in the history.
+const TWENTY = Array.from({ length: 20 }, (_, i) => rec(0.5, 2300 - i * 60));
 
 test("T1 QA2 fixture: hold, needsAck, 5000 bps", () => {
   const h = run(QA2, 1130);
@@ -93,31 +95,95 @@ test("T11 salami 1.00 (long) -> 0.985 (20 s) -> 0.97: hold, 300 bps", () => {
   assert.equal(h.hold, true);
 });
 
-test("T12 latch: needs-ack hold survives the anchor leaving the history, clears on change", () => {
+test("T12 latch keeps the pre-jump anchor; a correction to it is released", () => {
   const latch: NavLatch = new Map();
   assert.equal(run(QA2, 1130, opts(), latch).needsAck, true);
-  assert.equal(latch.get("TBENJI"), px(0.5));
-  const twenty = Array.from({ length: 20 }, (_, i) => rec(0.5, 2300 - i * 60)); // anchor gone
-  const h = run(twenty, 2310, opts(), latch);
+  assert.deepEqual(latch.get("TBENJI"), { anchor: px(1.0), bad: new Set([px(0.5)]) });
+  const h = run(TWENTY, 2310, opts(), latch); // anchor 1.00 gone from the history
   assert.equal(h.hold, true);
   assert.equal(h.reason, "latched");
   assert.equal(h.needsAck, true);
+  assert.equal(h.anchor, px(1.0));
   // Without the latch (keeper restart) the same history is released.
-  assert.equal(run(twenty, 2310).hold, false);
-  // The price changes: the 0.50 latch is cleared. The 0.50 stood past the
-  // hold, so it is now the anchor and the correction to 1.00 (+100%) needs
-  // its own ack (README: ack the correction too).
-  const changed = [rec(1.0, 2320), ...twenty.slice(0, 19)];
+  assert.equal(run(TWENTY, 2310).hold, false);
+  // The correction to 1.00 is measured against the latch anchor: no ack needed.
+  const changed = [rec(1.0, 2320), ...TWENTY.slice(0, 19)];
   const c = run(changed, 2330, opts(), latch);
-  assert.equal(c.anchor, px(0.5));
-  assert.equal(c.reason, "needs-ack");
-  assert.equal(latch.get("TBENJI"), px(1.0));
-  assert.equal(run(changed, 2330, opts([px(1.0)]), latch).hold, false);
-  assert.equal(latch.has("TBENJI"), false);
-  // An ack also clears it.
+  assert.equal(c.anchor, px(1.0));
+  assert.equal(c.hold, false);
+  // An ack clears the latch.
   run(QA2, 1130, opts(), latch);
-  assert.equal(run(twenty, 2310, opts([px(0.5)]), latch).hold, false);
+  assert.equal(run(TWENTY, 2310, opts([px(0.5)]), latch).hold, false);
   assert.equal(latch.has("TBENJI"), false);
+});
+
+// S1-S4: QA2 latched, then 20 re-posts of 0.50 push the 1.00 anchor out of the history.
+const latchedAfterTwenty = (): NavLatch => {
+  const latch: NavLatch = new Map();
+  run(QA2, 1130, opts(), latch);
+  assert.equal(run(TWENTY, 2310, opts(), latch).reason, "latched");
+  return latch;
+};
+
+test("S1 a second bad price (0.49) after the anchor left the history stays held", () => {
+  const latch = latchedAfterTwenty();
+  const next = [rec(0.49, 2320), ...TWENTY.slice(0, 19)];
+  for (const now of [2330, 2330 + 3600]) {
+    const h = run(next, now, opts(), latch);
+    assert.equal(h.hold, true);
+    assert.equal(h.reason, "latched");
+    assert.equal(h.needsAck, true);
+    assert.equal(h.anchor, px(1.0));
+    assert.equal(h.jumpBps, 5100n);
+  }
+  // 20 re-posts of 0.49: 0.50 has left the history, 0.49 is a latched bad price: still held.
+  const again = Array.from({ length: 20 }, (_, i) => rec(0.49, 4000 - i * 60));
+  assert.equal(run(again, 4010, opts(), latch).hold, true);
+});
+
+test("S2 correction to 1.00 is released at once and stays released; the latch is dropped", () => {
+  const latch = latchedAfterTwenty();
+  const c = [rec(1.0, 2320), ...TWENTY.slice(0, 19)];
+  assert.equal(run(c, 2330, opts(), latch).hold, false);
+  assert.equal(run([rec(1.0, 2380), ...c.slice(0, 19)], 2390, opts(), latch).hold, false); // 0.50 still in history
+  assert.equal(latch.has("TBENJI"), true);
+  const ones = Array.from({ length: 20 }, (_, i) => rec(1.0, 4000 - i * 60));
+  assert.equal(run(ones, 4010, opts(), latch).hold, false);
+  assert.equal(latch.has("TBENJI"), false);
+});
+
+test("S3 correction to 0.97 is a 300 bps jump, released after it stood > holdSecs", () => {
+  const latch = latchedAfterTwenty();
+  const c = [rec(0.97, 2320), ...TWENTY.slice(0, 19)];
+  const a = run(c, 2330, opts(), latch);
+  assert.equal(a.reason, "jump");
+  assert.equal(a.jumpBps, 300n);
+  assert.equal(a.needsAck, false);
+  assert.equal(run(c, 2320 + 180, opts(), latch).hold, true);
+  assert.equal(run(c, 2320 + 181, opts(), latch).hold, false);
+});
+
+test("S4 an ack trusts the new regime: the latch is dropped and 0.49 is measured against 0.50", () => {
+  const latch: NavLatch = new Map();
+  run(QA2, 1130, opts(), latch);
+  assert.equal(run(TWENTY, 2310, opts([px(0.5)]), latch).hold, false);
+  assert.equal(latch.has("TBENJI"), false);
+  const h = run([rec(0.49, 2320), ...TWENTY.slice(0, 19)], 2330, opts([px(0.5)]), latch);
+  assert.equal(h.hold, false);
+  assert.equal(h.anchor, px(0.5));
+  assert.equal(h.jumpBps, 200n);
+});
+
+test("S5 bad stays bounded: distinct bad prices that left the history are forgotten", () => {
+  const latch = latchedAfterTwenty();
+  // 30 distinct unacked prices, one every 60 s; only the last 20 are in the history.
+  let hist: PriceData[] = [...TWENTY];
+  for (let i = 0; i < 30; i++) {
+    hist = [rec(0.4 + i * 0.001, 2320 + i * 60), ...hist].slice(0, 20);
+    assert.equal(run(hist, 2325 + i * 60, opts(), latch).hold, true);
+  }
+  assert.ok(latch.get("TBENJI")!.bad.size <= 20);
+  assert.equal(latch.get("TBENJI")!.anchor, px(1.0));
 });
 
 test("T13 re-post walk: the anchor is found 6 records back past identical re-posts", () => {
@@ -133,4 +199,10 @@ test("history order does not matter, and the log line reads well", () => {
   const h = run([...QA2].reverse(), 1130);
   assert.equal(h.jumpBps, 5000n);
   assert.equal(describeHold(h, 180n, 14), "NAV -50.00% vs 1.00 (stood 125s/180s)");
+});
+
+test("describeHold for a latched hold names the latch anchor", () => {
+  const latch = latchedAfterTwenty();
+  const h = run([rec(0.49, 2320), ...TWENTY.slice(0, 19)], 2330, opts(), latch);
+  assert.equal(describeHold(h, 180n, 14), "NAV -51.00% vs 1.00 (latched anchor)");
 });

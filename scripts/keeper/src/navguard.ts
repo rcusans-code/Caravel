@@ -32,7 +32,7 @@ export type HoldReason =
   | "acked" // jumped, but the current price is acked
   | "jump" // > jumpBps and has not stood holdSecs
   | "needs-ack" // > ackBps and not acked
-  | "latched" // needs-ack price whose anchor left the history
+  | "latched" // a further unacked price while a needs-ack latch exists (measured against the latch anchor)
   | "future-dated"; // current record timestamped in the future: fail closed
 
 export interface NavHold {
@@ -47,8 +47,15 @@ export interface NavHold {
   needsAck: boolean;
 }
 
-/** Latch: asset id -> price of a needs-ack jump. In memory: lost on restart. */
-export type NavLatch = Map<string, bigint>;
+/**
+ * Latch: asset id -> the trusted pre-jump `anchor` of the first needs-ack jump
+ * and the unacked prices (`bad`) held since. While it exists every price is
+ * measured against `anchor`, so a bad price never becomes the anchor. It is
+ * dropped on an ack or once no `bad` price is left in the history; `bad` is
+ * pruned to the prices still in the history (at most 20). In memory: lost on
+ * restart.
+ */
+export type NavLatch = Map<string, { anchor: bigint; bad: Set<bigint> }>;
 
 interface Segment {
   price: bigint;
@@ -80,12 +87,19 @@ export function navHold(history: readonly PriceData[], now: bigint, opts: NavGua
   const stoodSecs = now - segs[0].firstTs;
   const acked = opts.acks.has(current);
 
-  // Latch: a needs-ack price stays held until it changes or is acked.
-  const latched = latch.get(opts.asset);
-  if (latched !== undefined && (latched !== current || acked)) latch.delete(opts.asset);
+  // Latch: held until the price is acked or every bad price has left the
+  // history (then the history can be trusted again).
+  let l = latch.get(opts.asset);
+  if (l && (acked || !recs.some((r) => l!.bad.has(r.price)))) {
+    latch.delete(opts.asset);
+    l = undefined;
+  }
+  // Keep `bad` bounded: forget bad prices that left the history.
+  if (l) for (const p of [...l.bad]) if (!recs.some((r) => r.price === p)) l.bad.delete(p);
 
-  // Anchor: most recent earlier segment that stood longer than holdSecs; a
-  // segment lasts from its first record to the next segment's first record.
+  // Anchor: while a latch exists its pre-jump anchor, never a latched price.
+  // Otherwise the most recent earlier segment that stood longer than holdSecs;
+  // a segment lasts from its first record to the next segment's first record.
   let anchor: bigint | null = null;
   for (let i = 1; i < segs.length; i++) {
     if (segs[i - 1].firstTs - segs[i].firstTs > opts.holdSecs) {
@@ -94,6 +108,7 @@ export function navHold(history: readonly PriceData[], now: bigint, opts: NavGua
     }
   }
   if (anchor === null && segs.length > 1) anchor = recs[recs.length - 1].price;
+  if (l) anchor = l.anchor;
 
   let jumpBps = 0n;
   if (anchor !== null) jumpBps = anchor > 0n ? (abs(current - anchor) * 10_000n) / anchor : current === anchor ? 0n : 10_000n;
@@ -113,10 +128,10 @@ export function navHold(history: readonly PriceData[], now: bigint, opts: NavGua
   // An ack releases both jump rules for that exact price.
   if (acked) return out(false, jumpBps > opts.jumpBps ? "acked" : "none");
   if (anchor !== null && jumpBps > opts.ackBps) {
-    latch.set(opts.asset, current);
-    return out(true, "needs-ack", true);
+    if (l) l.bad.add(current);
+    else latch.set(opts.asset, { anchor, bad: new Set([current]) });
+    return out(true, l ? "latched" : "needs-ack", true);
   }
-  if (latch.get(opts.asset) === current) return out(true, "latched", true);
   if (anchor !== null && jumpBps > opts.jumpBps && stoodSecs <= opts.holdSecs) return out(true, "jump");
   return out(false, "none");
 }
@@ -125,8 +140,8 @@ export function navHold(history: readonly PriceData[], now: bigint, opts: NavGua
 export function describeHold(h: NavHold, holdSecs: bigint, decimals: number): string {
   const px = (p: bigint) => (Number(p) / 10 ** decimals).toFixed(2);
   if (h.reason === "future-dated") return `NAV ${h.current === null ? "?" : px(h.current)} has a future-dated record (oracle timestamp ahead of now)`;
-  if (h.reason === "latched") return `NAV ${px(h.current!)} jumped and its anchor left the price history (latched)`;
   if (h.anchor === null || h.current === null) return "no NAV jump";
   const pct = h.anchor > 0n ? (Number(h.current - h.anchor) * 100) / Number(h.anchor) : 100;
+  if (h.reason === "latched") return `NAV ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% vs ${px(h.anchor)} (latched anchor)`;
   return `NAV ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% vs ${px(h.anchor)} (stood ${h.stoodSecs}s/${holdSecs}s)`;
 }
