@@ -142,14 +142,15 @@ fn flows_are_stubbed() {
     let env = Env::default();
     let (client, _) = setup(&env);
     assert_eq!(client.try_check_margin(&1), Err(Ok(Error::NotImplemented)));
-    assert_eq!(client.try_default(&1), Err(Ok(Error::NotImplemented)));
+    assert_eq!(client.try_top_up(&1, &1), Err(Ok(Error::NotImplemented)));
 }
 
 // --- offers ---------------------------------------------------------------
 
 /// A deployed repo contract with real USDC and tBENJI SACs, a mock SEP-40
 /// feed at NAV 1.00, tBENJI configured at a 3% haircut, a lender holding
-/// 10_000 USDC and a borrower holding 2_000 tBENJI + 100 USDC for interest.
+/// 10_000 USDC, a borrower holding 2_000 tBENJI + 100 USDC for interest, and
+/// a whitelisted liquidator holding 2_000 USDC.
 struct World<'a> {
     env: Env,
     repo: CaravelRepoClient<'a>,
@@ -159,6 +160,7 @@ struct World<'a> {
     oracle: MockOracleClient<'a>,
     lender: Address,
     borrower: Address,
+    liquidator: Address,
     treasury: Address,
 }
 
@@ -197,6 +199,9 @@ fn world<'a>() -> World<'a> {
     StellarAssetClient::new(&env, &usdc).mint(&lender, &(10_000 * UNIT));
     StellarAssetClient::new(&env, &usdc).mint(&borrower, &(100 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(2_000 * UNIT));
+    let liquidator = Address::generate(&env);
+    repo.set_liquidator(&liquidator, &true);
+    StellarAssetClient::new(&env, &usdc).mint(&liquidator, &(2_000 * UNIT));
 
     World {
         usdc: TokenClient::new(&env, &usdc),
@@ -206,6 +211,7 @@ fn world<'a>() -> World<'a> {
         oracle,
         lender,
         borrower,
+        liquidator,
         treasury,
         env,
     }
@@ -233,6 +239,28 @@ impl World<'_> {
             repo.status = status;
             storage::write_repo(&self.env, &repo);
         });
+    }
+
+    /// Stands in for Misha's `check_margin` until margin.rs lands.
+    fn margin_call(&self, repo_id: u64, deadline: u64) {
+        self.env.as_contract(&self.repo.address, || {
+            let mut repo = storage::read_repo(&self.env, repo_id).unwrap();
+            repo.status = Status::MarginCall;
+            repo.margin_call_deadline = Some(deadline);
+            storage::write_repo(&self.env, &repo);
+        });
+    }
+
+    fn set_time(&self, timestamp: u64) {
+        self.env.ledger().set_timestamp(timestamp);
+    }
+
+    /// A repo taken at NOW, defaulted one second past maturity + grace.
+    fn defaulted(&self) -> u64 {
+        let repo_id = self.take();
+        self.set_time(MATURED);
+        self.repo.default(&repo_id);
+        repo_id
     }
 }
 
@@ -744,5 +772,286 @@ fn repay_fails_without_enough_usdc() {
         .transfer(&w.borrower, Address::generate(&w.env), &(100 * UNIT));
     assert!(w.repo.try_repay(&repo_id).is_err());
     assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+// --- default ------------------------------------------------------------------
+
+const GRACE_SECS: u64 = 60; // demo profile
+/// First second at which an unpaid repo taken at NOW can be defaulted.
+const MATURED: u64 = NOW + TERM_SECS + GRACE_SECS + 1;
+
+#[test]
+fn default_after_maturity_plus_grace() {
+    let w = world();
+    let repo_id = w.take();
+
+    for t in [NOW + TERM_SECS, MATURED - 1] {
+        w.set_time(t);
+        assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+    }
+
+    w.set_time(MATURED);
+    w.env.set_auths(&[]); // anyone, no signature (#7)
+    w.repo.default(&repo_id);
+    assert_eq!(
+        w.env.events().all().filter_by_contract(&w.repo.address),
+        [events::Defaulted { repo_id }.to_xdr(&w.env, &w.repo.address)]
+    );
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+    // Collateral stays put until a liquidator buys it.
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+#[test]
+fn default_after_missed_margin_call() {
+    let w = world();
+    let repo_id = w.take();
+    let deadline = NOW + 200; // well before maturity
+    w.margin_call(repo_id, deadline);
+
+    w.set_time(deadline);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+    w.set_time(deadline + 1);
+    w.repo.default(&repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+}
+
+#[test]
+fn cleared_margin_call_does_not_default() {
+    // A top-up moved the repo back to Open; an old deadline must not count.
+    let w = world();
+    let repo_id = w.take();
+    w.margin_call(repo_id, NOW + 200);
+    w.set_status(repo_id, Status::Open);
+    w.set_time(NOW + 300);
+    assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::NotDefaultable)));
+}
+
+#[test]
+fn default_needs_no_nav() {
+    // DECISIONS.md #17
+    let w = world();
+    let repo_id = w.take();
+    w.set_nav(0, NOW);
+    w.set_time(MATURED);
+    w.repo.default(&repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+}
+
+#[test]
+fn default_only_from_open_or_margin_call() {
+    let w = world();
+    let repo_id = w.take();
+    w.set_time(MATURED);
+    for status in [Status::Repaid, Status::Defaulted, Status::Liquidated] {
+        w.set_status(repo_id, status);
+        assert_eq!(w.repo.try_default(&repo_id), Err(Ok(Error::InvalidStatus)));
+    }
+    assert_eq!(w.repo.try_default(&99), Err(Ok(Error::RepoNotFound)));
+}
+
+#[test]
+fn defaulted_repo_cannot_be_repaid() {
+    let w = world();
+    let repo_id = w.defaulted();
+    assert_eq!(w.repo.try_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
+}
+
+// --- liquidate ----------------------------------------------------------------
+
+/// Liquidates at `nav` (14 decimals) and checks every balance against the
+/// expected split. Returns the repo contract's events from the call.
+fn liquidate_at(
+    w: &World,
+    nav: i128,
+    proceeds: i128,
+    lender: i128,
+    fee: i128,
+    borrower: i128,
+) -> std::vec::Vec<soroban_sdk::xdr::ContractEvent> {
+    let repo_id = w.defaulted();
+    w.set_nav(nav, MATURED);
+    let lender_before = w.usdc.balance(&w.lender);
+    let borrower_before = w.usdc.balance(&w.borrower);
+
+    w.repo.liquidate(&w.liquidator, &repo_id);
+    let events = w
+        .env
+        .events()
+        .all()
+        .filter_by_contract(&w.repo.address)
+        .events()
+        .to_vec();
+
+    assert_eq!(lender + fee + borrower, proceeds);
+    assert_eq!(w.usdc.balance(&w.liquidator), 2_000 * UNIT - proceeds);
+    assert_eq!(w.usdc.balance(&w.lender), lender_before + lender);
+    assert_eq!(w.usdc.balance(&w.treasury), fee);
+    assert_eq!(w.usdc.balance(&w.borrower), borrower_before + borrower);
+    assert_eq!(w.tbenji_token.balance(&w.liquidator), TAKE_COLLATERAL);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), 0);
+    assert_eq!(w.usdc.balance(&w.repo.address), 0);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Liquidated);
+
+    assert_eq!(
+        events[0],
+        events::Liquidated {
+            repo_id,
+            liquidator: w.liquidator.clone(),
+            proceeds,
+            lender_amount: lender,
+            fee,
+            borrower_amount: borrower,
+        }
+        .to_xdr(&w.env, &w.repo.address)
+    );
+    events
+}
+
+/// Brief scenario 1: borrower misses maturity, NAV unchanged. Lender and
+/// treasury paid in full, borrower gets the surplus.
+#[test]
+fn liquidate_with_surplus() {
+    let w = world();
+    let events = liquidate_at(&w, ONE, 9_809_397_262, LENDER_DUE, FEE, 100_095_892);
+    assert_eq!(events.len(), 1);
+}
+
+/// Brief scenario 2: NAV falls past the trigger. Proceeds cover the lender's
+/// terms but not the whole fee: lender exact, fee partly waived, no Shortfall.
+#[test]
+fn liquidate_lender_made_whole() {
+    let w = world();
+    let events = liquidate_at(
+        &w,
+        98_975_000_000_000,
+        9_708_850_940,
+        LENDER_DUE,
+        479_707,
+        0,
+    );
+    assert_eq!(events.len(), 1);
+}
+
+/// Brief scenario 3: NAV falls 2%, beyond the buffer. Lender takes all
+/// proceeds, treasury and borrower nothing, Shortfall emitted (#4).
+#[test]
+fn liquidate_with_shortfall() {
+    let w = world();
+    let proceeds = 9_613_209_316;
+    let events = liquidate_at(&w, 98 * ONE / 100, proceeds, proceeds, 0, 0);
+    assert_eq!(events.len(), 2);
+    assert_eq!(
+        events[1],
+        events::Shortfall {
+            repo_id: 1,
+            amount: LENDER_DUE - proceeds,
+        }
+        .to_xdr(&w.env, &w.repo.address)
+    );
+}
+
+#[test]
+fn liquidate_requires_whitelist() {
+    let w = world();
+    let repo_id = w.defaulted();
+    w.set_nav(ONE, MATURED);
+    let outsider = Address::generate(&w.env);
+    assert_eq!(
+        w.repo.try_liquidate(&outsider, &repo_id),
+        Err(Ok(Error::NotLiquidator))
+    );
+    w.repo.set_liquidator(&w.liquidator, &false);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::NotLiquidator))
+    );
+}
+
+#[test]
+fn liquidate_requires_liquidator_auth() {
+    let w = world();
+    let repo_id = w.defaulted();
+    w.set_nav(ONE, MATURED);
+    w.env.set_auths(&[]);
+    assert!(w.repo.try_liquidate(&w.liquidator, &repo_id).is_err());
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+}
+
+#[test]
+fn liquidate_only_defaulted_repos() {
+    let w = world();
+    let repo_id = w.take();
+    for status in [
+        Status::Open,
+        Status::MarginCall,
+        Status::Repaid,
+        Status::Liquidated,
+    ] {
+        w.set_status(repo_id, status);
+        assert_eq!(
+            w.repo.try_liquidate(&w.liquidator, &repo_id),
+            Err(Ok(Error::InvalidStatus))
+        );
+    }
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &99),
+        Err(Ok(Error::RepoNotFound))
+    );
+}
+
+#[test]
+fn liquidate_twice_is_rejected() {
+    let w = world();
+    let repo_id = w.defaulted();
+    w.set_nav(ONE, MATURED);
+    w.repo.liquidate(&w.liquidator, &repo_id);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::InvalidStatus))
+    );
+}
+
+#[test]
+fn liquidate_rejects_stale_nav() {
+    // DECISIONS.md #6
+    let w = world();
+    let repo_id = w.defaulted();
+    w.set_nav(ONE, MATURED - 181);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::StaleNav))
+    );
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
+}
+
+#[test]
+fn liquidate_works_on_disabled_asset() {
+    // DECISIONS.md #22: disabling an asset stops new offers, not live repos.
+    let w = world();
+    let repo_id = w.defaulted();
+    w.repo.set_asset(
+        &w.tbenji,
+        &AssetConfig {
+            oracle_asset: Asset::Stellar(w.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: false,
+        },
+    );
+    w.set_nav(ONE, MATURED);
+    w.repo.liquidate(&w.liquidator, &repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Liquidated);
+}
+
+#[test]
+fn liquidate_fails_without_liquidator_funds() {
+    let w = world();
+    let repo_id = w.defaulted();
+    w.set_nav(ONE, MATURED);
+    w.usdc
+        .transfer(&w.liquidator, Address::generate(&w.env), &(2_000 * UNIT));
+    assert!(w.repo.try_liquidate(&w.liquidator, &repo_id).is_err());
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Defaulted);
     assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
 }

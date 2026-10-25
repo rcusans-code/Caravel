@@ -303,18 +303,99 @@ impl CaravelRepo {
         Err(Error::NotImplemented)
     }
 
-    /// Moves a repo past maturity + grace, or past its margin deadline, to
-    /// Defaulted. Needs no NAV (DECISIONS.md #17).
-    pub fn default(_env: Env, _repo_id: u64) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    /// Moves a repo to `Defaulted` once it is past maturity + grace, or in
+    /// `MarginCall` past its `margin_call_deadline` (set by `check_margin`).
+    /// Anyone can call it (#7); it needs no NAV (#17). Both deadlines are
+    /// strict: at the exact second the borrower can still repay or top up.
+    pub fn default(env: Env, repo_id: u64) -> Result<(), Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if !matches!(repo.status, Status::Open | Status::MarginCall) {
+            return Err(Error::InvalidStatus);
+        }
+        let config = storage::read_config(&env);
+        let now = env.ledger().timestamp();
+        let matured = now > repo.maturity_ts.saturating_add(config.grace_secs);
+        let margin_missed = repo.status == Status::MarginCall
+            && repo
+                .margin_call_deadline
+                .is_some_and(|deadline| now > deadline);
+        if !matured && !margin_missed {
+            return Err(Error::NotDefaultable);
+        }
+
+        repo.status = Status::Defaulted;
+        storage::write_repo(&env, &repo);
+        storage::extend_instance(&env);
+
+        events::Defaulted { repo_id }.publish(&env);
+        Ok(())
     }
 
     // --- liquidator (whitelisted) -----------------------------------------
 
-    /// Liquidator pays NAV × (1 − discount) and receives the collateral.
-    /// Stale NAV returns `StaleNav`.
-    pub fn liquidate(_env: Env, _liquidator: Address, _repo_id: u64) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    /// A whitelisted liquidator buys a defaulted repo's collateral at
+    /// NAV × (1 − discount), rounded up. The USDC goes lender first (capped at
+    /// principal + interest − fee), then the fee, then the borrower (#3, #4).
+    /// If proceeds fall short of what the lender is owed, the lender takes
+    /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6).
+    pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
+        liquidator.require_auth();
+        if !storage::is_liquidator(&env, &liquidator) {
+            return Err(Error::NotLiquidator);
+        }
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if repo.status != Status::Defaulted {
+            return Err(Error::InvalidStatus);
+        }
+        // A disabled asset still liquidates; only new offers are blocked (#22).
+        let asset =
+            storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
+        let config = storage::read_config(&env);
+        let (nav, nav_decimals) = oracle::fresh_nav(&env, &config, &asset)?;
+
+        let proceeds = math::liquidation_proceeds(
+            repo.collateral_amount,
+            nav,
+            nav_decimals,
+            config.liquidation_discount_bps,
+        )?;
+        let split = math::waterfall(proceeds, repo.principal, repo.interest, config.fee_bps)?;
+
+        repo.status = Status::Liquidated;
+        storage::write_repo(&env, &repo);
+        storage::extend_instance(&env);
+
+        let usdc = token::Client::new(&env, &config.usdc);
+        usdc.transfer(&liquidator, &repo.lender, &split.lender);
+        if split.fee > 0 {
+            usdc.transfer(&liquidator, &config.treasury, &split.fee);
+        }
+        if split.borrower > 0 {
+            usdc.transfer(&liquidator, &repo.borrower, &split.borrower);
+        }
+        token::Client::new(&env, &repo.collateral_asset).transfer(
+            &env.current_contract_address(),
+            &liquidator,
+            &repo.collateral_amount,
+        );
+
+        events::Liquidated {
+            repo_id,
+            liquidator,
+            proceeds,
+            lender_amount: split.lender,
+            fee: split.fee,
+            borrower_amount: split.borrower,
+        }
+        .publish(&env);
+        if split.shortfall > 0 {
+            events::Shortfall {
+                repo_id,
+                amount: split.shortfall,
+            }
+            .publish(&env);
+        }
+        Ok(())
     }
 }
 
