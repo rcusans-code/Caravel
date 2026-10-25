@@ -6,6 +6,7 @@
 
 mod errors;
 mod events;
+mod margin;
 pub mod math;
 mod oracle;
 mod storage;
@@ -291,16 +292,16 @@ impl CaravelRepo {
     /// Adds collateral. Clears a margin call once
     /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds, i.e. the
     /// initial margin is restored (TradFi convention). Works with stale NAV.
-    pub fn top_up(_env: Env, _repo_id: u64, _amount: i128) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    pub fn top_up(env: Env, repo_id: u64, amount: i128) -> Result<(), Error> {
+        margin::top_up(&env, repo_id, amount)
     }
 
     // --- keeper (anyone) --------------------------------------------------
 
     /// Sets `margin_call_deadline` on the first `margin_breached`. Returns the
     /// status. Stale NAV returns `StaleNav` (DECISIONS.md #17).
-    pub fn check_margin(_env: Env, _repo_id: u64) -> Result<Status, Error> {
-        Err(Error::NotImplemented)
+    pub fn check_margin(env: Env, repo_id: u64) -> Result<Status, Error> {
+        margin::check_margin(&env, repo_id)
     }
 
     /// Moves a repo to `Defaulted` once it is past maturity + grace, or in
