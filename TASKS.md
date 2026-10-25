@@ -24,8 +24,8 @@ Exit: AUTH_REQUIRED go/no-go, repo public, decisions locked.
 Exit: create / take / repay pass unit tests, mock oracle live.
 
 - [x] **C** `create_offer` / `cancel_offer` — lender escrows USDC; cancel returns it. *Done when: balance test passes*
-- [ ] **C** ⚠️ `take_offer` — atomic DvP; LTV check with NAV; contract computes collateral (#21); reject stale NAV and unsupported asset. *Done when: success, LTV-reject, stale-reject tests*
-- [ ] **C** ⚠️ `repay` — fee carved from interest; collateral back; works even with stale NAV. *Done when: lender gets exact offer terms*
+- [x] **C** ⚠️ `take_offer` — atomic DvP; LTV check with NAV; contract computes collateral (#21); reject stale NAV and unsupported asset. *Done when: success, LTV-reject, stale-reject tests*
+- [x] **C** ⚠️ `repay` — fee carved from interest; collateral back; works even with stale NAV. *Done when: lender gets exact offer terms*
 - [ ] **I** ⚠️ Mock SEP-40 oracle: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) + admin `set_price`, deployed. *Done when: `lastprice(tBENJI)` returns price + timestamp*
 - [ ] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
 - [ ] **P** Mentor round 1: demand? issuer whitelisting? term vs perpetual? Ask permission to quote. *Done when: one quotable line or a clear no*

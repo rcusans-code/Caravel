@@ -47,6 +47,7 @@ pub struct RepoOpened {
     pub offer_id: u64,
     pub lender: Address,
     pub borrower: Address,
+    pub collateral_asset: Address,
     pub collateral_amount: i128,
     pub principal: i128,
     pub interest: i128,
