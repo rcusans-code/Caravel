@@ -16,7 +16,7 @@ Each artboard links `ds/caravel/tokens.css` and `components/bundle.*` (same file
 
 The agreed changes are already in `app/src/App.tsx` and `app/src/app.css`:
 
-- Header: "Stellar testnet" left, logo centred, an "i" button (About this demo) and the account right.
+- Header: logo left with "Stellar testnet" on the wordmark baseline; an "i" button (About this demo) and the account right.
 - One status bar replaces the demo, balances and NAV cards: Demo as · XLM / USDC / tBENJI · tBENJI NAV with the live state.
 - Demo-time notice moved from a banner into the "i" popover.
 - Explainers are one plain sentence; the technical detail sits behind a small "i" tooltip (`Tip` in `App.tsx`).

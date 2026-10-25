@@ -206,9 +206,10 @@ body {
 a{color:var(--primary)}a:hover{color:var(--primary-hover)}
 
 /* Header: network left, brand centred, info + account right. */
-.app-header__inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; }
-.app-header__inner > .app-net { justify-self: start; }
-.app-header__inner > .app-brand { justify-self: center; }
+.app-header__inner { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; column-gap: var(--space-3); min-height: 0; padding-top: 6px; padding-bottom: 6px; }
+.app-header__inner > .app-brand { justify-self: start; }
+/* Sits on the wordmark's baseline, to the right of the logo. */
+.app-header__inner > .app-net { justify-self: start; align-self: end; margin-bottom: 14px; line-height: 1; }
 .app-header__end { justify-self: end; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .app-header__end .app-notify, .app-header__end .app-header__account { margin-left: 0; }
 @media (max-width: 760px) {
@@ -239,7 +240,7 @@ a{color:var(--primary)}a:hover{color:var(--primary-hover)}
 </helmet>
 <div class="app">
 <header class="app-header">
-<div class="app-wrap app-header__inner"><span class="caption app-net">Stellar testnet</span><a href="#" class="app-brand" aria-label="Caravel home"><img alt="Caravel" height="44" src="/_blob/21b92aa9a0a5b5ae51453e1eb62203af"></a><div class="app-header__end"><div class="app-notify"><button type="button" class="app-bell app-bell--info" aria-label="About this demo" aria-haspopup="dialog" aria-expanded="{{bellOpen}}" onClick="{{toggleBell}}">i</button><sc-if value="{{bellOpen}}" hint-placeholder-val="{{ true }}"><div class="app-pop" role="dialog" aria-label="About this demo"><div class="app-pop__head"><span>About this demo</span><button type="button" class="cv-btn cv-btn--quiet cv-btn--sm" onClick="{{toggleBell}}">Close</button></div><div class="app-pop__item"><span class="app-pop__icon" aria-hidden="true">i</span><span><b>Demo time</b>1 day lasts 1 minute here, so a 7-day loan ends in 7 minutes. New loans need a price updated in the last 3 minutes.</span></div></div></sc-if></div><div class="app-header__account">
+<div class="app-wrap app-header__inner"><a href="#" class="app-brand" aria-label="Caravel home"><img alt="Caravel" height="44" src="/_blob/21b92aa9a0a5b5ae51453e1eb62203af"></a><span class="caption app-net">Stellar testnet</span><div class="app-header__end"><div class="app-notify"><button type="button" class="app-bell app-bell--info" aria-label="About this demo" aria-haspopup="dialog" aria-expanded="{{bellOpen}}" onClick="{{toggleBell}}">i</button><sc-if value="{{bellOpen}}" hint-placeholder-val="{{ true }}"><div class="app-pop" role="dialog" aria-label="About this demo"><div class="app-pop__head"><span>About this demo</span><button type="button" class="cv-btn cv-btn--quiet cv-btn--sm" onClick="{{toggleBell}}">Close</button></div><div class="app-pop__item"><span class="app-pop__icon" aria-hidden="true">i</span><span><b>Demo time</b>1 day lasts 1 minute here, so a 7-day loan ends in 7 minutes. New loans need a price updated in the last 3 minutes.</span></div></div></sc-if></div><div class="app-header__account">
 <div class="cv-row app-account"><span class="small app-muted">Demo lender</span><a class="cv-hash" href="https://stellar.expert/explorer/testnet/account/GB44DXOHWG7EPMCPRJA4J5276BPBUAAIKMCWTMPO3ESY6NGS55CDCL7H" target="_blank" rel="noopener" title="GB44DXOHWG7EPMCPRJA4J5276BPBUAAIKMCWTMPO3ESY6NGS55CDCL7H" data-hash="GB44DXOHWG7EPMCPRJA4J5276BPBUAAIKMCWTMPO3ESY6NGS55CDCL7H"><span class="cv-hash__tag">ACCOUNT</span>GB44…CL7H</a><button type="button" class="cv-btn cv-btn--quiet cv-btn--sm">Disconnect</button></div></div></div></div></header>
 <main class="app-wrap app-main">
 <section class="cv-card app-status" aria-label="Demo account, balances and NAV">
