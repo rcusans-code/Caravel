@@ -190,10 +190,18 @@ body {
 .app-status__fig span { font-family: var(--font-sans); font-size: 15px; font-weight: 600; color: var(--ink); }
 .app-status__nav { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--ink-muted); }
 .app-status .cv-btn--sm { height: 28px; }
-@media (max-width: 720px) { .app-status__group + .app-status__group { padding-left: 0; border-left: 0; } }
-/* Public build (no "Demo as" roles): balances left, NAV pushed to the right edge, one row. */
+/* All NAV feeds form one cluster that moves as a unit. It never wraps inside on wide screens, so a
+   divider between two NAV groups can't land at the start of a row; on phones it wraps and dividers go. */
+.app-status__navs { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-3) var(--space-6); min-width: 0; }
+.app-status:not(.app-status--public) .app-status__group + .app-status__navs { padding-left: var(--space-6); border-left: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .app-status__group + .app-status__group,
+  .app-status:not(.app-status--public) .app-status__group + .app-status__navs { padding-left: 0; border-left: 0; }
+  .app-status__navs { flex-wrap: wrap; }
+}
+/* Public build (no "Demo as" roles): balances left, NAV cluster right when both fit on one row.
+   space-between puts an item alone on a wrapped row at the left edge, so wrapped rows line up. */
 .app-status--public { justify-content: space-between; padding-top: var(--space-4); padding-bottom: var(--space-4); }
-.app-status--public .app-status__group--nav { margin-left: auto; padding-left: 0; border-left: 0; }
 /* Header info button ("i") opens a popover with demo notices instead of a banner in the page. */
 .app-notify { position: relative; margin-left: auto; }
 .app-notify + .app-header__account { margin-left: 0; }

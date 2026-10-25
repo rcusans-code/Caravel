@@ -276,10 +276,12 @@ export default function App() {
           ) : (
             !DEMO_ENABLED && <span className="app-status__group small app-muted">Connect a wallet to see your balances.</span>
           )}
-          {/* Public build: the first NAV group is pushed right (app-status__group--nav), the rest follow it. */}
-          {COLLATERAL.map((t, i) => (
-            <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} now={now} stale={stale(t.sac)} loaded={loaded} push={i === 0} />
-          ))}
+          {/* All NAV groups sit in one cluster (app-status__navs) so they stay together when the bar wraps. */}
+          <div className="app-status__navs">
+            {COLLATERAL.map((t) => (
+              <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} now={now} stale={stale(t.sac)} loaded={loaded} />
+            ))}
+          </div>
         </section>
 
         {signer && (
@@ -570,19 +572,17 @@ function NavStatus({
   now,
   stale,
   loaded,
-  push,
 }: {
   token: Token;
   nav: Nav | null;
   now: number;
   stale: boolean;
   loaded: boolean;
-  push?: boolean;
 }) {
   const age = nav ? now - Number(nav.timestamp) : null;
   const navRef = useFlash(nav ? String(nav.price) : null, navDir);
   return (
-    <div className={`app-status__group${push ? " app-status__group--nav" : ""}`} aria-label={`${token.code} NAV`} aria-busy={loaded ? undefined : "true"}>
+    <div className="app-status__group" aria-label={`${token.code} NAV`} aria-busy={loaded ? undefined : "true"}>
       <span className="app-status__label">{token.code} NAV</span>
       {!loaded ? (
         <Skel w={90} h={14} />
