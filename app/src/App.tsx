@@ -178,7 +178,7 @@ export default function App() {
   }, [tab, signer, config]);
 
   const navAge = nav ? now - Number(nav.timestamp) : null;
-  const navStale = !!(config && navAge !== null && navAge > Number(config.max_nav_age_secs));
+  const navStale = !!(asset && navAge !== null && navAge > Number(asset.max_nav_age_secs));
   const isAdmin = isAdminNow(signer, config);
   // Access gate: writes need an issuer-AUTHORIZED tBENJI trustline. The on-chain
   // flag is the only allowlist (scripts/onboard.sh sets it). Demo burner keys
@@ -253,12 +253,12 @@ export default function App() {
           <BalancesBar signer={signer} balances={balances} run={run} refresh={refreshAccount} />
         )}
 
-        <NavStrip nav={nav} config={config} now={now} stale={navStale} loaded={loaded} />
+        <NavStrip nav={nav} asset={asset} now={now} stale={navStale} loaded={loaded} />
 
-        {config && (
+        {config && asset && (
           <Alert tone="info" title="Demo time is on">
             1 day runs as {String(config.day_secs)} seconds, so a 7-day repo matures in 7 minutes. NAV older than{" "}
-            {Number(config.max_nav_age_secs) / 60} minutes blocks new takes.
+            {Number(asset.max_nav_age_secs) / 60} minutes blocks new takes.
           </Alert>
         )}
 
@@ -465,13 +465,13 @@ const navDir = (a: string, b: string) => (BigInt(b) > BigInt(a) ? "up" : BigInt(
 
 function NavStrip({
   nav,
-  config,
+  asset,
   now,
   stale,
   loaded,
 }: {
   nav: Nav | null;
-  config: ProtocolConfig | null;
+  asset: AssetConfig | null;
   now: number;
   stale: boolean;
   loaded: boolean;
@@ -511,7 +511,7 @@ function NavStrip({
         <span className="figure">{nav ? new Date(Number(nav.timestamp) * 1000).toLocaleTimeString() : "No price yet"}</span>
         <span className="cv-field__hint">
           {age !== null ? fmtAge(age) : ""}
-          {config ? ` · max age ${Number(config.max_nav_age_secs) / 60} min` : ""}
+          {asset ? ` · max age ${Number(asset.max_nav_age_secs) / 60} min` : ""}
         </span>
       </div>
       <div className="app-figure">
@@ -1261,7 +1261,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
 // --- Admin: NAV slider ---------------------------------------------------------------
 
 function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
-  const { nav, signer, busy, config } = ctx;
+  const { nav, signer, busy, asset } = ctx;
   const [value, setValue] = useState<number | null>(null);
   const [last, setLast] = useState<{ nav: string; hash: string } | null>(null);
   const current = nav ? Number(nav.price) / 10 ** nav.decimals : 1;
@@ -1282,7 +1282,7 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
     <section className="app-section">
       <div className="app-section__head">
         <h1 className="title">Demo NAV</h1>
-        <span className="small app-muted">Admin pushes a tBENJI price to the mock SEP-40 oracle with set_price. Takes and liquidations need a price younger than {config ? Number(config.max_nav_age_secs) / 60 : 3} minutes.</span>
+        <span className="small app-muted">Admin pushes a tBENJI price to the mock SEP-40 oracle with set_price. Takes and liquidations need a price younger than {asset ? Number(asset.max_nav_age_secs) / 60 : 3} minutes.</span>
       </div>
       {!isAdmin && (
         <Alert tone="info" title="Admin only">

@@ -97,14 +97,6 @@
                           },
                           {
                             "key": {
-                              "symbol": "max_nav_age_secs"
-                            },
-                            "val": {
-                              "u64": "180"
-                            }
-                          },
-                          {
-                            "key": {
                               "symbol": "oracle"
                             },
                             "val": {

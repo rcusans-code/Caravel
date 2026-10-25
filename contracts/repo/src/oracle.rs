@@ -55,8 +55,8 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
 ///
 /// Used by `take_offer`, `check_margin` and `liquidate` (DECISIONS.md #6, #17).
 ///
-/// - `StaleNav` if `now - timestamp > cfg.max_nav_age_secs`. A price exactly
-///   `max_nav_age_secs` old is still fresh.
+/// - `StaleNav` if `now - timestamp > asset.max_nav_age_secs` (per asset,
+///   DECISIONS.md #25). A price exactly `max_nav_age_secs` old is still fresh.
 /// - A timestamp in the future (`timestamp > now`) is treated as age 0, i.e.
 ///   fresh. The feed is trusted; this only absorbs clock skew between the
 ///   feed's timestamp and the ledger close time.
@@ -64,7 +64,7 @@ pub fn nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32, u
 pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, u32), Error> {
     let (price, decimals, timestamp) = nav(env, cfg, asset)?;
     let age = env.ledger().timestamp().saturating_sub(timestamp);
-    if age > cfg.max_nav_age_secs {
+    if age > asset.max_nav_age_secs {
         return Err(Error::StaleNav);
     }
     Ok((price, decimals))
@@ -174,13 +174,13 @@ mod test {
             day_secs: 60,
             margin_window_secs: 120,
             grace_secs: 60,
-            max_nav_age_secs: MAX_AGE,
         };
         let repo = env.register(CaravelRepo, (cfg.clone(),));
         let asset = AssetConfig {
             oracle_asset: Asset::Stellar(Address::generate(&env)),
             haircut_bps: 300,
             enabled: true,
+            max_nav_age_secs: MAX_AGE,
         };
         Setup {
             env,

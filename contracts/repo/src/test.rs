@@ -13,9 +13,11 @@ use crate::{
     Status,
 };
 
-const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
+pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
+/// Demo tBENJI staleness limit: 3 demo days at 60 s per day.
+pub(crate) const DEMO_NAV_AGE: u64 = 180;
 
-fn demo_config(env: &Env) -> Config {
+pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
         admin: Address::generate(env),
         usdc: Address::generate(env),
@@ -26,7 +28,6 @@ fn demo_config(env: &Env) -> Config {
         day_secs: 60,
         margin_window_secs: 120,
         grace_secs: 60,
-        max_nav_age_secs: 180,
     }
 }
 
@@ -74,10 +75,20 @@ fn admin_configures_assets() {
         oracle_asset: Asset::Stellar(token.clone()),
         haircut_bps: 300,
         enabled: true,
+        max_nav_age_secs: DEMO_NAV_AGE,
     };
 
     client.set_asset(&token, &config);
-    assert_eq!(env.events().all().events().len(), 1);
+    let event = events::AssetConfigured {
+        asset: token.clone(),
+        haircut_bps: 300,
+        enabled: true,
+        max_nav_age_secs: DEMO_NAV_AGE,
+    };
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        [event.to_xdr(&env, &client.address)]
+    );
     assert_eq!(client.asset(&token), config);
 
     // Re-tier in place.
@@ -98,12 +109,33 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
             oracle_asset: Asset::Stellar(token.clone()),
             haircut_bps,
             enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
         };
         assert_eq!(
             client.try_set_asset(&token, &config),
             Err(Ok(Error::InvalidConfig))
         );
     }
+    assert_eq!(client.try_asset(&token), Err(Ok(Error::AssetNotSupported)));
+}
+
+#[test]
+fn set_asset_rejects_zero_max_nav_age() {
+    // DECISIONS.md #25: staleness is per asset and must be positive.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _) = setup(&env);
+    let token = Address::generate(&env);
+    let config = AssetConfig {
+        oracle_asset: Asset::Stellar(token.clone()),
+        haircut_bps: 300,
+        enabled: true,
+        max_nav_age_secs: 0,
+    };
+    assert_eq!(
+        client.try_set_asset(&token, &config),
+        Err(Ok(Error::InvalidConfig))
+    );
     assert_eq!(client.try_asset(&token), Err(Ok(Error::AssetNotSupported)));
 }
 
@@ -119,6 +151,7 @@ fn set_asset_requires_admin_auth() {
             oracle_asset: Asset::Stellar(token.clone()),
             haircut_bps: 300,
             enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
 }
@@ -156,7 +189,7 @@ struct World<'a> {
     treasury: Address,
 }
 
-const NOW: u64 = 1_000;
+pub(crate) const NOW: u64 = 1_000;
 
 fn world<'a>() -> World<'a> {
     let env = Env::default();
@@ -183,6 +216,7 @@ fn world<'a>() -> World<'a> {
             oracle_asset: Asset::Stellar(tbenji.clone()),
             haircut_bps: 300,
             enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
 
@@ -211,8 +245,12 @@ fn world<'a>() -> World<'a> {
 
 impl World<'_> {
     fn set_nav(&self, price: i128, timestamp: u64) {
+        self.set_nav_of(&self.tbenji, price, timestamp);
+    }
+
+    fn set_nav_of(&self, asset: &Address, price: i128, timestamp: u64) {
         self.oracle
-            .set_price(&Asset::Stellar(self.tbenji.clone()), &price, &timestamp);
+            .set_price(&Asset::Stellar(asset.clone()), &price, &timestamp);
     }
 
     fn offer(&self) -> u64 {
@@ -256,9 +294,9 @@ impl World<'_> {
     }
 }
 
-const PRINCIPAL: i128 = 970 * UNIT;
-const APR_BPS: u32 = 500;
-const TERM_SECS: u64 = 7 * 60; // 7 demo days
+pub(crate) const PRINCIPAL: i128 = 970 * UNIT;
+pub(crate) const APR_BPS: u32 = 500;
+pub(crate) const TERM_SECS: u64 = 7 * 60; // 7 demo days
 
 #[test]
 fn create_offer_escrows_usdc() {
@@ -329,6 +367,7 @@ fn create_offer_rejects_missing_or_disabled_asset() {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
             enabled: false,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
     assert_eq!(
@@ -567,7 +606,7 @@ fn take_offer_rejects_stale_nav() {
     let w = world();
     let offer_id = w.offer();
 
-    // demo max_nav_age_secs = 180
+    // demo tBENJI max_nav_age_secs = 180
     w.set_nav(ONE, NOW - 181);
     assert_eq!(
         w.repo.try_take_offer(&w.borrower, &offer_id),
@@ -601,6 +640,7 @@ fn take_offer_rejects_asset_disabled_after_offer() {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
             enabled: false,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
     assert_eq!(
@@ -654,6 +694,7 @@ fn retiering_asset_does_not_touch_live_repo() {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 800,
             enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
     assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
@@ -1029,6 +1070,7 @@ fn liquidate_works_on_disabled_asset() {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
             enabled: false,
+            max_nav_age_secs: DEMO_NAV_AGE,
         },
     );
     w.set_nav(ONE, MATURED);
@@ -1386,4 +1428,142 @@ fn top_up_rejects_bad_amount_and_status() {
         );
     }
     assert_eq!(w.repo.try_top_up(&99, &UNIT), Err(Ok(Error::RepoNotFound)));
+}
+
+// --- per-asset NAV staleness (DECISIONS.md #25) ---------------------------------
+
+/// Production intent for a fund that prints NAV on business days only: a
+/// Friday print must still count on Monday, and through a holiday Monday to
+/// Tuesday's print. 96 h = 345,600 s.
+const WEEKEND_NAV_AGE: u64 = 96 * 3_600;
+const HOUR: u64 = 3_600;
+
+impl World<'_> {
+    /// Registers a second collateral SAC with its own staleness limit, NAV
+    /// 1.00 printed at `nav_ts`, and mints the borrower 3_000 of it.
+    fn add_asset(&self, max_nav_age_secs: u64, nav_ts: u64) -> Address {
+        let issuer = Address::generate(&self.env);
+        let token = self
+            .env
+            .register_stellar_asset_contract_v2(issuer)
+            .address();
+        self.oracle
+            .set_price(&Asset::Stellar(token.clone()), &ONE, &nav_ts);
+        self.repo.set_asset(
+            &token,
+            &AssetConfig {
+                oracle_asset: Asset::Stellar(token.clone()),
+                haircut_bps: 300,
+                enabled: true,
+                max_nav_age_secs,
+            },
+        );
+        StellarAssetClient::new(&self.env, &token).mint(&self.borrower, &(3_000 * UNIT));
+        token
+    }
+
+    fn offer_on(&self, asset: &Address) -> u64 {
+        self.repo
+            .create_offer(&self.lender, asset, &PRINCIPAL, &APR_BPS, &TERM_SECS)
+    }
+}
+
+#[test]
+fn staleness_is_per_asset() {
+    let w = world();
+    // tBENJI: 180 s. A second fund: 96 h. Both priced at NOW.
+    let fund = w.add_asset(WEEKEND_NAV_AGE, NOW);
+    let benji_repo = w.take();
+    let fund_repo = w.repo.take_offer(&w.borrower, &w.offer_on(&fund));
+    let benji_offer = w.offer();
+    let fund_offer = w.offer_on(&fund);
+
+    // Same ledger timestamp, same NAV age (181 s): stale for one, fresh for the other.
+    w.set_time(NOW + DEMO_NAV_AGE + 1);
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &benji_offer),
+        Err(Ok(Error::StaleNav))
+    );
+    assert_eq!(
+        w.repo.try_check_margin(&benji_repo),
+        Err(Ok(Error::StaleNav))
+    );
+    assert_eq!(w.repo.check_margin(&fund_repo), Status::Open);
+    let taken = w.repo.take_offer(&w.borrower, &fund_offer);
+    assert_eq!(w.repo.repo(&taken).collateral_asset, fund);
+    assert_eq!(w.repo.offer(&benji_offer).id, benji_offer);
+}
+
+#[test]
+fn weekend_nav_within_96h_allows_take_and_margin_check() {
+    let w = world();
+    // Friday's print at NOW; no prints on Saturday or Sunday.
+    let fund = w.add_asset(WEEKEND_NAV_AGE, NOW);
+    let first = w.offer_on(&fund);
+    let second = w.offer_on(&fund);
+
+    // Monday: NAV is 72 h old, far older than a day, still within 96 h.
+    w.set_time(NOW + 72 * HOUR);
+    let repo_id = w.repo.take_offer(&w.borrower, &first);
+    assert_eq!(w.repo.repo(&repo_id).collateral_amount, TAKE_COLLATERAL);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::Open);
+
+    // A Friday price that breaches still raises a margin call on Monday.
+    w.set_nav_of(&fund, BREACH_NAV, NOW);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+
+    // Exactly 96 h is still fresh; one second more is stale.
+    w.set_time(NOW + WEEKEND_NAV_AGE);
+    assert_eq!(w.repo.check_margin(&repo_id), Status::MarginCall);
+    w.set_time(NOW + WEEKEND_NAV_AGE + 1);
+    assert_eq!(w.repo.try_check_margin(&repo_id), Err(Ok(Error::StaleNav)));
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &second),
+        Err(Ok(Error::StaleNav))
+    );
+}
+
+#[test]
+fn stale_nav_blocks_take_margin_and_liquidate_but_never_repay_or_top_up() {
+    // DECISIONS.md #6, #17, #25: no new risk on an old price; the borrower can
+    // always exit or cure.
+    let w = world();
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&w.borrower, &(2_000 * UNIT));
+    let topped = w.take();
+    let repaid = w.take();
+    let defaulted = w.take();
+    let offer_id = w.offer();
+
+    // The NAV printed at NOW is never updated. Past maturity + grace it is
+    // long stale (> 180 s); `default` needs no NAV.
+    w.set_time(MATURED);
+    w.repo.default(&defaulted);
+
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer_id),
+        Err(Ok(Error::StaleNav))
+    );
+    assert_eq!(w.repo.try_check_margin(&topped), Err(Ok(Error::StaleNav)));
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &defaulted),
+        Err(Ok(Error::StaleNav))
+    );
+    // Nothing moved on the blocked calls.
+    assert_eq!(w.repo.offer(&offer_id).id, offer_id);
+    assert_eq!(w.repo.repo(&topped).status, Status::Open);
+    assert_eq!(w.repo.repo(&defaulted).status, Status::Defaulted);
+
+    w.repo.top_up(&topped, &UNIT);
+    assert_eq!(
+        w.repo.repo(&topped).collateral_amount,
+        TAKE_COLLATERAL + UNIT
+    );
+    w.repo.repay(&repaid);
+    assert_eq!(w.repo.repo(&repaid).status, Status::Repaid);
+    w.repo.repay(&topped);
+    assert_eq!(w.repo.repo(&topped).status, Status::Repaid);
+    assert_eq!(
+        w.tbenji_token.balance(&w.repo.address),
+        TAKE_COLLATERAL // only the defaulted repo's collateral is left
+    );
 }

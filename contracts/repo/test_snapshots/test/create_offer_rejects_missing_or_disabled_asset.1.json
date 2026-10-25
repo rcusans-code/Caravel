@@ -80,6 +80,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_age_secs"
+                      },
+                      "val": {
+                        "u64": "180"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "oracle_asset"
                       },
                       "val": {
@@ -241,6 +249,14 @@
                       },
                       "val": {
                         "u32": 300
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_nav_age_secs"
+                      },
+                      "val": {
+                        "u64": "180"
                       }
                     },
                     {
@@ -638,6 +654,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_nav_age_secs"
+                            },
+                            "val": {
+                              "u64": "180"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "oracle_asset"
                             },
                             "val": {
@@ -710,14 +734,6 @@
                             },
                             "val": {
                               "u64": "120"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "max_nav_age_secs"
-                            },
-                            "val": {
-                              "u64": "180"
                             }
                           },
                           {

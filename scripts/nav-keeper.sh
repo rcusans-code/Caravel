@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NAV keeper: keeps the mock oracle's tBENJI price fresh so takes and
-# liquidations never hit StaleNav (max_nav_age_secs = 180 s).
+# liquidations never hit StaleNav (tBENJI max_nav_age_secs = 180 s).
 #
 #   scripts/nav-keeper.sh           # loop forever, every INTERVAL s (default 60)
 #   scripts/nav-keeper.sh --once    # one push, then exit
