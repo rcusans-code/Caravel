@@ -898,8 +898,12 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
   const { signer, config } = ctx;
   const [receipt, setReceipt] = useState<Receipt>(null);
   const [notice, setNotice] = useState<{ text: string; hash: string } | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
   const mine = signer ? repos.filter((r) => r.borrower === signer.address || r.lender === signer.address) : [];
   const live = (r: Repo) => r.status === "Open" || r.status === "MarginCall";
+  // Closed = settled with nothing left to do (Repaid, Liquidated). Defaulted stays: the lender is still waiting on liquidation.
+  const closedCount = mine.filter(isClosed).length;
+  const shown = showClosed ? mine : mine.filter((r) => !isClosed(r));
   const firstRepayable = mine.find((r) => live(r) && r.borrower === signer?.address)?.id;
   const showDesk = !!signer && (liquidatorOk || roleOf(signer.address) === "liquidator");
 
@@ -908,6 +912,16 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
       <div className="app-section__head">
         <h1 className="title">My positions</h1>
         <span className="small app-muted">Repos where this account is the borrower or the lender.</span>
+        {closedCount > 0 && (
+          <button
+            type="button"
+            className={`cv-btn cv-btn--secondary cv-btn--sm app-section__toggle${showClosed ? " is-active" : ""}`}
+            aria-pressed={showClosed}
+            onClick={() => setShowClosed((v) => !v)}
+          >
+            {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
+          </button>
+        )}
       </div>
       {receipt && <DvpReceipt {...receipt} />}
       {notice && (
@@ -927,9 +941,10 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
         </div>
       )}
       {signer && loaded && mine.length === 0 && <p className="app-empty">No repos for this account yet.</p>}
+      {signer && loaded && mine.length > 0 && shown.length === 0 && <p className="app-empty">No open repos. Closed repos are hidden.</p>}
       <div className="app-cards">
         {config &&
-          mine.map((r) => (
+          shown.map((r) => (
             <PositionCard
               key={String(r.id)}
               ctx={ctx}
@@ -1043,6 +1058,10 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
   );
 }
 
+function isClosed(r: Repo) {
+  return r.status === "Repaid" || r.status === "Liquidated";
+}
+
 function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; primary: boolean; onRepaid: (r: Receipt) => void }) {
   const { signer, config, nav, balances, busy, now } = ctx;
   const side = signer?.address === repo.borrower ? "borrowed" : "lent";
@@ -1108,7 +1127,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   };
 
   return (
-    <article className="cv-card" data-repo={String(repo.id)}>
+    <article className={`cv-card${isClosed(repo) ? " app-card--closed" : ""}`} data-repo={String(repo.id)}>
       <div className="cv-card__head">
         <span className="cv-eyebrow">
           Repo #{String(repo.id).padStart(3, "0")} · {side}
@@ -1127,7 +1146,14 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
               : "A margin call can be raised on the next check."}
         </Alert>
       )}
-      <div>
+      {repo.status === "Defaulted" && (
+        <Alert tone="info" title="Awaiting liquidation">
+          {side === "lent"
+            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt.`
+            : "This repo was defaulted. A whitelisted liquidator buys the collateral and any surplus over the debt comes back to you."}
+        </Alert>
+      )}
+        <div>
         <span className="cv-figure-xl">{fmtAmount(repo.principal)}</span>
         <span className="cv-unit">USDC</span>
       </div>
@@ -1164,7 +1190,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {!live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
           </span>
           {live && (
             <span className="cv-countdown__time">
