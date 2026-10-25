@@ -14,7 +14,7 @@ mod types;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, Env};
 
 pub use errors::Error;
 pub use types::{Asset, AssetConfig, Config, Offer, Repo, Status};
@@ -92,21 +92,80 @@ impl CaravelRepo {
 
     /// Escrows `principal` USDC from the lender. Returns the offer id.
     /// The haircut comes from the asset's `AssetConfig`, not the lender.
-    /// Rejects a missing or disabled asset with `AssetNotSupported` (G1).
+    /// Rejects a missing or disabled asset with `AssetNotSupported` (#22).
     pub fn create_offer(
-        _env: Env,
-        _lender: Address,
-        _collateral_asset: Address,
-        _principal: i128,
-        _apr_bps: u32,
-        _term_secs: u64,
+        env: Env,
+        lender: Address,
+        collateral_asset: Address,
+        principal: i128,
+        apr_bps: u32,
+        term_secs: u64,
     ) -> Result<u64, Error> {
-        Err(Error::NotImplemented)
+        lender.require_auth();
+        if principal <= 0 || term_secs == 0 {
+            return Err(Error::InvalidAmount);
+        }
+        match storage::read_asset(&env, &collateral_asset) {
+            Some(asset) if asset.enabled => {}
+            _ => return Err(Error::AssetNotSupported),
+        }
+        let config = storage::read_config(&env);
+        // Fail now, not at take time, if the terms overflow the interest math.
+        math::interest(principal, apr_bps, term_secs, config.day_secs)?;
+
+        let offer = Offer {
+            id: storage::next_offer_id(&env),
+            lender,
+            collateral_asset,
+            principal,
+            apr_bps,
+            term_secs,
+            created_at: env.ledger().timestamp(),
+        };
+        storage::write_offer(&env, &offer);
+        storage::extend_instance(&env);
+
+        token::Client::new(&env, &config.usdc).transfer(
+            &offer.lender,
+            env.current_contract_address(),
+            &principal,
+        );
+
+        events::OfferCreated {
+            offer_id: offer.id,
+            lender: offer.lender,
+            collateral_asset: offer.collateral_asset,
+            principal,
+            apr_bps,
+            term_secs,
+        }
+        .publish(&env);
+        Ok(offer.id)
     }
 
-    /// Returns the escrowed USDC to the lender.
-    pub fn cancel_offer(_env: Env, _offer_id: u64) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    /// Returns the escrowed USDC to the lender. Only the lender can cancel,
+    /// and only while the offer is untaken (a take removes it).
+    pub fn cancel_offer(env: Env, offer_id: u64) -> Result<(), Error> {
+        let offer = storage::read_offer(&env, offer_id).ok_or(Error::OfferNotFound)?;
+        offer.lender.require_auth();
+
+        storage::remove_offer(&env, offer_id);
+        storage::extend_instance(&env);
+
+        let usdc = storage::read_config(&env).usdc;
+        token::Client::new(&env, &usdc).transfer(
+            &env.current_contract_address(),
+            &offer.lender,
+            &offer.principal,
+        );
+
+        events::OfferCancelled {
+            offer_id,
+            lender: offer.lender,
+            principal: offer.principal,
+        }
+        .publish(&env);
+        Ok(())
     }
 
     // --- borrower ---------------------------------------------------------

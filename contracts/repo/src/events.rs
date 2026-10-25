@@ -31,6 +31,10 @@ pub struct OfferCreated {
 pub struct OfferCancelled {
     #[topic]
     pub offer_id: u64,
+    #[topic]
+    pub lender: Address,
+    /// USDC returned to the lender.
+    pub principal: i128,
 }
 
 /// Emitted by `take_offer`: the DvP leg that opens a repo.
