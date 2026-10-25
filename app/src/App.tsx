@@ -1091,7 +1091,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
   const shown = showClosed ? mine : mine.filter((r) => !isClosed(r));
   // One primary button per view: a margin call's Top up outranks every Repay.
   const anyMarginCall = mine.some((r) => r.status === "MarginCall" && r.borrower === signer?.address);
-  const firstRepayable = anyMarginCall ? undefined : mine.find((r) => live(r) && r.borrower === signer?.address)?.id;
+  const firstRepayable = anyMarginCall ? undefined : mine.find((r) => (live(r) || r.status === "Defaulted") && r.borrower === signer?.address)?.id;
   const showDesk = !!signer && (liquidatorOk || roleOf(signer.address) === "liquidator");
 
   return (
@@ -1286,19 +1286,21 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
   const live = repo.status === "Open" || repo.status === "MarginCall";
+  // repay also works out of Defaulted until a liquidation lands; top-up and auto-repay do not.
+  const repayable = live || repo.status === "Defaulted";
   const inMarginCall = repo.status === "MarginCall";
   const deadline = repo.margin_call_deadline !== null ? Number(repo.margin_call_deadline) : null;
   const toDeadline = deadline !== null ? deadline - now : null;
   const breached = cover !== null && cover < 100;
   const fill = cover === null ? 0 : Math.min(100, Math.max(0, ((cover - 90) / 20) * 100));
   const toMaturity = Number(repo.maturity_ts) - now;
-  const canRepay = live && side === "borrowed";
+  const canRepay = repayable && side === "borrowed";
   // Past maturity + grace (strict, as in the contract) the repo waits for a keeper tx (#31).
   const pastGrace = live && now > Number(repo.maturity_ts + config.grace_secs);
   // Only the lender declares default; the contract's `default` auto-repays an opted-in borrower first.
   const canDeclareDefault = pastGrace && !!signer && side === "lent";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
-  const canTopUp = canRepay && (inMarginCall || breached);
+  const canTopUp = live && canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
   const topUpAmount = parseAmount(topUpText, token.decimals);
   const topUpErr = topUpAmount === null || topUpAmount <= 0n ? `Enter an amount above 0.00 ${token.code}.` : null;
@@ -1375,8 +1377,8 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       {repo.status === "Defaulted" && (
         <Alert tone="info" title="Awaiting liquidation">
           {side === "lent"
-            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt.`
-            : "This repo was defaulted. A whitelisted liquidator buys the collateral and any surplus over the debt comes back to you."}
+            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt. Until then the borrower can still repay you in full.`
+            : `This repo was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${fmtAmount(debt)} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
         </Alert>
       )}
         <div>
@@ -1506,7 +1508,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
         </p>
       )}
-      {canRepay && (
+      {live && canRepay && (
         <AutoRepayToggle
           checked={repo.auto_repay}
           disabled={!!busy || !ctx.approved}
@@ -1522,7 +1524,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         />
       )}
       {ctx.tx?.key === `auto-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {!live && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config)}</p>}
+      {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config)}</p>}
     </article>
   );
 }
@@ -1530,8 +1532,6 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
 /** What a settled repo meant for the borrower, so a closed card never just says "Closed". */
 const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig) => string>> = {
   Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount, 2, assetBySac(r.collateral_asset).decimals)} ${assetBySac(r.collateral_asset).code} returned to this wallet.`,
-  Defaulted: (r, c) =>
-    `Defaulted: not repaid by maturity plus grace. The ${assetBySac(r.collateral_asset).code} goes to a liquidator at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}; any surplus over the debt comes back to you.`,
   Liquidated: (r, c) =>
     `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
 };
