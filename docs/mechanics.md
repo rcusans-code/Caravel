@@ -276,7 +276,7 @@ Testnet balances are lender 500 USDC, borrower 1,000 tBENJI + 100 USDC, liquidat
 | `liq_delay_secs` (roadmap, F-10) | global | 0 | 1 day = 86,400 | s | F-10 |
 | `expires_at` `[v2 F-22]` | per offer | UI default now + 24 h | lender's choice | s | F-22 |
 | `apr_bps` | per offer | 500 | market; quoted as spread over T-bill floor 3.87%; UI shows net after fee (F-29) | bps/yr | [INTRO.md:19](../INTRO.md#L19); [collateral-research.md:58-60](collateral-research.md#L58-L60) |
-| `haircut_bps` | per asset (`AssetConfig`) | 300 | Tier 1: 300-500; others per collateral-research.md §3 | bps | D#4, D#13 |
+| `haircut_bps` | per asset (`AssetConfig`) | 300 | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000 (D#26) | bps | D#4, D#13 |
 | `margin_trigger_bps` `[v2 F-20, decision 1]` | per asset | 250 | between discount and haircut | bps | F-20 |
 | `liq_discount_bps` | global or per asset? (O10) | 200 | `[v2 F-21, decision 2]` 50-100 (3 days of carry ≈ 0.03%; capital and freeze risk on top); Dutch auction on cut list | bps | D#4, D#14; F-21 |
 | `fee_bps` | global | 1,000 (illustrative) | 0 at launch, then e.g. 1,000; fee address labelled "reserve" (F-28) | bps of interest | D#3; O1 |

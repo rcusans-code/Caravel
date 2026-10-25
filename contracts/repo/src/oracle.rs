@@ -2,7 +2,7 @@
 //!
 //! Flows read NAV only through [`fresh_collateral_nav`] (or [`collateral_nav`]
 //! where staleness must not block, e.g. `top_up`, DECISIONS.md #6), which also
-//! fold in the collateral token's decimals (#24). Never call the oracle
+//! fold in the collateral token's decimals (#27). Never call the oracle
 //! directly from `lib.rs`.
 
 use soroban_sdk::{contractclient, contracttype, token, Address, Env};
@@ -75,7 +75,7 @@ pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, 
 pub const VALUE_DECIMALS: u32 = 7;
 
 /// Folds the collateral token's own `decimals()` into the NAV scale
-/// (DECISIONS.md #24). `math.rs` computes `value = amount × nav / 10^dec`
+/// (DECISIONS.md #27). `math.rs` computes `value = amount × nav / 10^dec`
 /// in 7-decimal USDC; with `amount` in token units that holds when
 /// `dec = nav_decimals + token_decimals − 7`. A 7-decimal token (any SAC,
 /// tBENJI) is unchanged; a 5-decimal Spiko token gets `dec − 2`. Below zero

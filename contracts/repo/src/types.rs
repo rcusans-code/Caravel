@@ -91,7 +91,7 @@ pub struct Repo {
     pub borrower: Address,
     pub collateral_asset: Address,
     /// Collateral held by the contract, in the token's own units (its
-    /// `decimals()`: 7 for tBENJI, 5 for Spiko tokens; DECISIONS.md #24).
+    /// `decimals()`: 7 for tBENJI, 5 for Spiko tokens; DECISIONS.md #27).
     pub collateral_amount: i128,
     pub principal: i128,
     /// Full-term interest, fixed at take time. Debt = principal + interest,

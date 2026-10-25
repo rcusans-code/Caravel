@@ -1,9 +1,10 @@
 {
   "name": "caravel-keeper",
   "version": "0.1.0",
-  "description": "Caravel keeper (check_margin / default), set-nav and seed CLIs",
+  "description": "Caravel keeper (check_margin / default / liquidate), repos, set-nav and seed CLIs",
   "scripts": {
     "keeper": "tsx src/keeper.ts",
+    "repos": "tsx src/repos.ts",
     "set-nav": "tsx src/set-nav.ts",
     "feeds": "tsx src/feeds.ts",
     "seed": "tsx src/seed.ts",

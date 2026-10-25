@@ -1,4 +1,4 @@
-// Units (DECISIONS.md #8, #24): USDC amounts are i128 with 7 decimals;
+// Units (DECISIONS.md #8, #27): USDC amounts are i128 with 7 decimals;
 // collateral amounts use the token's own decimals (tBENJI 7, tSAFO 5); NAV is
 // scaled by the oracle's decimals(). All math here is bigint, mirroring
 // contracts/repo/src/math.rs rounding (interest and collateral round up).
@@ -71,7 +71,7 @@ export function interest(principal: bigint, aprBps: bigint, termSecs: bigint, da
 
 /**
  * NAV scale for collateral math on a token with `tokenDecimals` (oracle.rs
- * `scale_for_token`, DECISIONS.md #24): amount × nav / 10^d is 7-decimal USDC.
+ * `scale_for_token`, DECISIONS.md #27): amount × nav / 10^d is 7-decimal USDC.
  */
 export const collateralDecimals = (navDecimals: number, tokenDecimals: number) =>
   navDecimals + tokenDecimals - TOKEN_DECIMALS;

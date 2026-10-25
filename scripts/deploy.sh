@@ -40,7 +40,7 @@ done
 FEE_BPS="${FEE_BPS:-1000}"                       # 10% of interest (#3)
 LIQ_DISCOUNT_BPS="${LIQ_DISCOUNT_BPS:-200}"      # 2% liquidator discount (#4)
 HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount (#18)
-SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (collateral-research §3, #24)
+SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (testnet only, DECISIONS #28)
 TSAFO_DECIMALS="${TSAFO_DECIMALS:-5}"            # Spiko tokens use 5 (mainnet eurSAFO decimals())
 TSAFO_BORROWER_MINT="${TSAFO_BORROWER_MINT:-2000}" # whole tSAFO minted to BORROWER when it holds none
 DAY_SECS="${DAY_SECS:-60}"                       # 1 day = 60 s (#5)

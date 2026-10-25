@@ -4,7 +4,7 @@
 //! units. Collateral amounts are in the token's own units; NAV is USDC per
 //! whole collateral token, and `nav_decimals` is the oracle's `decimals()`
 //! with the token's decimals folded in by `oracle::scale_for_token`
-//! (DECISIONS.md #8, #24), so `amount × nav / 10^nav_decimals` is 7-decimal
+//! (DECISIONS.md #8, #27), so `amount × nav / 10^nav_decimals` is 7-decimal
 //! USDC for any token.
 //!
 //! Rounding always favours the lender / protocol:

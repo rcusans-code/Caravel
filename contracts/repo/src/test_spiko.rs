@@ -1,4 +1,4 @@
-//! Spiko-style collateral (tSAFO, issue #20, DECISIONS.md #24, #25): the full repo
+//! Spiko-style collateral (tSAFO, issue #20, DECISIONS.md #27, #28): the full repo
 //! flow on `caravel-spiko-mock`, a custom Soroban token with an allowlist on
 //! every transfer, no `approve` / `transfer_from`, an issuer pause and
 //! 5 decimals like Spiko's mainnet tokens.
@@ -246,7 +246,7 @@ fn take_offer_signature_pins_spiko_amount() {
     assert_eq!(w.safo.balance(&w.repo.address), 0);
 }
 
-/// Collateral is posted in the token's own 5-decimal units (#24): the same
+/// Collateral is posted in the token's own 5-decimal units (#27): the same
 /// USDC value as a 7-decimal token, to within one 5-decimal unit (round up).
 #[test]
 fn collateral_is_in_token_units() {

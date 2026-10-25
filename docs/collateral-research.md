@@ -6,6 +6,8 @@ As of 25 Oct 2026. Full evidence, with a source and quote for every figure:
 
 Items marked **Proposal** are team suggestions, not sourced facts. Per DECISIONS.md, agree on them in team chat before changing that file.
 
+> **Updated Sun 16:35.** Market figures now come from DefiLlama, dated: see [numbers.md](numbers.md) (Spiko ≈$1.78B on Stellar, BENJI $475M, Stellar ≈$2.4B). Launch haircuts are decided in [DECISIONS #26](../DECISIONS.md). The rwa.xyz figures and tier proposal below are kept as research history.
+
 ## 1. The lens: every dollar token ends in T-bills, and the weak link is exit, not the asset
 
 - Following the backing chain down, almost every "dollar" asset on Stellar ends in **short-dated US T-bills and Treasury repo**. For example: USDC → Circle Reserve Fund (BlackRock USDXX) → T-bills + Treasury repo; BENJI → FOBXX → at least 99.5% US government paper.

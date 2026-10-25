@@ -121,7 +121,8 @@ export async function restoreSession(): Promise<Signer | null> {
 
 export async function disconnectWallet() {
   localStorage.removeItem(DEMO_ROLE_KEY);
-  if (kitReady) await StellarWalletsKit.disconnect().catch(() => undefined);
+  // Always clear the kit too: a wallet picked before a demo session must not come back on reload.
+  await kit().disconnect().catch(() => undefined);
 }
 
 // --- Demo signer (testnet burner keys from the repo .env, VITE_DEMO_SIGNER=1) ---

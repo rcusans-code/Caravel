@@ -1,0 +1,27 @@
+# systemd --user unit for the TypeScript keeper (scripts/keeper/src/keeper.ts):
+# check_margin, default and liquidate on every repo, so a lender is paid even
+# when the borrower never repays. Install (see scripts/README.md):
+#   mkdir -p ~/.local/lib/caravel/keeper
+#   cp -r scripts/keeper/{package.json,package-lock.json,tsconfig.json,src} ~/.local/lib/caravel/keeper/
+#   (cd ~/.local/lib/caravel/keeper && npm ci --silent)
+#   install -Dm644 scripts/caravel-keeper.service ~/.config/systemd/user/caravel-keeper.service
+#   systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper
+# The keeper is copied out of the checkout so switching branches cannot break
+# the service; it reads keys and contract IDs from the checkout's .env. NAV is
+# kept fresh by caravel-nav-keeper.service, so no --refresh-nav here. When
+# REPO_ID in .env changes (redeploy) the keeper exits and Restart= reloads it.
+[Unit]
+Description=Caravel keeper (check_margin, default, liquidate on every repo every 10 s)
+After=network-online.target caravel-nav-keeper.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=ENV_FILE=%h/src/caravel/.env
+WorkingDirectory=%h/.local/lib/caravel/keeper
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/keeper.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
