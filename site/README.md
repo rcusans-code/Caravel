@@ -15,7 +15,7 @@ Or automatically: `.github/workflows/pages.yml` deploys on every push to `main` 
 
 - `assets/`: the engravings, logo and icons used on the page (file names are the canvas asset ids).
 - `ds/`: a copy of `design/tokens.css` and `design/components/bundle.{css,js}`. After a design system change, copy those three files here again.
-- The live example card (NAV, coverage, countdown) is a few lines of plain JS at the end of `index.html`; it shows example numbers, not testnet data.
+- The hero loan card and the dark ticker hold sample deals (and a few lines of plain JS at the end of `index.html` animate the sample card). In the published copy, `app/src/landing.ts` (bundled by `app/scripts/build-pages.mjs` as `assets/live-deals-*.js`) replaces them on page load with the testnet book: the ticker shows the 8 newest offers and loans, the card the newest Open or Margin-call loan with its coverage at the oracle NAV and a countdown to maturity, and the header's Fund NAV the tBENJI price. If the RPC fails, takes over 5 s or the book is empty, the samples stay, labelled "Sample". It finds them by class (`.hero-card`, `.ticker-run`, `data-live`), so keep those in a re-export.
 - Keep asset and stylesheet paths relative (`assets/…`, `ds/…`): the page is served from `/`, next to the app's `/app/`.
 
 **Links to the app.** In `index.html` the demo buttons point to `#launch`. The deploy build (`app/scripts/build-pages.mjs`) rewrites the ones labelled *Try the demo*, *Borrow against fund shares*, *Lend at a fixed rate*, *Or try the testnet demo* and *Testnet demo* to `/app/` in the published copy, so nothing needs hand-editing here. If a re-export renames those buttons, update the `CTAS` list in that script (the build fails if none match and warns for each missing one).
