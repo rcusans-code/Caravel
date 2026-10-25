@@ -5,6 +5,7 @@
 //
 //   npm run keeper                   # every 10 s
 //   npm run keeper -- --refresh-nav  # also re-post the last NAV every ~120 s
+//   npm run keeper -- --once         # one tick, then exit
 //
 // Signs check_margin / default with KEEPER_SECRET from .env (falls back to
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
@@ -17,6 +18,7 @@ import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
 import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
+import { onceExitCode } from "./once.js";
 import { setNav } from "./set-nav.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
@@ -43,6 +45,7 @@ const opt = (name: string, dflt: number) => {
 const INTERVAL_MS = opt("--interval", 10) * 1000;
 const REFRESH_NAV = flag("--refresh-nav");
 const REFRESH_SECS = opt("--refresh-secs", 120);
+const ONCE = flag("--once");
 
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
@@ -185,7 +188,7 @@ async function tick(cfg: Cfg) {
         const { hash } = await setNav(last.price, a.id);
         log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
       } catch (e) {
-        log(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
+        fail(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
       }
     }
   }
@@ -236,7 +239,7 @@ async function tick(cfg: Cfg) {
         if (e instanceof ContractError && e.code === Err.AutoRepayFailed) {
           note(next, r.id, "short", `auto-repay   ${desc}: borrower USDC or allowance short of the debt, waiting for grace`);
           continue;
-        } else log(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
+        } else fail(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
       }
     }
 
@@ -271,7 +274,7 @@ async function tick(cfg: Cfg) {
         // Ledger time lags wall clock by a few seconds: NotDefaultable means "not yet".
         if (e instanceof ContractError && e.code === Err.NotDefaultable) note(next, r.id, "pending", `default      repo ${r.id} not yet defaultable on-chain (ledger clock lag), retrying`);
         else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-default", `skip         repo ${r.id} default: asset paused (no_seize), skipping until cleared`);
-        else log(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
+        else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
       await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null, guard }, next);
@@ -305,11 +308,20 @@ async function tick(cfg: Cfg) {
         // maturity default + liquidate still do.
         note(next, r.id, "no-margin", `skip         repo ${r.id} check_margin: NotImplemented on the deployed contract (redeploy from main); maturity default still runs`);
       } else {
-        log(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
+        fail(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
       }
     }
   }
   lastSeen = next;
+}
+
+/** Failed actions (tx or simulation errors) caught inside the current tick; --once exits 1 if any. */
+let failures = 0;
+
+/** Log a failed action and count it for the --once exit code. */
+function fail(line: string) {
+  failures++;
+  log(line);
 }
 
 /** Record a repo's state; log the line only when the state changed since the last tick. */
@@ -359,7 +371,10 @@ async function liquidateRepo(
   } catch (e) {
     if (e instanceof ContractError && e.code === Err.StaleNav) note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: StaleNav on-chain, retrying each tick`);
     else if (e instanceof ContractError && e.code === Err.Paused) note(next, r.id, "paused-liquidate", `skip         repo ${r.id} liquidate: asset paused (no_seize), skipping until cleared`);
-    else note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
+    else {
+      note(next, r.id, `liq-fail ${(e as Error).message}`, `liquidate    repo ${r.id} FAILED: ${(e as Error).message}, retrying each tick`);
+      failures++;
+    }
   }
 }
 
@@ -384,17 +399,21 @@ async function main() {
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
-    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s, assets ${ASSETS.map((a) => a.label).join(", ")}` +
+    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps`,
   );
   for (;;) {
+    let failed = false;
+    failures = 0;
     try {
       await tick(cfg);
     } catch (e) {
+      failed = true;
       log(`tick failed: ${(e as Error).message}`);
     }
+    if (ONCE) process.exit(onceExitCode(failed, failures));
     await new Promise((r) => setTimeout(r, INTERVAL_MS));
   }
 }
