@@ -9,6 +9,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -p . && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test 'test/*.test.ts'",
     "build:public": "VITE_DEMO_SIGNER= npm run build && node scripts/check-no-secrets.mjs",
     "build:pages": "npm run build:public && node scripts/build-pages.mjs && node scripts/check-no-secrets.mjs ../dist-pages",
     "deploy:pages": "npm run build:pages && npx -y wrangler@4 pages deploy ../dist-pages --project-name ${PAGES_PROJECT:-caravel-repo} --branch main --commit-dirty=true"

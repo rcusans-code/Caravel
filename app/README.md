@@ -11,13 +11,14 @@ cd app
 npm install                      # also installs + builds the bindings in ../packages (postinstall)
 VITE_DEMO_SIGNER=1 npm run dev   # http://localhost:5173, bound to 0.0.0.0
 npm run build                    # tsc + vite build into dist/ (demo signer off unless the flag is set)
+npm test                         # node --test test/*.test.ts (pure modules, no bundler)
 ```
 
 Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` writes. After a redeploy, restart the dev server; nothing in `src/` is hand-copied.
 
 ## Log in
 
-- **Connect wallet**: Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit` 2.x; Freighter, xBull, Albedo, Lobstr, Rabet, Hana …). The wallet must be on Testnet. A fresh wallet can fund itself with friendbot and add the USDC/tBENJI trustlines from the balances card.
+- **Connect wallet**: Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit` 2.x; Freighter, xBull, Albedo, Lobstr, Rabet, Hana …). The wallet must be on Testnet. A fresh wallet can fund itself with friendbot and add the USDC/tBENJI trustlines from the balances card. If the wallet declines the trustline transaction, the app re-reads the account and asks once more for the lines still missing; after a second decline or any error the *Add trustline* button stays for another try (`src/trustline.ts`).
 - **Access gate**: anyone can browse offers and the NAV. Writes (post, cancel, take, repay, default, liquidate) are enabled only when the connected wallet's tBENJI trustline is AUTHORIZED by the issuer (Horizon `is_authorized`). Otherwise the app shows *"Access is limited to approved team wallets during the hackathon. Add the tBENJI trustline, then send your address to the team."* The team then runs `scripts/onboard.sh <G-address>` (authorizes it and tops it up to 200 tBENJI + 100 USDC). There is no allowlist in the frontend. The Admin tab only appears for the oracle admin address.
 - **Demo account (testnet burner)**: only when started with `VITE_DEMO_SIGNER=1` and `NETWORK=testnet`. Vite injects the lender, borrower, liquidator and admin secrets from the repo-root `.env` (the committed testnet burner keys) and signs in the browser. Role switcher: Lender / Borrower / Liquidator / Admin. Never set the flag for a public build.
 

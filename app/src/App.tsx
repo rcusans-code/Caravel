@@ -32,6 +32,7 @@ import {
 } from "./format";
 import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
 import { onPhase } from "./txphase";
+import { trustlineUi } from "./trustline";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 
 type Tab = "offers" | "lend" | "positions" | "admin";
@@ -285,7 +286,7 @@ export default function App() {
         </section>
 
         {signer && (
-          <AccountAlerts signer={signer} balances={balances} run={run} refresh={refreshAccount} />
+          <AccountAlerts signer={signer} balances={balances} busy={busy} run={run} refresh={refreshAccount} setFlash={setFlash} />
         )}
 
         {flash && (
@@ -384,22 +385,53 @@ function AccountChip({ signer, onDisconnect }: { signer: Signer; onDisconnect: (
 function AccountAlerts({
   signer,
   balances,
+  busy,
   run,
   refresh,
+  setFlash,
 }: {
   signer: Signer;
   balances: Balances | null;
+  busy: string | null;
   run: Ctx["run"];
   refresh: () => Promise<void>;
+  setFlash: Ctx["setFlash"];
 }) {
-  // Lenders only need USDC, so a missing tBENJI line alone is just shown in the
-  // figure, except for browser wallets that may want to borrow.
-  const missing = balances?.exists
-    ? (["USDC", "tBENJI"] as const).filter((c) => (c === "USDC" ? balances.usdc : balances.tbenji) === null)
-    : [];
   // Wallets without an issuer-authorized tBENJI line are read-only (access gate).
-  const gated = signer.kind === "wallet" && !!balances?.exists && !balances.tbenjiAuthorized;
-  const showTrust = !gated && (missing.includes("USDC") || (signer.kind === "wallet" && missing.length > 0));
+  // The button depends only on chain state + in-flight request, so it survives any failure.
+  const { gated, showInfo: showTrust, button } = trustlineUi(signer.kind, balances, busy);
+  const missing = button?.missing ?? [];
+  // A wallet decline re-prompts once (chain.ensureTrustlines); a second decline or any
+  // other failure lands in the flash and the button stays for another try.
+  const addTrust = () =>
+    run("trust", "Trustline not added. Click the Add trustline button to try again", async () => {
+      const r = await chain.ensureTrustlines(signer, [...missing], (_e, todo) => {
+        setFlash({
+          tone: "info",
+          title: "Wallet declined the trustline",
+          body: `Nothing was sent. Asking your wallet again for ${todo.join(" + ")}: approve it to finish.`,
+        });
+        void refresh();
+      });
+      setFlash(
+        r.added.length > 0
+          ? { tone: "info", title: "Trustline added", body: `${r.added.join(" + ")} trustline in place.` }
+          : null,
+      );
+      return r;
+    });
+  const trustButton = button && (
+    <button
+      type="button"
+      className="cv-btn cv-btn--secondary cv-btn--sm"
+      data-action="add-trustline"
+      disabled={button.disabled}
+      aria-busy={button.disabled ? "true" : undefined}
+      onClick={addTrust}
+    >
+      {button.label}
+    </button>
+  );
   return (
     <>
       {balances && !balances.exists && (
@@ -423,18 +455,7 @@ function AccountAlerts({
         <Alert
           tone="margin"
           title="Read-only: wallet not approved yet"
-          action={
-            missing.length > 0 ? (
-              <button
-                type="button"
-                className="cv-btn cv-btn--secondary cv-btn--sm"
-                data-action="add-trustline"
-                onClick={() => run("trust", "Trustline not added", () => chain.addTrustlines(signer, [...missing]))}
-              >
-                {`Add ${missing.join(" + ")} trustline${missing.length > 1 ? "s" : ""}`}
-              </button>
-            ) : undefined
-          }
+          action={trustButton || undefined}
         >
           {ACCESS_LIMITED}{" "}
           {balances.tbenji !== null
@@ -446,15 +467,7 @@ function AccountAlerts({
         <Alert
           tone="info"
           title={`No ${missing.join(" or ")} trustline`}
-          action={
-            <button
-              type="button"
-              className="cv-btn cv-btn--secondary cv-btn--sm"
-              onClick={() => run("trust", "Trustline not added", () => chain.addTrustlines(signer, [...missing]))}
-            >
-              Add trustline
-            </button>
-          }
+          action={trustButton || undefined}
         >
           Lenders need USDC; borrowers need USDC and tBENJI. tBENJI is AUTH_REQUIRED, so the issuer also has to authorize
           the account before it can hold any.

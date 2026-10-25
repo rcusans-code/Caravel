@@ -28,6 +28,14 @@ import {
 } from "./config";
 import { horizonToUnits } from "./format";
 import type { Signer } from "./wallet";
+import {
+  SIGN_TIMEOUT_MS,
+  addTrustlinesWithRetry,
+  signOnce,
+  type TrustCode,
+  type TrustResult,
+  type WalletSignError,
+} from "./trustline";
 
 export const server = new rpc.Server(RPC_URL);
 
@@ -488,20 +496,20 @@ export async function setNav(signer: Signer, price: bigint, sac: string = TBENJI
   return { hash: out.hash, value: null };
 }
 
-/** Adds the USDC and tBENJI trustlines a fresh wallet needs. */
-export async function addTrustlines(signer: Signer, which: ("USDC" | "tBENJI")[]): Promise<TxOutcome<null>> {
+/** Adds the USDC and tBENJI trustlines a fresh wallet needs. A wallet decline throws WalletSignError. */
+export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise<TxOutcome<null>> {
   const account = await server.getAccount(signer.address);
   const b = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE });
   for (const code of which) {
     const a = code === "USDC" ? USDC : TBENJI;
     b.addOperation(Operation.changeTrust({ asset: new ClassicAsset(a.code, a.issuer) }));
   }
-  const tx = b.setTimeout(120).build();
+  const tx = b.setTimeout(SIGN_TIMEOUT_MS / 1000).build();
   emitPhase("sign");
-  const { signedTxXdr } = await signer.signTransaction(tx.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: signer.address,
-  });
+  const signedTxXdr = await signOnce(async () =>
+    (await signer.signTransaction(tx.toXDR(), { networkPassphrase: NETWORK_PASSPHRASE, address: signer.address }))
+      .signedTxXdr,
+  );
   emitPhase("submit");
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
   const sent = await server.sendTransaction(signed);
@@ -509,4 +517,23 @@ export async function addTrustlines(signer: Signer, which: ("USDC" | "tBENJI")[]
   const done = await server.pollTransaction(sent.hash, { attempts: 20 });
   if (done.status !== "SUCCESS") throw new Error(`Trustline tx ${done.status}`);
   return { hash: sent.hash, value: null };
+}
+
+/**
+ * Adds whichever of `want` the account still lacks. If the wallet declines or fails
+ * to sign, re-reads the account and asks once more (`onRetry` fires first).
+ */
+export function ensureTrustlines(
+  signer: Signer,
+  want: TrustCode[],
+  onRetry?: (err: WalletSignError, todo: TrustCode[]) => void,
+): Promise<TrustResult> {
+  return addTrustlinesWithRetry(
+    {
+      balances: () => getBalances(signer.address),
+      add: async (which) => (await addTrustlines(signer, which)).hash,
+    },
+    want,
+    { onRetry },
+  );
 }
