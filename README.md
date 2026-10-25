@@ -40,11 +40,11 @@ One design fact carries most of the compliance weight: **lenders never hold fund
 
 ## How it works
 
-One repo, end to end: 1,000 USDC for 7 days at 5% APR against tBENJI at NAV 1.00, with a 3% haircut, a 2% liquidation discount and a 10% protocol fee on interest. Amounts are rounded to cents; exact 7-decimal values are in [docs/mechanics.md §6](docs/mechanics.md#6-worked-example) and in the contract tests.
+One repo, end to end: 1,000 USDC for 7 days at 5% APR against tBENJI at NAV 1.00, with a 3% haircut, a 2.5% margin trigger, a 2% liquidation discount and a 10% protocol fee on interest. Amounts are rounded to cents; exact 7-decimal values are in [docs/mechanics.md §6](docs/mechanics.md#6-worked-example) and in the contract tests.
 
 1. **Offer.** The lender posts the offer and the 1,000 USDC moves into the contract right away. Until someone takes it, the lender can cancel and get it back.
 2. **Take (DvP).** The borrower takes the whole offer. In one transaction the contract pulls **1,031.92 tBENJI** from the borrower and pays out **1,000 USDC**. Debt is fixed at **1,000.96 USDC** (principal + full-term interest). Either both legs settle or neither does. The contract computes the collateral itself, and the borrower's signature pins the exact amount, so a NAV move between preview and submit fails the transaction instead of overcharging.
-3. **Margin.** Anyone (in practice our keeper) can call `check_margin` against a fresh NAV. If NAV falls about 1% (below roughly 0.9898), the repo goes into **MarginCall** and the borrower has a window to add collateral back to the 3% haircut line. At NAV 0.985 that is 15.71 more tBENJI.
+3. **Margin.** Anyone (in practice our keeper) can call `check_margin` against a fresh NAV. If NAV falls about 0.5% (below roughly 0.9949, the 2.5% trigger), the repo goes into **MarginCall** and the borrower has a window to add collateral back to the 3% haircut line. At NAV 0.985 that is 15.71 more tBENJI.
 4. **Repay.** At or before maturity the borrower pays 1,000.96 USDC and gets all collateral back. The lender receives **1,000.86** (4.50% net APR) and the protocol fee is **0.10**. Repaying early costs the same: the debt is fixed at take. With **auto-repay** on (the app's default), the same signature that takes the offer lets the contract pull the 1,000.96 USDC at maturity, so a borrower who forgets to press Repay still gets the collateral back as long as the USDC is in the wallet.
 5. **Default.** If the borrower hasn't repaid by maturity plus grace, or misses the margin deadline, anyone can mark the repo **Defaulted**. No price is needed for this step. For an auto-repay repo, `default` first tries to pull the debt and settles as Repaid if it can; only a borrower who is short of USDC defaults. Until a liquidator buys, the borrower can still repay the same 1,000.96 USDC and get all the collateral back.
 6. **Liquidation.** A whitelisted, issuer-approved liquidator buys all the collateral at NAV − 2%: **1,011.28 USDC** at NAV 1.00. The proceeds pay the lender's terms first, then the fee, then the surplus to the borrower (**10.32**). If proceeds fall short of the lender's terms, the lender takes everything and a `Shortfall` event records the gap on-chain.
@@ -152,9 +152,9 @@ Every state-changing call checks status first and fails with a named error other
 
 | Event | Topics | Data |
 |---|---|---|
-| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
+| `AssetConfigured` | asset | haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
 | `PauseSet` | asset | no_new_repos, no_seize |
-| `AssetChangeProposed` | asset | eta, haircut_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
+| `AssetChangeProposed` | asset | eta, haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
 | `PauseChangeProposed` | asset | eta, no_new_repos, no_seize |
 | `ProposalExecuted` | asset, kind (`asset` / `pause`) | — (followed by `AssetConfigured` / `PauseSet`) |
 | `ProposalCancelled` | asset, kind | by (cancelled, or superseded by an instant change) |
@@ -198,7 +198,8 @@ All durations are configuration, so the demo compresses time without touching co
 | `term_secs` | per offer | 420 (7 demo days) | lender's choice, 7–30 days |
 | `apr_bps` | per offer | 500 | lender's choice; quoted as a spread over T-bills (3.87%) |
 | `haircut_bps` | per asset | 300 (tBENJI), 3,000 (tSAFO, testnet only) | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000; SAFO not enabled until due diligence ([DECISIONS #26](DECISIONS.md)) |
-| `liquidation_discount_bps` | global | 200 | 50–100 bps; the demo's 2% is deliberately generous (about 190 days of fund carry). It must also pay for freeze risk and the liquidator's capital, so 50 is a floor. The contract keeps it below every haircut |
+| `margin_trigger_bps` | per asset | 250 (tBENJI, tSAFO) | BENJI/USTBL/USDY 250, EUTBL 350, CETES 600; discount ≤ trigger < haircut, enforced by the contract ([DECISIONS #26](DECISIONS.md)) |
+| `liquidation_discount_bps` | global | 200 | 50–100 bps; the demo's 2% is deliberately generous (about 190 days of fund carry). It must also pay for freeze risk and the liquidator's capital, so 50 is a floor. The contract keeps it at or below every margin trigger |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
 | `max_open_debt` | per asset | 100,000 USDC (tBENJI), 50,000 USDC (tSAFO) | BENJI/USTBL/USDY $2M, EUTBL $1M, CETES $0.5M, SAFO 0 ([DECISIONS #32](DECISIONS.md)) |
@@ -283,7 +284,7 @@ Deployed 2026-10-25T20:45:57Z. The app and the keeper read the same ids from [de
 
 ## Risks and limits
 
-- **Shortfall.** The margin call fires while a liquidation would still pay the lender in full, about a 1% NAV fall at maximum LTV. If NAV keeps falling during the margin window and the borrower doesn't top up, the lender takes the loss. At NAV 0.97 the lender gets 980.94 of the 1,000.86 owed, and a `Shortfall` event records the 19.92 gap. There is no insurance fund yet. For a stable-$1 money-market fund a 1% fall means the fund broke the buck, which is the event the margin check guards against.
+- **Shortfall.** The margin call fires at a 0.5% NAV fall at maximum LTV (NAV 0.9949, 2.5% trigger), where a liquidation still raises 0.51% more than the debt; the lender is only touched past a 1% fall (NAV 0.9898). If NAV keeps falling during the margin window and the borrower doesn't top up, the lender takes the loss. At NAV 0.97 the lender gets 980.94 of the 1,000.86 owed, and a `Shortfall` event records the 19.92 gap. There is no insurance fund yet. For a stable-$1 money-market fund a 1% fall means the fund broke the buck, which is the event the margin check guards against.
 - **Issuer dependence.** The design rests on the fund issuer authorizing the contract as a holder of record. No contract holds BENJI today; our testnet runs on a team-issued tBENJI. A freeze, clawback or de-authorization by the issuer stops repay and liquidation, and the haircut doesn't cover that.
 - **Spiko issuer controls (tSAFO / SAFO).** Every transfer checks Spiko's allowlist, so Spiko must allowlist the Caravel contract **and every liquidator**, not only borrowers; a liquidator Caravel whitelisted but Spiko did not cannot liquidate. Spiko can pause the token, which freezes repay, top-up and liquidation until it unpauses (tested: nothing is lost, every call works after). Removing a borrower from the allowlist blocks their repay; the repo then defaults and an allowlisted liquidator takes the collateral. Spiko can also upgrade the token contract. SAFO's assets are equities and bonds whose return is swapped with banks for €STR, not T-bills, hence the 30% testnet haircut; for launch SAFO stays disabled until due diligence (DECISIONS #26). Its NAV is daily and no SEP-40 feed covers it yet; the testnet tSAFO is priced by our mock oracle. Testnet only: nothing here touches mainnet.
 - **Carry.** A holder pays 5% to borrow against a fund yielding 3.87%, so versus redeeming the net cost is about 1.13% a year (~$22 per $100k per week), known up front. Caravel's first target borrower is a treasury bridging a cash gap without redeeming (crypto-native treasuries first); the second is a trader or market maker whose USDC earns more than the loan costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (6.69% on Blend), in exchange for a fixed term, a fixed rate and T-bill collateral.

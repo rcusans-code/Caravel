@@ -48,6 +48,8 @@ FEE_BPS="${FEE_BPS:-1000}"                       # 10% of interest (#3)
 LIQ_DISCOUNT_BPS="${LIQ_DISCOUNT_BPS:-200}"      # 2% liquidator discount (#4)
 HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount (#18)
 SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (testnet only, DECISIONS #29)
+MARGIN_TRIGGER_BPS="${MARGIN_TRIGGER_BPS:-250}"  # tBENJI margin call at debt > value × 97.5%; discount ≤ trigger < haircut (#26)
+SAFO_MARGIN_TRIGGER_BPS="${SAFO_MARGIN_TRIGGER_BPS:-$MARGIN_TRIGGER_BPS}" # tSAFO margin trigger (#26)
 TSAFO_DECIMALS="${TSAFO_DECIMALS:-5}"            # Spiko tokens use 5 (mainnet eurSAFO decimals())
 TSAFO_BORROWER_MINT="${TSAFO_BORROWER_MINT:-2000}" # whole tSAFO minted to BORROWER when it holds none
 TSAFO_HOLDER_MINT="${TSAFO_HOLDER_MINT:-200}"       # whole tSAFO minted to each TSAFO_HOLDERS address when it holds none
@@ -263,8 +265,8 @@ PY
     as_admin --id "$REPO_ID" -- set_asset --asset "$token" --config "$want" >/dev/null
   fi
 }
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\"}"
-TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\"}"
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"margin_trigger_bps\":$MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\"}"
+TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"margin_trigger_bps\":$SAFO_MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\"}"
 ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 

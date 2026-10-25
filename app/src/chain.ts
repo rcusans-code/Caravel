@@ -47,6 +47,8 @@ export interface ProtocolConfig {
 
 export interface AssetConfig {
   haircut_bps: bigint;
+  /** Margin call once debt > value × (1 − this) (DECISIONS.md #26); null = contract predates #26 (trigger = liquidation discount). */
+  margin_trigger_bps: bigint | null;
   enabled: boolean;
   /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
   max_nav_age_secs: bigint;
@@ -110,6 +112,7 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
   // (deployed before #25, #31 or #32). Error #8 = AssetNotSupported.
   let a: {
     haircut_bps: unknown;
+    margin_trigger_bps?: unknown;
     enabled: boolean;
     max_nav_age_secs?: unknown;
     max_open_debt?: unknown;
@@ -128,6 +131,7 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     a.max_nav_age_secs ?? ((await readRepo.config()).result as unknown as { max_nav_age_secs: unknown }).max_nav_age_secs;
   return {
     haircut_bps: big(a.haircut_bps),
+    margin_trigger_bps: a.margin_trigger_bps === undefined ? null : big(a.margin_trigger_bps),
     enabled: a.enabled,
     max_nav_age_secs: big(maxAge),
     max_open_debt: a.max_open_debt === undefined ? null : big(a.max_open_debt),

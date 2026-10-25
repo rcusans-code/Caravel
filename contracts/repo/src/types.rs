@@ -52,9 +52,16 @@ pub struct AssetConfig {
     /// How the oracle names this asset.
     pub oracle_asset: Asset,
     /// Initial LTV: `debt ≤ value × (1 − haircut)`. Always above
-    /// `Config.liquidation_discount_bps`, so a max-LTV take opens below the
-    /// margin trigger.
+    /// `margin_trigger_bps`, so a max-LTV take opens below the margin trigger.
     pub haircut_bps: u32,
+    /// Margin trigger (DECISIONS.md #14, #26): a margin call fires once
+    /// `debt > value × (1 − margin_trigger_bps)`. Must satisfy
+    /// `Config.liquidation_discount_bps ≤ margin_trigger_bps < haircut_bps`.
+    /// Above the discount, a liquidation at the call line still pays the
+    /// lender `(1 − discount) / (1 − trigger) − 1` over the debt (250 vs 200:
+    /// 0.51%), a buffer for the NAV move during the margin window. Applies to
+    /// live repos at once; raising it is a tightening (#33).
+    pub margin_trigger_bps: u32,
     /// Disabled assets reject new offers; live repos are unaffected.
     pub enabled: bool,
     /// A NAV older than this blocks `take_offer`, `check_margin` and

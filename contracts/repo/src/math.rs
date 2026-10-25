@@ -124,26 +124,27 @@ pub fn ltv_ok(
     Ok(debt <= apply_bps(value, haircut_bps)?)
 }
 
-/// Margin trigger (DECISIONS.md #14): `debt > value × (1 − liq_discount)`.
-/// Up to the trigger a liquidation at the same discount still pays the lender
-/// in full. Since haircut > discount, a take at max LTV opens below it.
+/// Margin trigger (DECISIONS.md #14, #26): `debt > value × (1 − trigger)`,
+/// with the asset's `margin_trigger_bps`. Since discount ≤ trigger, up to the
+/// trigger a liquidation at the discount still pays the lender in full; since
+/// trigger < haircut, a take at max LTV opens below it.
 pub fn margin_breached(
     debt: i128,
     collateral_amount: i128,
     nav: i128,
     nav_decimals: u32,
-    liquidation_discount_bps: u32,
+    margin_trigger_bps: u32,
 ) -> Result<bool, Error> {
     non_negative(debt)?;
     let value = collateral_value(collateral_amount, nav, nav_decimals)?;
-    Ok(debt > apply_bps(value, liquidation_discount_bps)?)
+    Ok(debt > apply_bps(value, margin_trigger_bps)?)
 }
 
 /// Smallest collateral amount with `debt ≤ value × (1 − bps)`. Rounds up.
 ///
 /// With the asset haircut: the `take_offer` amount and the top-up target that
-/// clears a margin call. With the liquidation discount: the minimum that gets
-/// a repo out of breach.
+/// clears a margin call. With the margin trigger: the minimum that gets a
+/// repo out of breach.
 pub fn required_collateral(
     debt: i128,
     nav: i128,

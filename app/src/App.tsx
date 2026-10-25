@@ -20,6 +20,7 @@ import {
   BPS,
   collateralDecimals,
   collateralValue,
+  coverPct,
   fmtAmount,
   fmtCountdown,
   fmtNav,
@@ -1287,13 +1288,13 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const held = balances ? chain.holding(balances, repo.collateral_asset).amount : null;
   const side = signer?.address === repo.borrower ? "borrowed" : "lent";
   const debt = repo.principal + repo.interest;
-  // Cover vs the margin-call line (DECISIONS.md #14): value × (1 − liq discount) ÷ debt.
-  // 100% is where check_margin fires; a max-LTV take opens just above it.
+  // Cover vs the asset's margin-call line (DECISIONS.md #14, #26); a pre-#26
+  // contract triggers on the liquidation discount.
+  const triggerBps = ctx.assets[repo.collateral_asset]?.margin_trigger_bps ?? config?.liquidation_discount_bps ?? null;
   const cover = useMemo(() => {
-    if (!nav || !config || debt === 0n) return null;
-    const v = collateralValue(repo.collateral_amount, nav.price, dec);
-    return Number((v * (BPS - config.liquidation_discount_bps) * 10_000n) / (debt * BPS)) / 100;
-  }, [nav, dec, config, repo, debt]);
+    if (!nav || triggerBps === null) return null;
+    return coverPct(collateralValue(repo.collateral_amount, nav.price, dec), debt, triggerBps);
+  }, [nav, dec, triggerBps, repo, debt]);
   const coverRef = useFlash(cover, (a, b) => (b > a ? "up" : b < a ? "down" : undefined));
   // Top-up to clear a margin call: back to initial margin at the repo's own haircut (DECISIONS.md #20).
   const topUpNeed = useMemo(() => {

@@ -15,7 +15,8 @@ use crate::{
     events,
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
     test::{
-        demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, UNIT, WIDE_BAND_BPS,
+        demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, TRIGGER_BPS, UNIT,
+        WIDE_BAND_BPS,
     },
     Asset, AssetConfig, CaravelRepo, CaravelRepoClient, DefaultReason, Error, Status,
 };
@@ -40,6 +41,7 @@ fn asset_cfg(token: &Address, max_nav_move_bps: u32) -> AssetConfig {
     AssetConfig {
         oracle_asset: Asset::Stellar(token.clone()),
         haircut_bps: 300,
+        margin_trigger_bps: TRIGGER_BPS,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
         max_nav_move_bps,
