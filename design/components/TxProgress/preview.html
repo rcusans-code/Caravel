@@ -1,0 +1,20 @@
+<!-- @dsCard group="Motion" height=150 subtitle="Sign, submit, settle: done steps fill, the active step carries the tide" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div style="max-width:560px" class="cv-stack">
+<ol class="cv-txprog" id="tx" aria-label="Transaction progress">
+  <li class="cv-txprog__step is-done"><span class="cv-txprog__label">Sign</span><span class="cv-txprog__meta">in wallet</span></li>
+  <li class="cv-txprog__step is-active" aria-current="step"><span class="cv-txprog__label">Submit</span><span class="cv-txprog__meta">to Stellar</span></li>
+  <li class="cv-txprog__step"><span class="cv-txprog__label">Settled</span><span class="cv-txprog__meta">≈5 s</span></li>
+</ol>
+<div class="cv-row"><button class="cv-btn cv-btn--secondary cv-btn--sm" type="button" id="next">Next step</button></div>
+</div>
+<script>
+(function(){var steps=[].slice.call(document.querySelectorAll("#tx .cv-txprog__step")),i=1;
+function paint(){steps.forEach(function(s,k){s.classList.toggle("is-done",k<i||i>=steps.length);s.classList.toggle("is-active",k===i);if(k===i)s.setAttribute("aria-current","step");else s.removeAttribute("aria-current");});}
+document.getElementById("next").addEventListener("click",function(){i=(i+1)%(steps.length+1);paint();});})();
+</script>
+</body>
+</html>
