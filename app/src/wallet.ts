@@ -42,6 +42,8 @@ const theme: SwkAppTheme = {
   "font-family": "var(--font-sans)",
 };
 
+const DEMO_ROLE_KEY = "caravel.demoRole";
+
 let kitReady = false;
 function kit() {
   if (!kitReady) {
@@ -65,9 +67,18 @@ export async function connectWallet(): Promise<Signer> {
       );
     }
   } catch (e) {
-    if (e instanceof WrongNetworkError) throw e;
+    if (e instanceof WrongNetworkError) {
+      await k.disconnect().catch(() => undefined); // don't restore a rejected wallet on reload
+      throw e;
+    }
     // Some wallets (Albedo, xBull PWA) cannot report their network; signing pins it anyway.
   }
+  localStorage.removeItem(DEMO_ROLE_KEY);
+  return walletSigner(address);
+}
+
+function walletSigner(address: string): Signer {
+  const k = kit();
   const label = (() => {
     try {
       return k.selectedModule?.productName ?? "Wallet";
@@ -84,7 +95,32 @@ export async function connectWallet(): Promise<Signer> {
   };
 }
 
+/**
+ * Restores the last session after a page reload without opening any wallet popup.
+ * The kit keeps the picked wallet and address in localStorage; the demo role is ours.
+ */
+export async function restoreSession(): Promise<Signer | null> {
+  const role = localStorage.getItem(DEMO_ROLE_KEY) as DemoRole | null;
+  if (role) {
+    try {
+      return demoSigner(role);
+    } catch {
+      localStorage.removeItem(DEMO_ROLE_KEY);
+      return null;
+    }
+  }
+  try {
+    const k = kit();
+    k.selectedModule; // throws when no wallet was picked before
+    const { address } = await k.getAddress(); // reads the stored address, no prompt
+    return walletSigner(address);
+  } catch {
+    return null;
+  }
+}
+
 export async function disconnectWallet() {
+  localStorage.removeItem(DEMO_ROLE_KEY);
   if (kitReady) await StellarWalletsKit.disconnect().catch(() => undefined);
 }
 
@@ -93,6 +129,7 @@ export async function disconnectWallet() {
 export function demoSigner(role: DemoRole): Signer {
   if (!DEMO_KEYS?.[role]) throw new Error("Demo signer is off. Start the app with VITE_DEMO_SIGNER=1.");
   const kp = Keypair.fromSecret(DEMO_KEYS[role]);
+  localStorage.setItem(DEMO_ROLE_KEY, role);
   const s = basicNodeSigner(kp, NETWORK_PASSPHRASE);
   return {
     address: kp.publicKey(),
