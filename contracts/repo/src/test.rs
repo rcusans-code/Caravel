@@ -222,7 +222,7 @@ impl World<'_> {
 
     fn take(&self) -> u64 {
         let offer_id = self.offer();
-        self.repo.take_offer(&self.borrower, &offer_id)
+        self.repo.take_offer(&self.borrower, &offer_id, &false)
     }
 
     fn set_status(&self, repo_id: u64, status: Status) {
@@ -455,6 +455,7 @@ fn opened_repo(w: &World) -> Repo {
         maturity_ts: NOW + TERM_SECS,
         margin_call_deadline: None,
         status: Status::Open,
+        auto_repay: false,
     }
 }
 
@@ -462,7 +463,7 @@ fn opened_repo(w: &World) -> Repo {
 fn take_offer_is_atomic_dvp() {
     let w = world();
     let offer_id = w.offer();
-    let repo_id = w.repo.take_offer(&w.borrower, &offer_id);
+    let repo_id = w.repo.take_offer(&w.borrower, &offer_id, &false);
     assert_eq!(repo_id, 1);
 
     let event = events::RepoOpened {
@@ -476,6 +477,7 @@ fn take_offer_is_atomic_dvp() {
         interest: INTEREST,
         haircut_bps: 300,
         maturity_ts: NOW + TERM_SECS,
+        auto_repay: false,
     };
     assert_eq!(
         w.env.events().all().filter_by_contract(&w.repo.address),
@@ -512,7 +514,7 @@ fn take_offer_collateral_follows_nav() {
 /// The borrower signs `take_offer` with the exact tBENJI transfer nested
 /// inside it, so the wallet pins the collateral amount (#21).
 fn take_with_signed_amount(w: &World, offer_id: u64, amount: i128) -> bool {
-    let take_args = (w.borrower.clone(), offer_id).into_val(&w.env);
+    let take_args = (w.borrower.clone(), offer_id, false).into_val(&w.env);
     let transfer_args = (w.borrower.clone(), w.repo.address.clone(), amount).into_val(&w.env);
     let transfer = MockAuthInvoke {
         contract: &w.tbenji,
@@ -529,7 +531,7 @@ fn take_with_signed_amount(w: &World, offer_id: u64, amount: i128) -> bool {
             sub_invokes: &[transfer],
         },
     }]);
-    let ok = w.repo.try_take_offer(&w.borrower, &offer_id).is_ok();
+    let ok = w.repo.try_take_offer(&w.borrower, &offer_id, &false).is_ok();
     w.env.mock_all_auths();
     ok
 }
@@ -558,7 +560,7 @@ fn take_offer_requires_borrower_auth() {
     let w = world();
     let offer_id = w.offer();
     w.env.set_auths(&[]);
-    assert!(w.repo.try_take_offer(&w.borrower, &offer_id).is_err());
+    assert!(w.repo.try_take_offer(&w.borrower, &offer_id, &false).is_err());
     assert_eq!(w.repo.offer(&offer_id).id, offer_id);
 }
 
@@ -570,13 +572,13 @@ fn take_offer_rejects_stale_nav() {
     // demo max_nav_age_secs = 180
     w.set_nav(ONE, NOW - 181);
     assert_eq!(
-        w.repo.try_take_offer(&w.borrower, &offer_id),
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
         Err(Ok(Error::StaleNav))
     );
 
     // Exactly at the limit is still fresh.
     w.set_nav(ONE, NOW - 180);
-    assert_eq!(w.repo.take_offer(&w.borrower, &offer_id), 1);
+    assert_eq!(w.repo.take_offer(&w.borrower, &offer_id, &false), 1);
 }
 
 #[test]
@@ -585,7 +587,7 @@ fn take_offer_rejects_missing_price() {
     let offer_id = w.offer();
     w.set_nav(0, NOW);
     assert_eq!(
-        w.repo.try_take_offer(&w.borrower, &offer_id),
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
         Err(Ok(Error::NoPrice))
     );
 }
@@ -604,7 +606,7 @@ fn take_offer_rejects_asset_disabled_after_offer() {
         },
     );
     assert_eq!(
-        w.repo.try_take_offer(&w.borrower, &offer_id),
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
         Err(Ok(Error::AssetNotSupported))
     );
     // The lender can still get out.
@@ -618,7 +620,7 @@ fn take_offer_fails_without_enough_collateral() {
     let offer_id = w.offer();
     let poor = Address::generate(&w.env);
     StellarAssetClient::new(&w.env, &w.tbenji).mint(&poor, &(TAKE_COLLATERAL - 1));
-    assert!(w.repo.try_take_offer(&poor, &offer_id).is_err());
+    assert!(w.repo.try_take_offer(&poor, &offer_id, &false).is_err());
     assert_eq!(w.tbenji_token.balance(&poor), TAKE_COLLATERAL - 1);
     assert_eq!(w.usdc.balance(&w.repo.address), PRINCIPAL);
     assert_eq!(w.repo.try_repo(&1), Err(Ok(Error::RepoNotFound)));
@@ -628,9 +630,9 @@ fn take_offer_fails_without_enough_collateral() {
 fn offer_can_be_taken_only_once() {
     let w = world();
     let offer_id = w.offer();
-    w.repo.take_offer(&w.borrower, &offer_id);
+    w.repo.take_offer(&w.borrower, &offer_id, &false);
     assert_eq!(
-        w.repo.try_take_offer(&w.borrower, &offer_id),
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
         Err(Ok(Error::OfferNotFound))
     );
     assert_eq!(
@@ -638,7 +640,7 @@ fn offer_can_be_taken_only_once() {
         Err(Ok(Error::OfferNotFound))
     );
     assert_eq!(
-        w.repo.try_take_offer(&w.borrower, &99),
+        w.repo.try_take_offer(&w.borrower, &99, &false),
         Err(Ok(Error::OfferNotFound))
     );
 }
@@ -671,6 +673,7 @@ fn repay_pays_lender_exact_offer_terms() {
         repo_id,
         lender_amount: LENDER_DUE,
         fee: FEE,
+        automatic: false,
     };
     assert_eq!(
         w.env.events().all().filter_by_contract(&w.repo.address),
@@ -848,6 +851,261 @@ fn defaulted_repo_cannot_be_repaid() {
     let w = world();
     let repo_id = w.defaulted();
     assert_eq!(w.repo.try_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
+}
+
+// --- auto-repay (#27) ----------------------------------------------------------
+
+impl World<'_> {
+    fn take_auto(&self) -> u64 {
+        let offer_id = self.offer();
+        self.repo.take_offer(&self.borrower, &offer_id, &true)
+    }
+
+    fn allowance(&self) -> i128 {
+        self.usdc.allowance(&self.borrower, &self.repo.address)
+    }
+
+    /// Balances after a repo taken at NOW was repaid, by hand or automatically.
+    fn assert_repaid(&self, repo_id: u64) {
+        assert_eq!(self.repo.repo(&repo_id).status, Status::Repaid);
+        assert_eq!(
+            self.usdc.balance(&self.lender),
+            10_000 * UNIT - PRINCIPAL + LENDER_DUE
+        );
+        assert_eq!(self.usdc.balance(&self.treasury), FEE);
+        assert_eq!(self.usdc.balance(&self.borrower), 100 * UNIT - INTEREST);
+        assert_eq!(self.tbenji_token.balance(&self.borrower), 2_000 * UNIT);
+        assert_eq!(self.usdc.balance(&self.repo.address), 0);
+        assert_eq!(self.tbenji_token.balance(&self.repo.address), 0);
+    }
+}
+
+#[test]
+fn take_with_auto_repay_approves_the_debt() {
+    let w = world();
+    let repo_id = w.take_auto();
+    let opened = events::RepoOpened {
+        repo_id,
+        offer_id: 1,
+        lender: w.lender.clone(),
+        borrower: w.borrower.clone(),
+        collateral_asset: w.tbenji.clone(),
+        collateral_amount: TAKE_COLLATERAL,
+        principal: PRINCIPAL,
+        interest: INTEREST,
+        haircut_bps: 300,
+        maturity_ts: NOW + TERM_SECS,
+        auto_repay: true,
+    };
+    assert_eq!(
+        w.env.events().all().filter_by_contract(&w.repo.address),
+        [opened.to_xdr(&w.env, &w.repo.address)]
+    );
+    assert!(w.repo.repo(&repo_id).auto_repay);
+    assert_eq!(w.allowance(), DEBT);
+}
+
+#[test]
+fn take_without_auto_repay_approves_nothing() {
+    let w = world();
+    let repo_id = w.take();
+    assert!(!w.repo.repo(&repo_id).auto_repay);
+    assert_eq!(w.allowance(), 0);
+}
+
+#[test]
+fn auto_repay_at_maturity_returns_collateral() {
+    let w = world();
+    let repo_id = w.take_auto();
+
+    w.set_time(NOW + TERM_SECS - 1);
+    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::NotDue)));
+
+    w.set_time(NOW + TERM_SECS);
+    w.env.set_auths(&[]); // anyone, no signature: the keeper
+    w.repo.auto_repay(&repo_id);
+    assert_eq!(
+        w.env.events().all().filter_by_contract(&w.repo.address),
+        [events::Repaid {
+            repo_id,
+            lender_amount: LENDER_DUE,
+            fee: FEE,
+            automatic: true,
+        }
+        .to_xdr(&w.env, &w.repo.address)]
+    );
+    w.assert_repaid(repo_id);
+    assert_eq!(w.allowance(), 0);
+    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
+}
+
+#[test]
+fn auto_repay_needs_opt_in() {
+    let w = world();
+    let repo_id = w.take();
+    w.set_time(NOW + TERM_SECS);
+    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::AutoRepayOff)));
+    assert_eq!(w.repo.try_auto_repay(&99), Err(Ok(Error::RepoNotFound)));
+}
+
+#[test]
+fn default_auto_repays_an_opted_in_borrower() {
+    // Nobody called `auto_repay`; whoever calls `default` settles it instead.
+    let w = world();
+    let repo_id = w.take_auto();
+    w.set_time(MATURED);
+    w.env.set_auths(&[]);
+    assert_eq!(w.repo.default(&repo_id), Status::Repaid);
+    w.assert_repaid(repo_id);
+}
+
+#[test]
+fn short_borrower_still_defaults() {
+    let w = world();
+    let repo_id = w.take_auto();
+    // Spent the loan: one stroop short of the debt.
+    let keep = DEBT - 1;
+    let spend = w.usdc.balance(&w.borrower) - keep;
+    w.usdc.transfer(&w.borrower, Address::generate(&w.env), &spend);
+
+    w.set_time(NOW + TERM_SECS);
+    assert_eq!(
+        w.repo.try_auto_repay(&repo_id),
+        Err(Ok(Error::AutoRepayFailed))
+    );
+    // Nothing moved; the borrower can still repay by hand during grace.
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
+    assert_eq!(w.usdc.balance(&w.borrower), keep);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(w.usdc.balance(&w.borrower), keep);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+#[test]
+fn auto_repay_instead_of_missed_margin_call_default() {
+    let w = world();
+    let repo_id = w.take_auto();
+    let deadline = NOW + 200; // well before maturity
+    w.margin_call(repo_id, deadline);
+
+    w.set_time(deadline);
+    assert_eq!(w.repo.try_auto_repay(&repo_id), Err(Ok(Error::NotDue)));
+    w.set_time(deadline + 1);
+    w.repo.auto_repay(&repo_id);
+    w.assert_repaid(repo_id);
+}
+
+#[test]
+fn expired_allowance_falls_back_to_default() {
+    let w = world();
+    let repo_id = w.take_auto();
+    // Keeper down for days: the allowance lapsed before anyone called default.
+    w.env.ledger().set_sequence_number(w.env.ledger().sequence() + 100_000);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+}
+
+#[test]
+fn set_auto_repay_toggles_the_allowance() {
+    let w = world();
+    let repo_id = w.take();
+
+    w.repo.set_auto_repay(&repo_id, &true);
+    assert_eq!(
+        w.env.events().all().filter_by_contract(&w.repo.address),
+        [events::AutoRepaySet {
+            repo_id,
+            enabled: true
+        }
+        .to_xdr(&w.env, &w.repo.address)]
+    );
+    assert!(w.repo.repo(&repo_id).auto_repay);
+    assert_eq!(w.allowance(), DEBT);
+    w.repo.set_auto_repay(&repo_id, &true); // no-op, no double allowance
+    assert_eq!(w.allowance(), DEBT);
+
+    w.repo.set_auto_repay(&repo_id, &false);
+    assert!(!w.repo.repo(&repo_id).auto_repay);
+    assert_eq!(w.allowance(), 0);
+}
+
+#[test]
+fn borrower_who_forgot_can_opt_in_during_grace() {
+    let w = world();
+    let repo_id = w.take();
+    w.set_time(NOW + TERM_SECS + 30);
+    w.repo.set_auto_repay(&repo_id, &true);
+    w.repo.auto_repay(&repo_id);
+    w.assert_repaid(repo_id);
+}
+
+#[test]
+fn set_auto_repay_requires_borrower_auth() {
+    let w = world();
+    let repo_id = w.take();
+    w.env.set_auths(&[]);
+    assert!(w.repo.try_set_auto_repay(&repo_id, &true).is_err());
+    assert!(!w.repo.repo(&repo_id).auto_repay);
+}
+
+#[test]
+fn set_auto_repay_only_on_live_repos() {
+    let w = world();
+    let repo_id = w.take();
+    for status in [Status::Repaid, Status::Defaulted, Status::Liquidated] {
+        w.set_status(repo_id, status);
+        assert_eq!(
+            w.repo.try_set_auto_repay(&repo_id, &true),
+            Err(Ok(Error::InvalidStatus))
+        );
+    }
+}
+
+#[test]
+fn manual_repay_releases_the_allowance() {
+    let w = world();
+    let repo_id = w.take_auto();
+    w.repo.repay(&repo_id);
+    w.assert_repaid(repo_id);
+    assert_eq!(w.allowance(), 0);
+}
+
+#[test]
+fn one_allowance_covers_every_opted_in_repo() {
+    let w = world();
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&w.borrower, &(2_000 * UNIT));
+    StellarAssetClient::new(&w.env, &w.usdc.address).mint(&w.lender, &(1_000 * UNIT));
+    let first = w.take_auto();
+    let second = w.take_auto();
+    assert_eq!(w.allowance(), 2 * DEBT);
+
+    w.set_time(NOW + TERM_SECS);
+    w.repo.auto_repay(&first);
+    assert_eq!(w.allowance(), DEBT);
+    w.repo.auto_repay(&second);
+    assert_eq!(w.allowance(), 0);
+    assert_eq!(w.repo.repo(&second).status, Status::Repaid);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), 0);
+}
+
+#[test]
+fn allowance_expiry_is_stable_between_simulate_and_submit() {
+    use crate::autorepay::expiry;
+    let secs = TERM_SECS + GRACE_SECS;
+    let max_ttl = 3_110_400; // ~180 days, the network cap
+    let at = |seq| expiry(seq, secs, max_ttl);
+    // A tx lands a few ledgers after it was simulated: same signed expiry.
+    let seq = 1_000_000;
+    assert!((seq..seq + 10).all(|s| at(s) == at(seq)));
+    // Covers maturity + grace + a day, in whole buckets.
+    assert!(at(seq) >= seq + (secs / 4) as u32 + 17_280);
+    assert_eq!(at(seq) % 4_096, 0);
+    // A year-long term is capped at what the network accepts.
+    let long = expiry(seq, 365 * 86_400, max_ttl);
+    assert!(long < seq + max_ttl);
 }
 
 // --- liquidate ----------------------------------------------------------------
