@@ -69,7 +69,8 @@ view()      { stellar contract invoke -q --source-account "$ADMIN_ADDRESS" --sen
 set_env() { # set_env KEY VALUE: replace in place or append
   local k="$1" v="$2"
   if grep -q "^${k}=" "$ENV_FILE"; then
-    sed -i "s|^${k}=.*|${k}=${v}|" "$ENV_FILE"
+    # -i.bak, not -i: GNU and BSD (macOS) sed both accept it.
+    sed -i.bak "s|^${k}=.*|${k}=${v}|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
   else
     printf '%s=%s\n' "$k" "$v" >> "$ENV_FILE"
   fi
