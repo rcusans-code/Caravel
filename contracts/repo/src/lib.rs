@@ -66,6 +66,13 @@ impl CaravelRepo {
         storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)
     }
 
+    /// Debt (principal + interest) of live repos on `asset`, the amount
+    /// counted against `AssetConfig.max_open_debt` (#30). 0 for an unknown asset.
+    pub fn open_debt(env: Env, asset: Address) -> i128 {
+        storage::extend_instance(&env);
+        storage::read_open_debt(&env, &asset)
+    }
+
     // --- admin ------------------------------------------------------------
 
     pub fn set_liquidator(env: Env, liquidator: Address, allowed: bool) {
@@ -77,13 +84,17 @@ impl CaravelRepo {
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
     /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
     /// haircut means a take at max LTV opens strictly below the margin trigger.
-    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25).
+    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25) and
+    /// `max_open_debt ≥ 0` (#30). Re-setting an asset keeps its open debt;
+    /// a cap below it only stops new takes. Plain admin setter for now: the
+    /// guardian (lower instantly, raise behind a timelock) is GitHub issue #27.
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         if config.haircut_bps <= protocol.liquidation_discount_bps
             || config.haircut_bps as i128 >= math::BPS
             || config.max_nav_age_secs == 0
+            || config.max_open_debt < 0
         {
             return Err(Error::InvalidConfig);
         }
@@ -94,6 +105,7 @@ impl CaravelRepo {
             haircut_bps: config.haircut_bps,
             enabled: config.enabled,
             max_nav_age_secs: config.max_nav_age_secs,
+            max_open_debt: config.max_open_debt,
         }
         .publish(&env);
         Ok(())
@@ -189,7 +201,9 @@ impl CaravelRepo {
     /// simulate and submit the tx fails instead of overcharging (#21).
     ///
     /// Rejects stale NAV (#6) and an asset disabled since the offer was
-    /// posted (#23). The haircut is snapshotted on the repo (#19).
+    /// posted (#23). The haircut is snapshotted on the repo (#19). Rejects
+    /// with `CapExceeded` if the asset's open debt plus this debt would pass
+    /// `max_open_debt` (#30); the offer stays on the board.
     ///
     /// `auto_repay` opts in to auto-repay (#27): the same signature also
     /// approves this contract to pull the debt in USDC from maturity.
@@ -221,6 +235,13 @@ impl CaravelRepo {
         if !math::ltv_ok(debt, collateral, nav, nav_decimals, asset.haircut_bps)? {
             return Err(Error::InsufficientCollateral);
         }
+        // Exposure cap (#30): exactly at the cap passes, one unit over fails.
+        let open_debt = storage::read_open_debt(&env, &offer.collateral_asset)
+            .checked_add(debt)
+            .ok_or(Error::MathOverflow)?;
+        if open_debt > asset.max_open_debt {
+            return Err(Error::CapExceeded);
+        }
 
         let now = env.ledger().timestamp();
         let repo = Repo {
@@ -244,6 +265,7 @@ impl CaravelRepo {
         // The offer is gone once taken: no double take, no cancel after take.
         storage::remove_offer(&env, offer_id);
         storage::write_repo(&env, &repo);
+        storage::write_open_debt(&env, &repo.collateral_asset, open_debt);
         storage::extend_instance(&env);
 
         let this = env.current_contract_address();
@@ -297,6 +319,7 @@ impl CaravelRepo {
 
         repo.status = Status::Repaid;
         storage::write_repo(&env, &repo);
+        storage::release_open_debt(&env, &repo.collateral_asset, debt);
         storage::extend_instance(&env);
 
         let usdc = token::Client::new(&env, &config.usdc);
@@ -456,6 +479,13 @@ impl CaravelRepo {
 
         repo.status = Status::Liquidated;
         storage::write_repo(&env, &repo);
+        // The whole debt leaves the book, shortfall or not: the lender's loss
+        // is not exposure the protocol still carries.
+        storage::release_open_debt(
+            &env,
+            &repo.collateral_asset,
+            repo.principal.saturating_add(repo.interest),
+        );
         storage::extend_instance(&env);
 
         let usdc = token::Client::new(&env, &config.usdc);

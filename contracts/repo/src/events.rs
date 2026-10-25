@@ -12,6 +12,7 @@ pub struct AssetConfigured {
     pub haircut_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
+    pub max_open_debt: i128,
 }
 
 #[contractevent]

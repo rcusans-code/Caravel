@@ -79,6 +79,8 @@ export interface AssetConfig {
   enabled: boolean;
   /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
   max_nav_age_secs: bigint;
+  /** Exposure cap: max debt of live repos on this asset, USDC units (DECISIONS.md #30). 0 = no new repos; null = contract predates #30. */
+  max_open_debt: bigint | null;
 }
 
 export interface Nav {
@@ -142,13 +144,34 @@ export async function getConfig(): Promise<ProtocolConfig> {
 }
 
 export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
-  const r = (await readRepo.asset({ asset: sac })).result;
-  if (r.isErr()) return null;
-  const a: { haircut_bps: unknown; enabled: boolean; max_nav_age_secs?: unknown } = r.unwrap();
+  // Raw read, not the typed binding: the binding decodes AssetConfig by
+  // position, so it throws on a contract whose struct has fewer fields
+  // (deployed before #25 or #30). Error #8 = AssetNotSupported.
+  let a: { haircut_bps: unknown; enabled: boolean; max_nav_age_secs?: unknown; max_open_debt?: unknown };
+  try {
+    a = await simulateView(REPO_ID, "asset", new Address(sac).toScVal());
+  } catch (e) {
+    if (/Error\(Contract, #8\)/.test(String((e as Error)?.message ?? e))) return null;
+    throw e;
+  }
   // Contracts deployed before DECISIONS.md #25 keep max_nav_age_secs in config().
   const maxAge =
     a.max_nav_age_secs ?? ((await readRepo.config()).result as unknown as { max_nav_age_secs: unknown }).max_nav_age_secs;
-  return { haircut_bps: big(a.haircut_bps), enabled: a.enabled, max_nav_age_secs: big(maxAge) };
+  return {
+    haircut_bps: big(a.haircut_bps),
+    enabled: a.enabled,
+    max_nav_age_secs: big(maxAge),
+    max_open_debt: a.max_open_debt === undefined ? null : big(a.max_open_debt),
+  };
+}
+
+/** Debt of live repos on this collateral (#30); null on a contract without open_debt(). */
+export async function getOpenDebt(sac: string): Promise<bigint | null> {
+  try {
+    return big((await readRepo.open_debt({ asset: sac })).result);
+  } catch {
+    return null;
+  }
 }
 
 export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {

@@ -25,4 +25,6 @@ pub enum Error {
     NotDue = 15,
     /// The USDC pull failed: short balance, allowance too small or expired.
     AutoRepayFailed = 16,
+    /// `take_offer` would push the asset's open debt past `max_open_debt`.
+    CapExceeded = 17,
 }

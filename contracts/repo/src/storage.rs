@@ -1,5 +1,5 @@
-//! Storage layout: instance = config, counters and asset configs (few
-//! entries, they share the instance TTL), persistent = offers,
+//! Storage layout: instance = config, counters, asset configs and per-asset
+//! open debt (few entries, they share the instance TTL), persistent = offers,
 //! repos, the liquidator whitelist and auto-repay allowance expiries. Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
@@ -25,6 +25,9 @@ pub enum DataKey {
     NextOfferId,
     NextRepoId,
     Asset(Address),
+    /// Debt of live repos on this collateral asset (#30). Kept apart from
+    /// `Asset` so `set_asset` never resets it.
+    OpenDebt(Address),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -68,6 +71,29 @@ pub fn write_asset(env: &Env, asset: &Address, config: &AssetConfig) {
     env.storage()
         .instance()
         .set(&DataKey::Asset(asset.clone()), config);
+}
+
+// --- exposure (#30) ---------------------------------------------------------
+
+pub fn read_open_debt(env: &Env, asset: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::OpenDebt(asset.clone()))
+        .unwrap_or(0)
+}
+
+pub fn write_open_debt(env: &Env, asset: &Address, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::OpenDebt(asset.clone()), &amount);
+}
+
+/// A repo left the book (repaid, auto-repaid or liquidated, shortfall or not):
+/// frees its whole debt. Floors at 0 and never errors, so the counter can
+/// never block an exit.
+pub fn release_open_debt(env: &Env, asset: &Address, debt: i128) {
+    let left = read_open_debt(env, asset).saturating_sub(debt).max(0);
+    write_open_debt(env, asset, left);
 }
 
 // --- ids ------------------------------------------------------------------
