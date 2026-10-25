@@ -11,6 +11,10 @@
 //! - The debt is pulled in one `transfer_from` into the contract and paid out
 //!   from there, so a failed pull (short balance, allowance expired, frozen
 //!   trustline) moves nothing and the repo stays live: it defaults as before.
+//!   The collateral goes back next; if that push fails (borrower frozen on
+//!   the collateral token) the USDC is refunded and the repo defaults as
+//!   before instead of reverting `default`. Lender and treasury payouts that
+//!   fail are parked for `claim` (see `payout`).
 //!
 //! One SAC allowance per borrower covers all their opted-in repos: it is sized
 //! to the sum of their debts, and its expiry is the latest any of them needs.
@@ -21,7 +25,7 @@ use soroban_sdk::{token, Address, Env};
 
 use crate::{
     errors::Error,
-    events, math, storage,
+    events, math, payout, storage,
     types::{Config, Repo, Status},
 };
 
@@ -108,7 +112,10 @@ pub fn margin_missed(repo: &Repo, now: u64) -> bool {
 }
 
 /// Pulls the debt from the borrower and settles the repo as `Repaid`, exactly
-/// like `repay`. Returns `false`, having moved nothing, if the pull fails.
+/// like `repay`. Returns `false` if the pull fails (nothing moved) or the
+/// collateral cannot be returned (the pulled USDC is refunded; the spent
+/// allowance was this repo's share, so the borrower's other opted-in repos
+/// keep their cover). Either way the caller may then default the repo.
 pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, Error> {
     let debt = math::debt(repo.principal, repo.interest)?;
     let split = math::waterfall(debt, repo.principal, repo.interest, config.fee_bps)?;
@@ -121,21 +128,27 @@ pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, E
     ) {
         return Ok(false);
     }
+    // Collateral legs stay push (#24): a borrower who cannot receive it
+    // cannot be auto-repaid, but must not block the default either.
+    if !matches!(
+        token::Client::new(env, &repo.collateral_asset).try_transfer(
+            &this,
+            &repo.borrower,
+            &repo.collateral_amount,
+        ),
+        Ok(Ok(()))
+    ) {
+        usdc.transfer(&this, &repo.borrower, &debt);
+        return Ok(false);
+    }
 
     repo.status = Status::Repaid;
     storage::write_repo(env, repo);
     storage::release_open_debt(env, &repo.collateral_asset, debt);
     storage::extend_instance(env);
 
-    usdc.transfer(&this, &repo.lender, &split.lender);
-    if split.fee > 0 {
-        usdc.transfer(&this, &config.treasury, &split.fee);
-    }
-    token::Client::new(env, &repo.collateral_asset).transfer(
-        &this,
-        &repo.borrower,
-        &repo.collateral_amount,
-    );
+    payout::pay_or_park(env, &usdc, &repo.lender, split.lender, repo.id);
+    payout::pay_or_park(env, &usdc, &config.treasury, split.fee, repo.id);
 
     events::Repaid {
         repo_id: repo.id,

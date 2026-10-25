@@ -130,13 +130,14 @@ stateDiagram-v2
 | `create_offer(lender, collateral_asset, principal, apr_bps, term_secs) → offer_id` | lender | → offer | no | lender USDC → contract |
 | `cancel_offer(offer_id)` | the offer's lender | offer removed | no | contract USDC → lender |
 | `take_offer(borrower, offer_id, auto_repay) → repo_id` | borrower | offer → Open | **yes** | borrower collateral → contract; contract USDC → borrower; with `auto_repay`, a USDC allowance for the debt |
-| `repay(repo_id)` | borrower | Open / MarginCall / Defaulted → Repaid | no | borrower USDC → lender (`P + I − fee`) and treasury (`fee`); collateral → borrower |
+| `repay(repo_id)` | borrower | Open / MarginCall / Defaulted → Repaid | no | borrower USDC → contract → lender (`P + I − fee`) and treasury (`fee`), a failed payout parked for `claim`; collateral → borrower |
 | `set_auto_repay(repo_id, enabled)` | borrower | — | no | USDC allowance for the debt granted / withdrawn |
-| `auto_repay(repo_id)` | anyone, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, pulled from the allowance; fails with `AutoRepayFailed` and moves nothing if the borrower is short |
+| `auto_repay(repo_id)` | anyone, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, pulled from the allowance; fails with `AutoRepayFailed` and moves nothing if the borrower is short or cannot receive the collateral |
 | `top_up(repo_id, amount)` | borrower | MarginCall → Open at the haircut line | no | borrower collateral → contract |
 | `check_margin(repo_id) → Status` | anyone | Open → MarginCall on breach; deadline set once | **yes** | none |
 | `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull; a missed MarginCall → Open when a fresh NAV shows it recovered (#20) | maturity: no; missed MarginCall: yes (clears or confirms the breach, else `StaleNav` / `NavOutOfBand`) | none, or as `auto_repay` |
-| `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → lender, treasury, borrower; collateral → liquidator |
+| `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → contract → lender, treasury, borrower, a failed payout parked for `claim`; collateral → liquidator |
+| `claim(who) → amount` | anyone with a parked payout | — | no | contract USDC → `who` (its whole parked balance; `NothingToClaim` if none) |
 | `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness, NAV band and exposure cap; DECISIONS #13, #31, #32). Instant for a first listing or a change that only tightens; a loosening fails with `Loosens` (DECISIONS #33) |
 | `set_liquidator(who, allowed)` | admin | — | — | — |
 | `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — (instant for switching on; clearing fails with `Loosens`) |
@@ -144,7 +145,7 @@ stateDiagram-v2
 | `propose_asset(asset, config) → eta`, `propose_pause(asset, pause) → eta` | admin | — | — | — (queues any change, loosening included, for `timelock_secs`) |
 | `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` | — | — | — |
 | `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin or guardian, any time | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `is_liquidator(who)` | anyone | read only | — | — |
+| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `is_liquidator(who)`, `claimable(who)` | anyone | read only | — | — |
 
 Every state-changing call checks status first and fails with a named error otherwise. An offer can be taken once; a repo can be repaid, defaulted or liquidated once.
 
@@ -168,6 +169,8 @@ Every state-changing call checks status first and fails with a named error other
 | `Defaulted` | repo_id | — |
 | `Liquidated` | repo_id, liquidator | proceeds, lender_amount, fee, borrower_amount |
 | `Shortfall` | repo_id | amount the lender is still owed |
+| `PayoutParked` | repo_id, to | amount (a USDC payout to `to` failed, e.g. frozen account; kept for `claim`) |
+| `Claimed` | who | amount |
 
 ### Units and rounding
 
@@ -183,6 +186,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **No action on an implausible price.** The same three calls fail with `NavOutOfBand` when the latest NAV is more than the asset's `max_nav_move_bps` from any of the feed's last 20 records, or outside its optional `nav_floor` / `nav_ceiling` (DECISIONS #31). Re-posting a bad price doesn't hide the jump. `repay` and `top_up` still work.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
+- **A frozen account never traps the other side.** Every USDC payout from a settlement (lender, treasury, borrower surplus) is tried and, if the recipient cannot receive it (Circle freeze, closed trustline), parked in the contract for that recipient's `claim`; the repay, auto-repay or liquidation still lands. Collateral payouts stay direct (DECISIONS #24): an auto-repay that cannot return the collateral refunds the USDC and the repo defaults instead.
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta`, and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 

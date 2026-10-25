@@ -67,6 +67,8 @@ export default function App() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [liquidatorOk, setLiquidatorOk] = useState(false);
+  // USDC a settlement could not push to this account, waiting for claim().
+  const [claimable, setClaimable] = useState(0n);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState<Tab>("offers");
   const [flash, setFlash] = useState<Flash>(null);
@@ -101,9 +103,14 @@ export default function App() {
   const refreshAccount = useCallback(async () => {
     if (!signer) return;
     try {
-      const [b, l] = await Promise.all([chain.getBalances(signer.address), chain.isLiquidator(signer.address)]);
+      const [b, l, c] = await Promise.all([
+        chain.getBalances(signer.address),
+        chain.isLiquidator(signer.address),
+        chain.getClaimable(signer.address),
+      ]);
       setBalances(b);
       setLiquidatorOk(l);
+      setClaimable(c);
     } catch (e) {
       setFlash({ tone: "error", title: "Could not read balances", body: explain(e) });
     }
@@ -129,6 +136,7 @@ export default function App() {
 
   useEffect(() => {
     setBalances(null);
+    setClaimable(0n);
     refreshAccount();
     const t = setInterval(refreshAccount, 10_000);
     return () => clearInterval(t);
@@ -162,6 +170,7 @@ export default function App() {
     await disconnectWallet(); // also forgets the demo role, so reload stays logged out
     setSigner(null);
     setBalances(null);
+    setClaimable(0n);
     setFlash(null);
   };
 
@@ -292,7 +301,15 @@ export default function App() {
         </section>
 
         {signer && (
-          <AccountAlerts signer={signer} balances={balances} busy={busy} run={run} refresh={refreshAccount} setFlash={setFlash} />
+          <AccountAlerts
+            signer={signer}
+            balances={balances}
+            claimable={claimable}
+            busy={busy}
+            run={run}
+            refresh={refreshAccount}
+            setFlash={setFlash}
+          />
         )}
 
         {flash && (
@@ -393,6 +410,7 @@ function AccountChip({ signer, onDisconnect }: { signer: Signer; onDisconnect: (
 function AccountAlerts({
   signer,
   balances,
+  claimable,
   busy,
   run,
   refresh,
@@ -400,6 +418,8 @@ function AccountAlerts({
 }: {
   signer: Signer;
   balances: Balances | null;
+  /** Parked USDC payouts for this account (contract claimable()). */
+  claimable: bigint;
   busy: string | null;
   run: Ctx["run"];
   refresh: () => Promise<void>;
@@ -442,8 +462,35 @@ function AccountAlerts({
       {button.label}
     </button>
   );
+  const onClaim = () =>
+    run("claim", "USDC not claimed", async () => {
+      const r = await chain.claim(signer);
+      setFlash({ tone: "info", title: "USDC claimed", body: `${fmtAmount(r.value)} USDC sent to your account.` });
+      return r;
+    });
   return (
     <>
+      {claimable > 0n && (
+        <Alert
+          tone="info"
+          title={`${fmtAmount(claimable)} USDC waiting for you`}
+          action={
+            <button
+              type="button"
+              className="cv-btn cv-btn--primary cv-btn--sm"
+              data-action="claim"
+              disabled={busy === "claim"}
+              aria-busy={busy === "claim" ? "true" : undefined}
+              onClick={onClaim}
+            >
+              {busy === "claim" ? "Claiming…" : "Claim"}
+            </button>
+          }
+        >
+          A repay or liquidation could not send this USDC to your account (frozen by the issuer or no USDC trustline), so
+          the contract kept it for you. Claim it once your account can receive USDC.
+        </Alert>
+      )}
       {balances && !balances.exists && (
         <Alert
           tone="margin"

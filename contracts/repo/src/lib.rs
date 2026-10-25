@@ -13,6 +13,7 @@ mod events;
 mod margin;
 pub mod math;
 mod oracle;
+mod payout;
 mod storage;
 mod types;
 
@@ -20,6 +21,8 @@ mod types;
 mod test;
 #[cfg(test)]
 mod test_allowlist;
+#[cfg(test)]
+mod test_attack_a1;
 #[cfg(test)]
 mod test_attack_a2;
 #[cfg(test)]
@@ -101,6 +104,33 @@ impl CaravelRepo {
     pub fn open_debt(env: Env, asset: Address) -> i128 {
         storage::extend_instance(&env);
         storage::read_open_debt(&env, &asset)
+    }
+
+    /// USDC parked for `who` because a payout to it failed (frozen account,
+    /// closed trustline); `claim` pays it out. 0 if none.
+    pub fn claimable(env: Env, who: Address) -> i128 {
+        storage::extend_instance(&env);
+        storage::read_claimable(&env, &who)
+    }
+
+    // --- anyone owed a parked payout --------------------------------------
+
+    /// Pays `who` its whole parked USDC balance and returns the amount.
+    /// `who` signs. Fails with `NothingToClaim` if nothing is parked; if the
+    /// transfer still fails (account still frozen) the call reverts and the
+    /// balance stays parked.
+    pub fn claim(env: Env, who: Address) -> Result<i128, Error> {
+        who.require_auth();
+        let amount = storage::read_claimable(&env, &who);
+        if amount <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+        storage::remove_claimable(&env, &who);
+        storage::extend_instance(&env);
+        let usdc = storage::read_config(&env).usdc;
+        token::Client::new(&env, &usdc).transfer(&env.current_contract_address(), &who, &amount);
+        events::Claimed { who, amount }.publish(&env);
+        Ok(amount)
     }
 
     // --- admin ------------------------------------------------------------
@@ -504,7 +534,10 @@ impl CaravelRepo {
     /// back. The lender receives exactly `principal + interest − fee`, the
     /// treasury the fee (#3). Works from `Open`, `MarginCall` or `Defaulted`,
     /// before or after maturity until a liquidation lands, at the same fixed
-    /// debt, and needs no NAV (#6). No pause switch blocks it (#30).
+    /// debt, and needs no NAV (#6). No pause switch blocks it (#30). The
+    /// borrower pays the debt into the contract; a lender or treasury payout
+    /// that fails (frozen account) is parked for `claim` and the repay still
+    /// lands.
     pub fn repay(env: Env, repo_id: u64) -> Result<(), Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         // Defaulted stays repayable until `liquidate` lands: nothing obliges a
@@ -527,13 +560,13 @@ impl CaravelRepo {
         storage::release_open_debt(&env, &repo.collateral_asset, debt);
         storage::extend_instance(&env);
 
+        let this = env.current_contract_address();
         let usdc = token::Client::new(&env, &config.usdc);
-        usdc.transfer(&repo.borrower, &repo.lender, &split.lender);
-        if split.fee > 0 {
-            usdc.transfer(&repo.borrower, &config.treasury, &split.fee);
-        }
+        usdc.transfer(&repo.borrower, &this, &debt);
+        payout::pay_or_park(&env, &usdc, &repo.lender, split.lender, repo_id);
+        payout::pay_or_park(&env, &usdc, &config.treasury, split.fee, repo_id);
         token::Client::new(&env, &repo.collateral_asset).transfer(
-            &env.current_contract_address(),
+            &this,
             &repo.borrower,
             &repo.collateral_amount,
         );
@@ -597,8 +630,9 @@ impl CaravelRepo {
     /// Repays an opted-in repo from the borrower's USDC allowance (#27).
     /// Anyone can call it from maturity, or once a margin call's deadline has
     /// passed. On success the repo is `Repaid` exactly as if the borrower had
-    /// called `repay`. If the pull fails the repo is untouched and the call
-    /// returns `AutoRepayFailed`; the borrower can still repay by hand.
+    /// called `repay`. If the pull fails, or the collateral cannot be returned
+    /// to the borrower, the repo is untouched and the call returns
+    /// `AutoRepayFailed`; the borrower can still repay by hand.
     pub fn auto_repay(env: Env, repo_id: u64) -> Result<(), Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         if !matches!(repo.status, Status::Open | Status::MarginCall) {
@@ -639,7 +673,9 @@ impl CaravelRepo {
     /// NAV.
     ///
     /// An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
-    /// when the pull succeeds. Returns the resulting status.
+    /// when the pull succeeds and the collateral can be returned; otherwise
+    /// the pull is refunded and the repo defaults. Returns the resulting
+    /// status.
     ///
     /// While the asset's `no_seize` switch is on (#30) a repo that would
     /// default returns `Paused` and stays `Open` / `MarginCall`, so the
@@ -697,7 +733,10 @@ impl CaravelRepo {
     /// everything and `Shortfall` is emitted. Stale NAV returns `StaleNav` (#6),
     /// NAV outside the asset's sanity band `NavOutOfBand` (#31). The asset's
     /// `no_seize` switch returns `Paused` (#30). The repo's own borrower is
-    /// never a liquidator of it (`NotLiquidator`), whitelisted or not.
+    /// never a liquidator of it (`NotLiquidator`), whitelisted or not. The
+    /// liquidator pays the proceeds into the contract; a lender, treasury or
+    /// borrower payout that fails (frozen account) is parked for `claim` and
+    /// the liquidation still lands.
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -739,16 +778,14 @@ impl CaravelRepo {
         );
         storage::extend_instance(&env);
 
+        let this = env.current_contract_address();
         let usdc = token::Client::new(&env, &config.usdc);
-        usdc.transfer(&liquidator, &repo.lender, &split.lender);
-        if split.fee > 0 {
-            usdc.transfer(&liquidator, &config.treasury, &split.fee);
-        }
-        if split.borrower > 0 {
-            usdc.transfer(&liquidator, &repo.borrower, &split.borrower);
-        }
+        usdc.transfer(&liquidator, &this, &proceeds);
+        payout::pay_or_park(&env, &usdc, &repo.lender, split.lender, repo_id);
+        payout::pay_or_park(&env, &usdc, &config.treasury, split.fee, repo_id);
+        payout::pay_or_park(&env, &usdc, &repo.borrower, split.borrower, repo_id);
         token::Client::new(&env, &repo.collateral_asset).transfer(
-            &env.current_contract_address(),
+            &this,
             &liquidator,
             &repo.collateral_amount,
         );

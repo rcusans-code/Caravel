@@ -203,6 +203,27 @@ pub struct Liquidated {
     pub nav_decimals: u32,
 }
 
+/// A USDC payout to `to` failed (frozen account, closed trustline), so the
+/// contract kept it: `to` collects it with `claim`. The settlement went ahead.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayoutParked {
+    #[topic]
+    pub repo_id: u64,
+    #[topic]
+    pub to: Address,
+    pub amount: i128,
+}
+
+/// `who` collected its parked USDC payouts.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Claimed {
+    #[topic]
+    pub who: Address,
+    pub amount: i128,
+}
+
 /// Liquidation proceeds did not cover what the lender was owed
 /// (DECISIONS.md #4). `amount` is the lender's unpaid balance.
 #[contractevent]

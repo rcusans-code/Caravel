@@ -359,6 +359,22 @@ export async function isLiquidator(address: string): Promise<boolean> {
   return (await readRepo.is_liquidator({ who: address })).result;
 }
 
+/** USDC parked for `address` because a payout to it failed (frozen account, no trustline); 0 on a contract without claimable(). */
+export async function getClaimable(address: string): Promise<bigint> {
+  try {
+    return big((await readRepo.claimable({ who: address })).result);
+  } catch {
+    return 0n;
+  }
+}
+
+/** Pays the signer its whole parked USDC balance. Returns the amount. */
+export async function claim(signer: Signer): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.claim({ who: signer.address }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
 /** Admin only: mock oracle `set_price` (contracts/oracle) for collateral `sac`. */
 export async function setNav(signer: Signer, price: bigint, sac: string = TBENJI_SAC): Promise<TxOutcome<null>> {
   const c = new OracleClient({ contractId: ORACLE_ID, ...clientOpts(signer) });
