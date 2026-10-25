@@ -10,6 +10,7 @@ pub struct AssetConfigured {
     #[topic]
     pub asset: Address,
     pub haircut_bps: u32,
+    pub margin_trigger_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
     pub max_nav_move_bps: u32,
@@ -36,6 +37,7 @@ pub struct AssetChangeProposed {
     pub asset: Address,
     pub eta: u64,
     pub haircut_bps: u32,
+    pub margin_trigger_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
     pub max_nav_move_bps: u32,

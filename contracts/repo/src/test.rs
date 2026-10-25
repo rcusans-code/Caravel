@@ -21,6 +21,11 @@ pub(crate) const DEMO_NAV_AGE: u64 = 180;
 pub(crate) const WIDE_BAND_BPS: u32 = 10_000;
 /// No exposure cap in play (#32); the cap tests set their own.
 pub(crate) const NO_CAP: i128 = i128::MAX;
+/// Margin trigger (#26) on the liquidation-discount line (200), the lowest
+/// value `validate_asset` accepts. Keeps the breach arithmetic of the tests
+/// written before the trigger had its own field; `test_attack_a3` covers the
+/// buffered trigger (250).
+pub(crate) const TRIGGER_BPS: u32 = 200;
 /// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
@@ -83,6 +88,7 @@ fn admin_configures_assets() {
     let mut config = AssetConfig {
         oracle_asset: Asset::Stellar(token.clone()),
         haircut_bps: 300,
+        margin_trigger_bps: TRIGGER_BPS,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
         max_nav_move_bps: WIDE_BAND_BPS,
@@ -95,6 +101,7 @@ fn admin_configures_assets() {
     let event = events::AssetConfigured {
         asset: token.clone(),
         haircut_bps: 300,
+        margin_trigger_bps: TRIGGER_BPS,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
         max_nav_move_bps: WIDE_BAND_BPS,
@@ -125,6 +132,7 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
         let config = AssetConfig {
             oracle_asset: Asset::Stellar(token.clone()),
             haircut_bps,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -150,6 +158,7 @@ fn set_asset_rejects_zero_max_nav_age() {
     let config = AssetConfig {
         oracle_asset: Asset::Stellar(token.clone()),
         haircut_bps: 300,
+        margin_trigger_bps: TRIGGER_BPS,
         enabled: true,
         max_nav_age_secs: 0,
         max_nav_move_bps: WIDE_BAND_BPS,
@@ -175,6 +184,7 @@ fn set_asset_requires_admin_auth() {
         &AssetConfig {
             oracle_asset: Asset::Stellar(token.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -244,6 +254,7 @@ fn world<'a>() -> World<'a> {
         &AssetConfig {
             oracle_asset: Asset::Stellar(tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -399,6 +410,7 @@ fn create_offer_rejects_missing_or_disabled_asset() {
         &AssetConfig {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -684,6 +696,7 @@ fn take_offer_rejects_asset_disabled_after_offer() {
         &AssetConfig {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -742,6 +755,7 @@ fn retiering_asset_does_not_touch_live_repo() {
         &AssetConfig {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 800,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -1387,6 +1401,7 @@ fn liquidate_works_on_disabled_asset() {
         &AssetConfig {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -1897,6 +1912,7 @@ impl World<'_> {
             &AssetConfig {
                 oracle_asset: Asset::Stellar(token.clone()),
                 haircut_bps: 300,
+                margin_trigger_bps: TRIGGER_BPS,
                 enabled: true,
                 max_nav_age_secs,
                 max_nav_move_bps: WIDE_BAND_BPS,
@@ -2265,6 +2281,7 @@ impl World<'_> {
         self.set_tbenji(AssetConfig {
             oracle_asset: Asset::Stellar(self.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps,
@@ -2351,6 +2368,7 @@ fn set_asset_validates_nav_band() {
         let config = AssetConfig {
             oracle_asset: Asset::Stellar(w.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: bps,
@@ -2530,6 +2548,7 @@ impl World<'_> {
         self.set_tbenji(AssetConfig {
             oracle_asset: Asset::Stellar(self.tbenji.clone()),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -2597,6 +2616,7 @@ fn set_asset_rejects_negative_cap() {
     let config = AssetConfig {
         oracle_asset: Asset::Stellar(w.tbenji.clone()),
         haircut_bps: 300,
+        margin_trigger_bps: TRIGGER_BPS,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
         max_nav_move_bps: WIDE_BAND_BPS,
@@ -2988,6 +3008,7 @@ fn propose_execute_cancel_emit_events() {
             asset: w.tbenji.clone(),
             eta,
             haircut_bps: 250,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
             max_nav_move_bps: WIDE_BAND_BPS,
@@ -3011,6 +3032,7 @@ fn propose_execute_cancel_emit_events() {
             events::AssetConfigured {
                 asset: w.tbenji.clone(),
                 haircut_bps: 250,
+                margin_trigger_bps: TRIGGER_BPS,
                 enabled: true,
                 max_nav_age_secs: DEMO_NAV_AGE,
                 max_nav_move_bps: WIDE_BAND_BPS,
@@ -3067,6 +3089,7 @@ fn propose_execute_cancel_emit_events() {
             events::AssetConfigured {
                 asset: w.tbenji.clone(),
                 haircut_bps: 250,
+                margin_trigger_bps: TRIGGER_BPS,
                 enabled: false,
                 max_nav_age_secs: DEMO_NAV_AGE,
                 max_nav_move_bps: WIDE_BAND_BPS,

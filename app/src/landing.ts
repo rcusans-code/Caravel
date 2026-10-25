@@ -11,7 +11,7 @@ import { Address, xdr } from "@stellar/stellar-sdk";
 import { big, getBook, simulateView } from "./book";
 import type { Offer, Repo, Status } from "./book";
 import { ORACLE_ID, REPO_ID, TBENJI_SAC, assetBySac } from "./config";
-import { BPS, collateralDecimals, collateralValue, fmtAmount, fmtCountdown, fmtNav, fmtPct } from "./format";
+import { BPS, collateralDecimals, collateralValue, coverPct, fmtAmount, fmtCountdown, fmtNav, fmtPct } from "./format";
 
 const g = globalThis as unknown as { Buffer?: typeof Buffer };
 g.Buffer = g.Buffer ?? Buffer;
@@ -32,7 +32,8 @@ interface Live {
   offers: Offer[];
   repos: Repo[];
   daySecs: bigint;
-  liqDiscountBps: bigint;
+  /** Margin trigger of the hero repo's asset (DECISIONS.md #26). */
+  triggerBps: bigint;
   hero: Repo | null;
   /** NAV of the hero repo's collateral. */
   nav: Nav | null;
@@ -62,7 +63,12 @@ async function load(): Promise<Live> {
   // Newest live repo; repos come sorted by id, newest first.
   const hero = book.repos.find((r) => isLive(r.status)) ?? null;
   const nav = !hero ? null : hero.collateral_asset === TBENJI_SAC ? benjiNav : await readNav(hero.collateral_asset);
-  return { ...book, daySecs: big(cfg.day_secs), liqDiscountBps: big(cfg.liquidation_discount_bps), hero, nav, benjiNav };
+  // A contract deployed before #26 has no per-asset trigger: it calls on the liquidation discount.
+  const heroAsset = hero
+    ? await simulateView<{ margin_trigger_bps?: unknown }>(REPO_ID, "asset", new Address(hero.collateral_asset).toScVal()).catch(() => null)
+    : null;
+  const triggerBps = big(heroAsset?.margin_trigger_bps ?? cfg.liquidation_discount_bps);
+  return { ...book, daySecs: big(cfg.day_secs), triggerBps, hero, nav, benjiNav };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -85,12 +91,10 @@ function repoAprBps(r: Repo, daySecs: bigint): bigint {
   return (r.interest * BPS * 365n * daySecs + den / 2n) / den;
 }
 
-/** Cover vs the margin-call line (DECISIONS.md #14): value × (1 − liq discount) ÷ debt, in %. */
-function coverPct(r: Repo, nav: Nav, liqDiscountBps: bigint): number | null {
-  const debt = r.principal + r.interest;
-  if (debt <= 0n) return null;
+/** Cover vs the asset's margin-call line (DECISIONS.md #14, #26), in %. */
+function repoCoverPct(r: Repo, nav: Nav, triggerBps: bigint): number | null {
   const value = collateralValue(r.collateral_amount, nav.price, collateralDecimals(nav.decimals, assetBySac(r.collateral_asset).decimals));
-  return Number((value * (BPS - liqDiscountBps) * 10_000n) / (debt * BPS)) / 100;
+  return coverPct(value, r.principal + r.interest, triggerBps);
 }
 
 /** Term in demo days (1 day = day_secs seconds; 60 s on testnet, DECISIONS.md #5). */
@@ -266,7 +270,7 @@ function renderHero(live: Live) {
     }
   }
 
-  const cover = live.nav ? coverPct(r, live.nav, live.liqDiscountBps) : null;
+  const cover = live.nav ? repoCoverPct(r, live.nav, live.triggerBps) : null;
   if (coverEl) coverEl.textContent = cover === null ? "—" : cover.toFixed(1);
   if (fillEl) fillEl.style.width = `${cover === null ? 0 : Math.max(4, Math.min(96, 50 + (cover - 100) * 12)).toFixed(1)}%`;
   if (navEl) navEl.textContent = live.nav ? fmtNav(live.nav.price, live.nav.decimals) : "—";

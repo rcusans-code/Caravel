@@ -80,6 +80,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "margin_trigger_bps"
+                      },
+                      "val": {
+                        "u32": 200
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "max_nav_age_secs"
                       },
                       "val": {
@@ -646,6 +654,14 @@
                       },
                       "val": {
                         "u32": 300
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "margin_trigger_bps"
+                      },
+                      "val": {
+                        "u32": 200
                       }
                     },
                     {
@@ -1820,6 +1836,14 @@
                             },
                             "val": {
                               "u32": 300
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "margin_trigger_bps"
+                            },
+                            "val": {
+                              "u32": 200
                             }
                           },
                           {

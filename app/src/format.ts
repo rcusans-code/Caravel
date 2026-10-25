@@ -85,4 +85,14 @@ export function collateralValue(amount: bigint, nav: bigint, navDecimals: number
   return (amount * nav) / 10n ** BigInt(navDecimals);
 }
 
+/**
+ * Cover vs the margin-call line (DECISIONS.md #14, #26): value × (1 − margin
+ * trigger) ÷ debt, in %. 100% is where check_margin fires (math.rs
+ * margin_breached); a max-LTV take opens just above it.
+ */
+export function coverPct(value: bigint, debt: bigint, triggerBps: bigint): number | null {
+  if (debt <= 0n) return null;
+  return Number((value * (BPS - triggerBps) * 10_000n) / (debt * BPS)) / 100;
+}
+
 export const protocolFee = (interestAmt: bigint, feeBps: bigint) => (interestAmt * feeBps) / BPS;

@@ -20,6 +20,8 @@ mod test;
 #[cfg(test)]
 mod test_allowlist;
 #[cfg(test)]
+mod test_attack_a3;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
@@ -102,8 +104,9 @@ impl CaravelRepo {
     }
 
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
-    /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
-    /// haircut means a take at max LTV opens strictly below the margin trigger.
+    /// `liquidation_discount_bps ≤ margin_trigger_bps < haircut_bps < 10_000`
+    /// (#26): a take at max LTV opens strictly below the margin trigger, and a
+    /// liquidation at the trigger line still covers the debt.
     /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25), a
     /// valid NAV sanity band (#31): `max_nav_move_bps > 0`, each bound > 0 if
     /// set, and `nav_floor <= nav_ceiling`, and `max_open_debt ≥ 0` (#32).
@@ -112,7 +115,8 @@ impl CaravelRepo {
     ///
     /// Instant only for a first listing (no offer can exist on an unlisted
     /// asset) or a change that only tightens (#33: disable, raise the
-    /// haircut, lower the NAV age or the cap, narrow the NAV band). Anything
+    /// haircut or the margin trigger, lower the NAV age or the cap, narrow
+    /// the NAV band). Anything
     /// that loosens fails with `Loosens`: use `propose_asset`. An instant
     /// change drops a pending proposal for the asset, so it cannot undo the
     /// change later.
@@ -146,8 +150,8 @@ impl CaravelRepo {
     // --- guardian (#33): instant, tighten only ----------------------------
 
     /// The guardian's instant `set_asset` on a listed asset: disable it,
-    /// raise the haircut, lower the NAV age or the cap, narrow the NAV
-    /// band. Fails with
+    /// raise the haircut or the margin trigger, lower the NAV age or the cap,
+    /// narrow the NAV band. Fails with
     /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
@@ -193,6 +197,7 @@ impl CaravelRepo {
             asset,
             eta,
             haircut_bps: config.haircut_bps,
+            margin_trigger_bps: config.margin_trigger_bps,
             enabled: config.enabled,
             max_nav_age_secs: config.max_nav_age_secs,
             max_nav_move_bps: config.max_nav_move_bps,
@@ -756,7 +761,9 @@ fn seize_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
 // --- risk-parameter changes (#33) ---------------------------------------------
 
 fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> {
-    if config.haircut_bps <= protocol.liquidation_discount_bps
+    // #26: discount ≤ trigger < haircut < 100%.
+    if config.margin_trigger_bps < protocol.liquidation_discount_bps
+        || config.haircut_bps <= config.margin_trigger_bps
         || config.haircut_bps as i128 >= math::BPS
         || config.max_nav_age_secs == 0
         || !band_ok(config)
@@ -768,12 +775,13 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
 }
 
 /// True when `new` adds no risk over `old`: same oracle mapping, not
-/// re-enabled, haircut not lower, NAV age and cap not higher, NAV band
-/// (#31) not wider.
+/// re-enabled, haircut and margin trigger (#26) not lower, NAV age and cap
+/// not higher, NAV band (#31) not wider.
 fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
     new.oracle_asset == old.oracle_asset
         && (old.enabled || !new.enabled)
         && new.haircut_bps >= old.haircut_bps
+        && new.margin_trigger_bps >= old.margin_trigger_bps
         && new.max_nav_age_secs <= old.max_nav_age_secs
         && new.max_open_debt <= old.max_open_debt
         && band_tightens(old, new)
@@ -819,6 +827,7 @@ fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
     events::AssetConfigured {
         asset,
         haircut_bps: config.haircut_bps,
+        margin_trigger_bps: config.margin_trigger_bps,
         enabled: config.enabled,
         max_nav_age_secs: config.max_nav_age_secs,
         max_nav_move_bps: config.max_nav_move_bps,

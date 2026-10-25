@@ -286,7 +286,7 @@ mod test {
     };
     use crate::{
         errors::Error,
-        test::NO_CAP,
+        test::{NO_CAP, TRIGGER_BPS},
         types::{Asset, AssetConfig, Config},
         CaravelRepo,
     };
@@ -323,6 +323,7 @@ mod test {
         let asset = AssetConfig {
             oracle_asset: Asset::Stellar(Address::generate(&env)),
             haircut_bps: 300,
+            margin_trigger_bps: TRIGGER_BPS,
             enabled: true,
             max_nav_age_secs: MAX_AGE,
             max_nav_move_bps: crate::test::WIDE_BAND_BPS,

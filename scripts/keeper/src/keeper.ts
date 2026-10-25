@@ -52,13 +52,14 @@ const ORACLE_ID = env("ORACLE_ID");
 const USDC_SAC = env("USDC_SAC");
 // Collateral tokens the keeper prices and labels (decimals and per-asset NAV
 // max age, DECISIONS.md #25, read on-chain at start).
-type Collateral = { label: string; id: string; decimals: number; maxAge: bigint };
+/** `triggerBps`: the asset's margin trigger (DECISIONS.md #26), read from `asset()` at start. */
+type Collateral = { label: string; id: string; decimals: number; maxAge: bigint; triggerBps: bigint };
 const ASSETS: Collateral[] = [
-  { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7, maxAge: 0n },
-  ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5, maxAge: 0n }] : []),
+  { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7, maxAge: 0n, triggerBps: 0n },
+  ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5, maxAge: 0n, triggerBps: 0n }] : []),
 ];
 const assetOf = (id: string): Collateral =>
-  ASSETS.find((a) => a.id === id) ?? { label: id.slice(0, 6) + "…", id, decimals: 7, maxAge: ASSETS[0].maxAge };
+  ASSETS.find((a) => a.id === id) ?? { label: id.slice(0, 6) + "…", id, decimals: 7, maxAge: ASSETS[0].maxAge, triggerBps: ASSETS[0].triggerBps };
 const signer = process.env.KEEPER_SECRET ? keypair("KEEPER") : keypair("LIQUIDATOR");
 const liquidator = keypair("LIQUIDATOR");
 
@@ -295,7 +296,7 @@ async function tick(cfg: Cfg) {
         held(next, r, "check_margin", guard);
       } else if (st === "MarginCall") {
         const { hash } = await invoke(signer, REPO_ID, "check_margin", [u64(r.id)]);
-        log(`MARGIN CALL  ${desc} (trigger ${(100 - Number(cfg.discountBps) / 100).toFixed(2)}%)  ${txLink(hash)}`);
+        log(`MARGIN CALL  ${desc} (trigger ${(100 - Number(asset.triggerBps) / 100).toFixed(2)}%)  ${txLink(hash)}`);
         next.set(r.id, "called");
       } else {
         note(next, r.id, "healthy", `healthy      ${desc}`);
@@ -388,6 +389,8 @@ async function main() {
     // An asset the contract does not know yet (tSAFO before the redeploy) reads null.
     const ac = await view<Record<string, bigint> | null>(REPO_ID, "asset", [new Address(a.id).toScVal()]).catch(() => null);
     a.maxAge = BigInt(ac?.max_nav_age_secs ?? config.max_nav_age_secs ?? 0n);
+    // A contract deployed before #26 triggers on the liquidation discount.
+    a.triggerBps = BigInt(ac?.margin_trigger_bps ?? config.liquidation_discount_bps);
   }
   const cfg = {
     discountBps: BigInt(config.liquidation_discount_bps),
@@ -401,7 +404,7 @@ async function main() {
   log(
     `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
-      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})` +
+      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")}, margin trigger ${ASSETS.map((a) => `${a.label} ${a.triggerBps}bps`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps`,
   );
   for (;;) {
