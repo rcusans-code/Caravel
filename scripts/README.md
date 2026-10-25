@@ -160,7 +160,7 @@ What this does not undo:
 - A margin call raised at the bad price stays (#20). An absent borrower still defaults and loses the 2% discount: -20.02 USDC on a 970 USDC repo (S2b).
 - A take that landed at an inflated price leaves the lender short: -872.74 of 970.84 at a 10× push (S6). Only step 2 before the take prevents it.
 
-Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1, 2 (disable) and the `set_price_at` overwrite all simulate successfully against the current `REPO_ID` / `ORACLE_ID`.
+Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1, 2 (disable) and the `set_price_at` overwrite all simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026.
 
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 
