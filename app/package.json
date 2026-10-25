@@ -1,0 +1,30 @@
+{
+  "name": "caravel-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "bindings": "for p in caravel-repo caravel-oracle; do (cd ../packages/$p && npm install --no-audit --no-fund --silent && npm run build --silent) || exit 1; done",
+    "postinstall": "npm run bindings",
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@creit.tech/stellar-wallets-kit": "^2.7.1",
+    "@stellar/stellar-sdk": "^16.0.1",
+    "buffer": "6.0.3",
+    "caravel-oracle": "file:../packages/caravel-oracle",
+    "caravel-repo": "file:../packages/caravel-repo",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.0",
+    "vite": "^7.0.0"
+  }
+}
