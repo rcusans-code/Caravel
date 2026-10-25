@@ -12,7 +12,20 @@ Source of truth: the Caravel design system artifact in Claude (tokens, component
 3. Pick one way to style:
    - **Tailwind:** `theme: { extend: require('./design/tailwind.tokens.js') }`, then use `bg-surface`, `text-ink-muted`, `border-line-strong`, `shadow-layer`, `font-mono`.
    - **Plain CSS:** import `design/components/bundle.css` and use the `cv-*` classes (`cv-btn`, `cv-card`, `cv-pill`, `cv-table`, `cv-dvp` ...). Each component folder has a `README.md` and a `preview.html` with the exact markup.
-4. Optional: load `design/components/bundle.js` for the water-drop ripple on `.cv-btn`. It respects reduced motion.
+4. Load `design/components/bundle.js` after the CSS. It adds the water-drop ripple to every `.cv-btn` and exposes `Caravel.live(el, state, word)`, `Caravel.flash(el, dir)` and `Caravel.stamp(el)` for the status components. Everything respects reduced motion.
+
+## Components
+
+| Group | Components |
+|---|---|
+| Status | Alert, StatusPill |
+| Actions | Button |
+| Settlement | DvpReceipt, TxHash |
+| Inputs | Field |
+| Motion | LiveIndicator, SealStamp, Skeleton, TxProgress, ValueFlash, Waiting |
+| Lending | OfferCard, OffersTable, PositionCard |
+
+Each has `components/<Name>/README.md` (when and how to use it) and `preview.html` (exact markup). `components/Cover/preview.html` shows every logo.
 
 ## Files
 
@@ -31,7 +44,7 @@ Source of truth: the Caravel design system artifact in Claude (tokens, component
 2. Cards, buttons and tables get the double layer (bottom and right only): `shadow-layer` or `cv-layer`.
 3. Numbers people compare are Source Code Pro with tabular figures.
 4. No italics in names or large type. Italic only for small accents like *Per aspera ad Stellar*.
-5. Motion follows the reader and never loops. Live figures update in steps.
+5. Motion follows the reader and never loops, except status motion that mirrors a live state (LiveIndicator, Waiting, TxProgress, Skeleton) and stops when the state resolves.
 
 ---
 
@@ -92,14 +105,32 @@ Every pair holds 4.5:1 or better in both themes. Defaulted and Margin call also 
 - Focus ring: a 2px `primary` outline offset 2px (5:1 on bg, 7.6:1 in dark). Never remove it.
 
 ### Motion
-- **Motion follows the reader, never loops.** Nothing on a page moves on a timer: no spinning, drifting, twinkling, marquees or pulsing. Movement is tied to scroll position or to a person's action, plays once per pass, and rests in its final state. Every element is fully readable with motion off.
+- **Motion follows the reader, never loops, except to show live state.** Decoration never moves on a timer: no spinning, drifting, twinkling, marquees or pulsing. Movement is tied to scroll position or to a person's action, plays once per pass, and rests in its final state. Every element is fully readable with motion off. The exceptions are the status elements below, and on marketing pages one ambient element per hero (the water under the ship, the offers ticker).
 - **Scroll-paced reveals:** backgrounds shift a few percent as their section scrolls by (parallax), progress lines fill as the reader reaches them, and steps settle in from 10px. Use CSS scroll-driven animations (`animation-timeline: view()`) inside `@supports`, so browsers without them show the final state.
 - **Live data may change, decoration may not.** Figures that mirror real state (NAV, a maturity countdown) update in discrete steps, the way the oracle and clock do, never as a smooth wave.
 - **Press:** a button sinks 4px into its second layer (`frame-offset`) while held, so the layer disappears under it.
 - **Hover:** cards and tiles lift 2px up and left while their second layer grows to 6px, then settle back (220ms).
 - **Water drop:** on press, a drop spreads from the exact tap or click point to the button's outer edges, followed 90ms later by a thinner ring, both in the button's text color, fading out over about 0.7s. `components/bundle.js` adds it to every `.cv-btn` automatically, including keyboard presses (from the center). Load `bundle.js` after `bundle.css`.
 - Easing: `cubic-bezier(.2,.7,.3,1)` for anything a person triggers; linear for scroll-linked progress.
-- With `prefers-reduced-motion`, there is no press travel, hover lift, ripple or scroll animation.
+
+### Status motion
+Motion that mirrors a real, ongoing state is allowed to loop, because it carries information: "this is updating" or "this is still working". Each element is small, sits next to a word that says the same thing, and stops the moment the state resolves. The components are in the **Motion** group.
+
+| State | Component | Motion | Stops when |
+|---|---|---|---|
+| Feed is live | LiveIndicator `on` | a small wave flows continuously beside the word | the feed goes stale or off |
+| Feed delayed / off | LiveIndicator `stale` / `off` | none (amber solid / hollow grey) | n/a |
+| Working, unknown duration | Waiting: verb + ellipsis, tide bar, busy button | dots light in turn; a block sweeps a ruled track | the result arrives |
+| Working, known steps | TxProgress | done steps fill; active step carries the tide | last step settles or one fails |
+| First load | Skeleton | slow sheen across placeholder blocks | content arrives |
+| A figure changed | ValueFlash | ground glows once (gold, or healthy / defaulted for direction) | after 1.2s, once |
+| Action completed | SealStamp | seal presses in once, settles at a tilt | after 0.5s, once |
+
+- Never show two loops in one region. A busy button and a tide bar for the same action is one too many: pick the one nearest the person's attention.
+- Waiting labels are present-participle verbs ("Signing", "Submitting", "Waiting for NAV"), never "Loading…" alone. Results replace waiting states in place: the busy button becomes the seal or the pill.
+- `components/bundle.js` exposes `Caravel.live(el, state, word)`, `Caravel.flash(el, dir)` and `Caravel.stamp(el)`.
+- With `prefers-reduced-motion`, every status loop rests: the live wave stands still, dots stay lit, tide bars show a static wash, skeletons lose their sheen, flashes and stamps appear without animating, and there is no press travel, hover lift, ripple or scroll animation. The word always remains.
+
 
 ### Imagery
 No stock photography, no illustrations of coins or ships. Data is the imagery: health meters, maturity timelines, the DvP transaction drawn as two legs in one box.

@@ -1,0 +1,15 @@
+<!-- @dsCard group="Motion" height=150 subtitle="A confirmation pressed once, like a wax seal on a settled ticket" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>preview</title><style>body{padding:16px;}</style></head>
+<body>
+<div class="cv-row" style="gap:28px">
+  <span class="cv-stamp" id="s1" role="status"><span><b>Settled</b>Repo 014</span></span>
+  <span class="cv-stamp cv-stamp--repaid" id="s2" role="status"><span><b>Repaid</b>971.00</span></span>
+  <button class="cv-btn cv-btn--secondary cv-btn--sm" type="button" id="again">Replay</button>
+</div>
+<script>
+document.getElementById("again").addEventListener("click",function(){if(window.Caravel){Caravel.stamp(document.getElementById("s1"));Caravel.stamp(document.getElementById("s2"));}});
+</script>
+</body>
+</html>
