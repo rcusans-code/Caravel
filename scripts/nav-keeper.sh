@@ -10,8 +10,15 @@
 #
 # Each round re-posts each asset's current price (so a value set from the
 # app's Admin tab sticks), or NAV / SAFO_NAV if set, or 1.00 when there is none.
-# Signs set_price with ADMIN_SECRET from <repo>/.env (the oracle admin), passed
+# Signs set_price with ADMIN_SECRET from ENV_FILE (the oracle admin), passed
 # to the CLI through STELLAR_ACCOUNT so it never shows up in `ps`.
+#
+# Attempts are interleaved (tBENJI, tSAFO, then a retry of whichever failed),
+# so one asset's failures never delay the other's push; every CLI call is
+# capped at CLI_TIMEOUT (20 s). Truly parallel sends are not possible: both
+# are signed by the one oracle admin, and the network queues one pending tx
+# per source account. An asset that fails ALERT_AFTER (2) rounds in a row
+# logs an ALERT line and runs ALERT_CMD (caravel-alert.sh in the unit).
 # Cost: ~8 XLM per push at today's testnet fees; tops ADMIN up from friendbot
 # when it drops below MIN_ADMIN_XLM (see scripts/README.md).
 set -uo pipefail
@@ -33,37 +40,70 @@ load_env() {
   [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 }
 
-push() { # one round: every collateral asset in .env
+CLI_TIMEOUT="${CLI_TIMEOUT:-20}"         # s per CLI call: < 30 s, so a failing asset cannot stall a round (KPR-03)
+INCLUSION_FEE="${INCLUSION_FEE:-100000}" # stroops, same as the TS keeper: testnet inclusion fees spike
+ALERT_AFTER="${ALERT_AFTER:-2}"           # consecutive failed rounds per asset before an ALERT
+declare -A FAILS=()                        # asset label -> consecutive failed rounds
+
+cli() { timeout -k 5 "$CLI_TIMEOUT" "$STELLAR" "$@"; }
+
+alert() { # ALERT line in the journal, plus ALERT_CMD (fire and forget) when set
+  log "ALERT $*"
+  if [[ -n "${ALERT_CMD:-}" ]]; then
+    ( timeout 20 "$ALERT_CMD" "caravel-nav-keeper: $*" >/dev/null 2>&1 || log "alert: ALERT_CMD $ALERT_CMD failed" ) &
+  fi
+}
+
+push() { # one round: every collateral asset in .env, attempts interleaved
   load_env   # re-read every round: a redeploy changes ORACLE_ID / TSAFO_ID
-  local rc=0
-  push_asset tBENJI "$TBENJI_SAC" "${NAV:-}" || rc=1
-  if [[ -n "${TSAFO_ID:-}" ]]; then push_asset tSAFO "$TSAFO_ID" "${SAFO_NAV:-}" || rc=1; fi
+  local -a labels=(tBENJI) assets=("{\"Stellar\":\"$TBENJI_SAC\"}") pins=("${NAV:-}") prices=() ok=()
+  if [[ -n "${TSAFO_ID:-}" ]]; then
+    labels+=(tSAFO); assets+=("{\"Stellar\":\"$TSAFO_ID\"}"); pins+=("${SAFO_NAV:-}")
+  fi
+  local i try left rc=0 n
+  for i in "${!labels[@]}"; do prices[i]=$(price_for "${labels[i]}" "${assets[i]}" "${pins[i]}") || prices[i]=""; done
+  for try in 1 2 3; do
+    left=0
+    for i in "${!labels[@]}"; do
+      [[ -n "${ok[i]:-}" || -z "${prices[i]}" ]] && continue
+      if set_price "${labels[i]}" "${assets[i]}" "${prices[i]}" "$try"; then ok[i]=1; else left=1; fi
+    done
+    (( left && try < 3 )) || break
+    sleep 3
+  done
+  for i in "${!labels[@]}"; do
+    if [[ -n "${ok[i]:-}" ]]; then FAILS[${labels[i]}]=0; continue; fi
+    rc=1; n=$(( ${FAILS[${labels[i]}]:-0} + 1 )); FAILS[${labels[i]}]=$n
+    if (( n == ALERT_AFTER || (n > ALERT_AFTER && (n - ALERT_AFTER) % 20 == 0) )); then
+      alert "${labels[i]} set_price failed $n rounds in a row (oracle ${ORACLE_ID:0:8}…): its NAV goes stale max_nav_age_secs after the last push; takes, margin calls and liquidations stop"
+    fi
+  done
   return $rc
 }
 
-push_asset() { # push_asset LABEL TOKEN_ID PINNED_NAV
-  local label="$1" ASSET="{\"Stellar\":\"$2\"}" pin="$3" last price ts out
-  last=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
-           --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>&1) || { log "$label lastprice failed: ${last##*$'\n'}"; return 1; }
+price_for() { # price_for LABEL ASSET_JSON PINNED_NAV -> price to post (stdout)
+  local label="$1" asset="$2" pin="$3" last
+  last=$(cli contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
+           --id "$ORACLE_ID" -- lastprice --asset "$asset" 2>&1) || { log "$label lastprice failed: ${last##*$'\n'}" >&2; return 1; }
   if [[ -n "$pin" ]]; then
-    price=$(python3 -c "from decimal import Decimal as D; print(int(D('$pin') * 10**14))")
+    python3 -c "from decimal import Decimal as D; print(int(D('$pin') * 10**14))"
   elif [[ "$last" == "null" || -z "$last" ]]; then
-    price=100000000000000          # 1.00 at 14 decimals
+    echo 100000000000000          # 1.00 at 14 decimals
   else
-    price=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["price"])' "$last")
+    python3 -c 'import json,sys; print(json.loads(sys.argv[1])["price"])' "$last"
   fi
-  local try ok=0
-  for try in 1 2 3; do
-    if out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" "$STELLAR" contract invoke -q \
-               --id "$ORACLE_ID" -- set_price --asset "$ASSET" --price "$price" 2>&1); then
-      ok=1; break
-    fi
+}
+
+set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
+  local label="$1" asset="$2" price="$3" try="$4" out ts
+  if ! out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" cli contract invoke -q --inclusion-fee "$INCLUSION_FEE" \
+               --id "$ORACLE_ID" -- set_price --asset "$asset" --price "$price" 2>&1); then
+    [[ -z "$out" ]] && out="no output (timed out after ${CLI_TIMEOUT}s?)"
     log "$label set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"
-    (( try < 3 )) && sleep 5
-  done
-  (( ok )) || return 1
-  ts=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
-         --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>/dev/null)
+    return 1
+  fi
+  ts=$(cli contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
+         --id "$ORACLE_ID" -- lastprice --asset "$asset" 2>/dev/null)
   log "set_price $label=$price oracle=${ORACLE_ID:0:8}… now $ts"
 }
 

@@ -129,14 +129,5 @@ async function invokeOnce(
 /** Keypair for an .env role: KEY_SECRET, e.g. keypair("ADMIN"). */
 export const keypair = (role: string) => Keypair.fromSecret(env(`${role}_SECRET`));
 
-// Contract error codes (contracts/repo/src/errors.rs).
-export const Err = {
-  NotImplemented: 1,
-  RepoNotFound: 6,
-  InvalidStatus: 7,
-  StaleNav: 9,
-  NotDefaultable: 12,
-  NoPrice: 13,
-  AutoRepayFailed: 16,
-  Paused: 17, // asset no_seize switch on: default / liquidate refused (#28)
-} as const;
+// Contract error codes (contracts/repo/src/errors.rs) and the keeper's reading of them.
+export { Err, outcomeOf, type Outcome } from "./errors.js";

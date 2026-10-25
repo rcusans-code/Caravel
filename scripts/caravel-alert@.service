@@ -1,0 +1,12 @@
+# systemd --user template: runs caravel-alert.sh when a Caravel unit fails.
+# caravel-keeper.service and caravel-nav-keeper.service set
+# OnFailure=caravel-alert@%n.service, so %i is the failed unit's name. Install
+# (see scripts/README.md):
+#   install -Dm755 scripts/caravel-alert.sh ~/.local/lib/caravel/caravel-alert.sh
+#   install -Dm644 scripts/caravel-alert@.service ~/.config/systemd/user/caravel-alert@.service
+[Unit]
+Description=Caravel alert: %i failed
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/lib/caravel/caravel-alert.sh "%i failed on %H (restart limit hit): journalctl --user -u %i"

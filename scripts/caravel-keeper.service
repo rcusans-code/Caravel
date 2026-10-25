@@ -4,20 +4,30 @@
 #   mkdir -p ~/.local/lib/caravel/keeper
 #   cp -r scripts/keeper/{package.json,package-lock.json,tsconfig.json,src} ~/.local/lib/caravel/keeper/
 #   (cd ~/.local/lib/caravel/keeper && npm ci --silent)
+#   install -Dm600 .env ~/.local/lib/caravel/.env
+#   install -Dm755 scripts/caravel-alert.sh ~/.local/lib/caravel/caravel-alert.sh
+#   install -Dm644 scripts/caravel-alert@.service ~/.config/systemd/user/caravel-alert@.service
 #   install -Dm644 scripts/caravel-keeper.service ~/.config/systemd/user/caravel-keeper.service
 #   systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper
-# The keeper is copied out of the checkout so switching branches cannot break
-# the service; it reads keys and contract IDs from the checkout's .env. NAV is
-# kept fresh by caravel-nav-keeper.service, so no --refresh-nav here. When
-# REPO_ID in .env changes (redeploy) the keeper exits and Restart= reloads it.
+# The keeper and its .env are copied out of the checkout so a branch switch or
+# a merge conflict in the tracked .env cannot repoint or break the service.
+# Re-run the `install -Dm600 .env` line after every redeploy: the keeper sees
+# REPO_ID change in its copy, exits, and Restart= reloads it on the new IDs.
+# NAV is kept fresh by caravel-nav-keeper.service, so no --refresh-nav here.
+# A stuck payout logs an ALERT line and runs ALERT_CMD; a crash loop past the
+# start limit fails the unit and OnFailure= sends the same alert.
 [Unit]
 Description=Caravel keeper (check_margin, default, liquidate on every repo every 10 s)
 After=network-online.target caravel-nav-keeper.service
 Wants=network-online.target
+OnFailure=caravel-alert@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
-Environment=ENV_FILE=%h/src/caravel/.env
+Environment=ENV_FILE=%h/.local/lib/caravel/.env
+Environment=ALERT_CMD=%h/.local/lib/caravel/caravel-alert.sh
 WorkingDirectory=%h/.local/lib/caravel/keeper
 ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/keeper.ts
 Restart=always

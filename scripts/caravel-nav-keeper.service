@@ -1,19 +1,28 @@
 # systemd --user unit for scripts/nav-keeper.sh. Install (see scripts/README.md):
 #   install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh
+#   install -Dm600 .env ~/.local/lib/caravel/.env
+#   install -Dm755 scripts/caravel-alert.sh ~/.local/lib/caravel/caravel-alert.sh
+#   install -Dm644 scripts/caravel-alert@.service ~/.config/systemd/user/caravel-alert@.service
 #   install -Dm644 scripts/caravel-nav-keeper.service ~/.config/systemd/user/caravel-nav-keeper.service
 #   systemctl --user daemon-reload && systemctl --user enable --now caravel-nav-keeper
-# The script is copied out of the checkout so switching branches cannot break
-# the service; it still reads keys and ORACLE_ID from the checkout's .env.
+# The script and its .env are copied out of the checkout so switching branches
+# cannot break the service; it re-reads keys and ORACLE_ID from the copy every
+# round, so re-running the `install -Dm600 .env` line after a redeploy is enough.
 [Unit]
-Description=Caravel NAV keeper (tBENJI set_price on the testnet mock oracle every 60 s)
+Description=Caravel NAV keeper (tBENJI + tSAFO set_price on the testnet mock oracle every 60 s)
 After=network-online.target
 Wants=network-online.target
+OnFailure=caravel-alert@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
-Environment=ENV_FILE=%h/src/caravel/.env
+Environment=ENV_FILE=%h/.local/lib/caravel/.env
+Environment=ALERT_CMD=%h/.local/lib/caravel/caravel-alert.sh
 Environment=STELLAR=%h/.local/bin/stellar
 Environment=INTERVAL=60
+Environment=CLI_TIMEOUT=20
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/lib/caravel/nav-keeper.sh
 Restart=always

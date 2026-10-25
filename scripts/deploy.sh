@@ -21,6 +21,11 @@
 # Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
 # DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app and
 # regenerates TS bindings in packages/ when a contract ID changes.
+#
+# Guardian (#33): its own key, not ADMIN. With no GUARDIAN_ADDRESS in .env, the
+# first run that deploys a repo contract generates a funded testnet key and
+# writes GUARDIAN_ADDRESS / GUARDIAN_SECRET to .env. Config has no setter, so a
+# reused repo keeps its on-chain guardian until the next redeploy.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,7 +37,7 @@ FRESH=0
 for arg in "$@"; do
   case "$arg" in
     --fresh) FRESH=1 ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
@@ -71,7 +76,9 @@ for v in ADMIN_ADDRESS ADMIN_SECRET ISSUER_ADDRESS ISSUER_SECRET LIQUIDATOR_ADDR
   [[ -n "${!v:-}" ]] || die "$v not set in $ENV_FILE"
 done
 TREASURY_ADDRESS="${TREASURY_ADDRESS:-$ADMIN_ADDRESS}"
-GUARDIAN_ADDRESS="${GUARDIAN_ADDRESS:-$ADMIN_ADDRESS}" # tighten-only key (#33); set a separate one outside the demo
+# GUARDIAN_ADDRESS: tighten-only key (#33), separate from ADMIN (KPR-05). Empty
+# = keep the live repo's guardian when it is reused, else generate one (step 3).
+GUARDIAN_ADDRESS="${GUARDIAN_ADDRESS:-}"
 export STELLAR_NETWORK="${NETWORK:-testnet}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
@@ -189,10 +196,32 @@ else
 fi
 
 # --- 3. repo -------------------------------------------------------------------
-CONFIG_JSON=$(cat <<EOF
+config_json() {
+  cat <<EOF
 {"admin":"$ADMIN_ADDRESS","usdc":"$USDC_SAC","oracle":"$ORACLE_ID","treasury":"$TREASURY_ADDRESS","fee_bps":$FEE_BPS,"liquidation_discount_bps":$LIQ_DISCOUNT_BPS,"day_secs":$DAY_SECS,"margin_window_secs":$MARGIN_WINDOW_SECS,"grace_secs":$GRACE_SECS,"guardian":"$GUARDIAN_ADDRESS","timelock_secs":$TIMELOCK_SECS}
 EOF
-)
+}
+# A guardian of its own (KPR-05): a funded testnet key, written to .env and
+# never printed. Only called when a new repo contract is deployed.
+new_guardian() {
+  local name="caravel-guardian-$$" secret
+  loud stellar keys generate "$name" --fund --overwrite >/dev/null || die "guardian key generation failed (friendbot down?)"
+  GUARDIAN_ADDRESS=$(stellar keys address "$name")
+  secret=$(stellar keys secret "$name")
+  stellar keys rm "$name" >/dev/null 2>&1 || true
+  [[ "$GUARDIAN_ADDRESS" =~ ^G[A-Z2-7]{55}$ && "$secret" =~ ^S[A-Z2-7]{55}$ ]] || die "guardian key generation returned no key"
+  set_env GUARDIAN_ADDRESS "$GUARDIAN_ADDRESS"
+  set_env GUARDIAN_SECRET "$secret"
+  log "guardian: new key $GUARDIAN_ADDRESS (GUARDIAN_SECRET in $ENV_FILE)"
+}
+NEED_GUARDIAN=0
+if [[ -z "$GUARDIAN_ADDRESS" ]]; then
+  NEED_GUARDIAN=1
+  # Compare against the live repo's own guardian so a no-op run stays a no-op.
+  GUARDIAN_ADDRESS=$(view --id "${REPO_ID:-}" -- config 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["guardian"])' 2>/dev/null || true)
+fi
+CONFIG_JSON=$(config_json)
 config_matches() { # on-chain config == wanted config (no setter, so mismatch => redeploy)
   local got
   got=$(view --id "$REPO_ID" -- config 2>/dev/null) || return 1
@@ -206,6 +235,7 @@ PY
 if [[ $FRESH == 0 && -z "${REDEPLOY_REPO:-}" ]] && same_wasm "${REPO_ID:-}" "$REPO_WASM" && config_matches; then
   log "repo unchanged, reusing $REPO_ID"
 else
+  if (( NEED_GUARDIAN )); then new_guardian; CONFIG_JSON=$(config_json); fi
   log "deploying repo contract"
   REPO_ID=$(deploy --wasm "$REPO_WASM" -- \
     --config "$CONFIG_JSON")
@@ -333,6 +363,7 @@ out = {
     "borrower": "$BORROWER_ADDRESS",
     "liquidator": "$LIQUIDATOR_ADDRESS",
     "treasury": "$TREASURY_ADDRESS",
+    "guardian": "$GUARDIAN_ADDRESS",
   },
   "config": json.loads('''$CONFIG_JSON'''),
   "tbenjiAsset": json.loads('''$ASSET_JSON'''),
