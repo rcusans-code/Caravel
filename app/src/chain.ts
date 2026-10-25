@@ -333,7 +333,11 @@ export async function checkMargin(signer: Signer, repoId: bigint): Promise<TxOut
 
 export async function declareDefault(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
-  const out = await submit(await c.default({ repo_id: repoId }));
+  // The SDK's Client appends "_" to JS reserved words when it registers spec
+  // methods (stellar-sdk bindings sanitizeIdentifier), so the runtime method is
+  // `default_` even though the generated typings still say `default`.
+  const callDefault = (c as unknown as { default_: RepoClient["default"] }).default_.bind(c);
+  const out = await submit(await callDefault({ repo_id: repoId }));
   unwrapResult(out.value);
   return { hash: out.hash, value: null };
 }
