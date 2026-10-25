@@ -11,12 +11,13 @@ https://claude.ai/artifact/Ffm9CtbdGP9UqQea1y6DEc (private; ask Bohdan Che for a
 | `Positions.dc.html` / `PositionsPhone.dc.html` | My positions, including a margin call; phone at 390 px |
 | `Liquidator.dc.html` | Liquidator desk |
 | `Admin.dc.html` | Demo NAV slider |
+| `MainPublic.dc.html` | Public build: wallet login, no demo roles (balances left, NAV right) |
 
 Each artboard links `ds/caravel/tokens.css` and `components/bundle.*` (same files as `design/`) and inlines the app layout CSS. The logo points to a canvas blob, so open the files in the canvas, not straight from disk.
 
 The agreed changes are already in `app/src/App.tsx` and `app/src/app.css`:
 
-- Header: logo left with "Stellar testnet" on the wordmark baseline; an "i" button (About this demo) and the account right.
+- Header: logo left with "Stellar testnet" on the wordmark baseline; a bell (Notifications) and the account right.
 - One status bar replaces the demo, balances and NAV cards: Demo as · XLM / USDC / tBENJI · tBENJI NAV with the live state.
 - Demo-time notice moved from a banner into the "i" popover.
 - Explainers are one plain sentence; the technical detail sits behind a small "i" tooltip (`Tip` in `App.tsx`).

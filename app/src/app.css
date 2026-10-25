@@ -168,8 +168,11 @@ body {
 .app-motto { font-style: italic; font-family: var(--font-display); }
 
 /* Settlement receipt with its seal (SealStamp sits beside the DvP receipt). */
-.app-receipt { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
-.app-receipt > .cv-dvp { flex: 1 1 420px; }
+.app-receipt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: var(--space-4); }
+.app-receipt > .cv-dvp { min-width: 0; }
+/* Square slot on the right that the seal is pressed into. */
+.app-receipt__seal { display: grid; place-items: center; aspect-ratio: 1 / 1; min-width: 132px; box-sizing: border-box; background: var(--surface-sunken); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--bg), 4px 4px 0 0 var(--line-strong); }
+@media (max-width: 560px) { .app-receipt { grid-template-columns: minmax(0, 1fr); } .app-receipt__seal { width: 132px; min-width: 0; justify-self: start; } }
 /* ValueFlash needs a little room for its glow. */
 .app-flashable { padding: 0 4px; margin: 0 -4px; }
 .cv-table td.r .cv-skel { margin-left: auto; }
@@ -188,6 +191,9 @@ body {
 .app-status__nav { font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--ink-muted); }
 .app-status .cv-btn--sm { height: 28px; }
 @media (max-width: 720px) { .app-status__group + .app-status__group { padding-left: 0; border-left: 0; } }
+/* Public build (no "Demo as" roles): balances left, NAV pushed to the right edge, one row. */
+.app-status--public { justify-content: space-between; padding-top: var(--space-4); padding-bottom: var(--space-4); }
+.app-status--public .app-status__group--nav { margin-left: auto; padding-left: 0; border-left: 0; }
 /* Header info button ("i") opens a popover with demo notices instead of a banner in the page. */
 .app-notify { position: relative; margin-left: auto; }
 .app-notify + .app-header__account { margin-left: 0; }
@@ -234,7 +240,18 @@ a:hover { color: var(--primary-hover); }
 .app-take__body { gap: var(--space-4); align-items: center; }
 .app-take__terms { gap: var(--space-2); }
 .app-take__head { display: flex; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; }
+/* Hero numbers: the offer fills its column. */
+.app-take__head .cv-figure-xl { font-size: 56px; line-height: 60px; }
+.app-take__head .cv-figure-xl + .cv-unit { font-size: 18px; }
+.app-take__head .cv-apr { font-size: 22px; line-height: 28px; }
+.app-take__head .cv-apr .cv-unit { font-size: 15px; }
+.app-take__terms .cv-terms dd { font-size: 18px; line-height: 26px; }
+@media (max-width: 560px) { .app-take__head .cv-figure-xl { font-size: 40px; line-height: 44px; } }
 .app-take__act { gap: var(--space-3); padding-left: var(--space-4); }
 .app-take .app-preview { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-2); padding: var(--space-2) var(--space-3); }
 .app-take .app-preview .cv-field__hint { flex-basis: 100%; }
 @media (max-width: 760px) { .app-take__act { padding-left: 0; } }
+
+/* Status pills: compact, so the state reads as a tag, not a button. */
+.cv-pill { height: 20px; padding: 0 6px; gap: 5px; font-size: 11px; line-height: 14px; letter-spacing: .03em; }
+.cv-pill::before { width: 5px; height: 5px; }
