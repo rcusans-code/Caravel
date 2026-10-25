@@ -822,10 +822,10 @@ fn repay_clears_a_margin_call() {
 }
 
 #[test]
-fn repay_only_from_open_or_margin_call() {
+fn repay_only_from_open_margin_call_or_defaulted() {
     let w = world();
     let repo_id = w.take();
-    for status in [Status::Repaid, Status::Defaulted, Status::Liquidated] {
+    for status in [Status::Repaid, Status::Liquidated] {
         w.set_status(repo_id, status);
         assert_eq!(w.repo.try_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
     }
@@ -939,10 +939,13 @@ fn default_only_from_open_or_margin_call() {
 }
 
 #[test]
-fn defaulted_repo_cannot_be_repaid() {
+fn defaulted_repo_can_be_repaid_until_liquidated() {
     let w = world();
     let repo_id = w.defaulted();
-    assert_eq!(w.repo.try_repay(&repo_id), Err(Ok(Error::InvalidStatus)));
+    w.repo.repay(&repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Repaid);
+    assert_eq!(w.tbenji_token.balance(&w.borrower), 2_000 * UNIT);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), 0);
 }
 
 // --- auto-repay (#27) ----------------------------------------------------------

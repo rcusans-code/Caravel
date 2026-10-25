@@ -2,7 +2,8 @@
 
 //! Caravel: fixed-term, fixed-rate USDC repo against tokenized Treasuries.
 //!
-//! State machine: Open → MarginCall → Open (top-up) | Repaid | Defaulted → Liquidated.
+//! State machine: Open → MarginCall → Open (top-up) | Repaid | Defaulted → Liquidated,
+//! and Defaulted → Repaid while no liquidation has landed.
 //! An opted-in repo settles as Repaid instead of Defaulted when its USDC
 //! allowance covers the debt (auto-repay, DECISIONS.md #27).
 
@@ -19,6 +20,8 @@ mod types;
 mod test;
 #[cfg(test)]
 mod test_allowlist;
+#[cfg(test)]
+mod test_attack_a2;
 #[cfg(test)]
 mod test_spiko;
 
@@ -489,12 +492,18 @@ impl CaravelRepo {
 
     /// Borrower pays principal + full-term interest and gets the collateral
     /// back. The lender receives exactly `principal + interest − fee`, the
-    /// treasury the fee (#3). Works from `Open` or `MarginCall`, before or
-    /// after maturity until someone calls `default`, and needs no NAV (#6).
-    /// No pause switch blocks it (#30).
+    /// treasury the fee (#3). Works from `Open`, `MarginCall` or `Defaulted`,
+    /// before or after maturity until a liquidation lands, at the same fixed
+    /// debt, and needs no NAV (#6). No pause switch blocks it (#30).
     pub fn repay(env: Env, repo_id: u64) -> Result<(), Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
-        if !matches!(repo.status, Status::Open | Status::MarginCall) {
+        // Defaulted stays repayable until `liquidate` lands: nothing obliges a
+        // liquidator to buy, and the lender is paid in full instead of from a
+        // discounted sale.
+        if !matches!(
+            repo.status,
+            Status::Open | Status::MarginCall | Status::Defaulted
+        ) {
             return Err(Error::InvalidStatus);
         }
         repo.borrower.require_auth();
