@@ -17,6 +17,8 @@ mod types;
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_allowlist;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 
@@ -73,11 +75,13 @@ impl CaravelRepo {
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
     /// `liquidation_discount_bps < haircut_bps < 10_000`: a strictly larger
     /// haircut means a take at max LTV opens strictly below the margin trigger.
+    /// Requires `max_nav_age_secs > 0` (staleness is per asset, #25).
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         if config.haircut_bps <= protocol.liquidation_discount_bps
             || config.haircut_bps as i128 >= math::BPS
+            || config.max_nav_age_secs == 0
         {
             return Err(Error::InvalidConfig);
         }
@@ -87,6 +91,7 @@ impl CaravelRepo {
             asset,
             haircut_bps: config.haircut_bps,
             enabled: config.enabled,
+            max_nav_age_secs: config.max_nav_age_secs,
         }
         .publish(&env);
         Ok(())
@@ -485,11 +490,7 @@ impl CaravelRepo {
 
 fn validate_config(config: &Config) -> Result<(), Error> {
     let bps = math::BPS as u32;
-    if config.fee_bps > bps
-        || config.liquidation_discount_bps >= bps
-        || config.day_secs == 0
-        || config.max_nav_age_secs == 0
-    {
+    if config.fee_bps > bps || config.liquidation_discount_bps >= bps || config.day_secs == 0 {
         return Err(Error::InvalidConfig);
     }
     Ok(())

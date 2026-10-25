@@ -11,6 +11,7 @@ pub struct AssetConfigured {
     pub asset: Address,
     pub haircut_bps: u32,
     pub enabled: bool,
+    pub max_nav_age_secs: u64,
 }
 
 #[contractevent]

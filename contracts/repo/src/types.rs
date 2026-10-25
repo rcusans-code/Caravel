@@ -25,9 +25,6 @@ pub struct Config {
     pub margin_window_secs: u64,
     /// Time after maturity before an unpaid repo can be defaulted.
     pub grace_secs: u64,
-    /// Older NAV blocks `take_offer`, `check_margin` and `liquidate`
-    /// (DECISIONS.md #6, #17). Never blocks `repay` or `top_up`.
-    pub max_nav_age_secs: u64,
 }
 
 /// SEP-40 asset identifier, same shape as Reflector's, so the mock oracle and
@@ -52,6 +49,12 @@ pub struct AssetConfig {
     pub haircut_bps: u32,
     /// Disabled assets reject new offers; live repos are unaffected.
     pub enabled: bool,
+    /// A NAV older than this blocks `take_offer`, `check_margin` and
+    /// `liquidate` for this asset (DECISIONS.md #6, #17, #25). Never blocks
+    /// `repay` or `top_up`. Per asset because publication schedules differ:
+    /// a fund that prints NAV only on business days needs ~96 h to cover a
+    /// weekend, a daily-priced token less. Must be > 0.
+    pub max_nav_age_secs: u64,
 }
 
 /// A lender's standing offer. The lender sets only asset, principal, APR and

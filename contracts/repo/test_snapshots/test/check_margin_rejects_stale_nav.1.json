@@ -80,6 +80,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_age_secs"
+                      },
+                      "val": {
+                        "u64": "180"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "oracle_asset"
                       },
                       "val": {
@@ -810,6 +818,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "max_nav_age_secs"
+                            },
+                            "val": {
+                              "u64": "180"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "oracle_asset"
                             },
                             "val": {
@@ -882,14 +898,6 @@
                             },
                             "val": {
                               "u64": "120"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "max_nav_age_secs"
-                            },
-                            "val": {
-                              "u64": "180"
                             }
                           },
                           {

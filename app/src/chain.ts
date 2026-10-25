@@ -68,12 +68,13 @@ export interface ProtocolConfig {
   day_secs: bigint;
   margin_window_secs: bigint;
   grace_secs: bigint;
-  max_nav_age_secs: bigint;
 }
 
 export interface AssetConfig {
   haircut_bps: bigint;
   enabled: boolean;
+  /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
+  max_nav_age_secs: bigint;
 }
 
 export interface Nav {
@@ -110,15 +111,17 @@ export async function getConfig(): Promise<ProtocolConfig> {
     day_secs: big(c.day_secs),
     margin_window_secs: big(c.margin_window_secs),
     grace_secs: big(c.grace_secs),
-    max_nav_age_secs: big(c.max_nav_age_secs),
   };
 }
 
 export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
   const r = (await readRepo.asset({ asset: sac })).result;
   if (r.isErr()) return null;
-  const a = r.unwrap();
-  return { haircut_bps: big(a.haircut_bps), enabled: a.enabled };
+  const a: { haircut_bps: unknown; enabled: boolean; max_nav_age_secs?: unknown } = r.unwrap();
+  // Contracts deployed before DECISIONS.md #25 keep max_nav_age_secs in config().
+  const maxAge =
+    a.max_nav_age_secs ?? ((await readRepo.config()).result as unknown as { max_nav_age_secs: unknown }).max_nav_age_secs;
+  return { haircut_bps: big(a.haircut_bps), enabled: a.enabled, max_nav_age_secs: big(maxAge) };
 }
 
 export async function getNav(): Promise<Nav | null> {

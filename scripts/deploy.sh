@@ -36,7 +36,7 @@ HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount
 DAY_SECS="${DAY_SECS:-60}"                       # 1 day = 60 s (#5)
 MARGIN_WINDOW_SECS="${MARGIN_WINDOW_SECS:-120}"
 GRACE_SECS="${GRACE_SECS:-60}"
-MAX_NAV_AGE_SECS="${MAX_NAV_AGE_SECS:-180}"
+MAX_NAV_AGE_SECS="${MAX_NAV_AGE_SECS:-180}"     # tBENJI NAV staleness, per asset (#25)
 ORACLE_DECIMALS=14                               # same as Reflector
 ORACLE_RESOLUTION=60
 ORACLE_BASE='{"Other":"USD"}'
@@ -147,7 +147,7 @@ fi
 
 # --- 3. repo -------------------------------------------------------------------
 CONFIG_JSON=$(cat <<EOF
-{"admin":"$ADMIN_ADDRESS","usdc":"$USDC_SAC","oracle":"$ORACLE_ID","treasury":"$TREASURY_ADDRESS","fee_bps":$FEE_BPS,"liquidation_discount_bps":$LIQ_DISCOUNT_BPS,"day_secs":$DAY_SECS,"margin_window_secs":$MARGIN_WINDOW_SECS,"grace_secs":$GRACE_SECS,"max_nav_age_secs":$MAX_NAV_AGE_SECS}
+{"admin":"$ADMIN_ADDRESS","usdc":"$USDC_SAC","oracle":"$ORACLE_ID","treasury":"$TREASURY_ADDRESS","fee_bps":$FEE_BPS,"liquidation_discount_bps":$LIQ_DISCOUNT_BPS,"day_secs":$DAY_SECS,"margin_window_secs":$MARGIN_WINDOW_SECS,"grace_secs":$GRACE_SECS}
 EOF
 )
 config_matches() { # on-chain config == wanted config (no setter, so mismatch => redeploy)
@@ -172,7 +172,7 @@ fi
 set_env REPO_ID "$REPO_ID"
 
 # --- 4. collateral asset -------------------------------------------------------
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true}"
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS}"
 GOT_ASSET=$(view --id "$REPO_ID" -- asset --asset "$TBENJI_SAC" 2>/dev/null || true)
 if python3 - "$GOT_ASSET" "$ASSET_JSON" <<'PY'
 import json, sys
@@ -182,7 +182,7 @@ PY
 then
   log "tBENJI asset config already set"
 else
-  log "set_asset tBENJI haircut=${HAIRCUT_BPS}bps"
+  log "set_asset tBENJI haircut=${HAIRCUT_BPS}bps max_nav_age=${MAX_NAV_AGE_SECS}s"
   as_admin --id "$REPO_ID" -- set_asset --asset "$TBENJI_SAC" --config "$ASSET_JSON" >/dev/null
 fi
 

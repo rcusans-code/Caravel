@@ -249,17 +249,21 @@ async function liquidateRepo(r: Repo, cfg: Cfg, nav: { last: PriceData | null; n
 async function main() {
   const config = await view<Record<string, bigint>>(REPO_ID, "config");
   const decimals = await view<number>(ORACLE_ID, "decimals");
+  // NAV staleness is per asset (DECISIONS.md #25); a contract deployed before
+  // #25 still carries it in config().
+  const tbenjiAsset = await view<Record<string, bigint>>(REPO_ID, "asset", [new Address(env("TBENJI_SAC")).toScVal()]);
+  const maxAge = BigInt(tbenjiAsset.max_nav_age_secs ?? config.max_nav_age_secs);
   const cfg = {
     discountBps: BigInt(config.liquidation_discount_bps),
     graceSecs: BigInt(config.grace_secs),
-    maxAge: BigInt(config.max_nav_age_secs),
+    maxAge,
     decimals,
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
     `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
-      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${config.max_nav_age_secs}s)`,
+      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, tBENJI max NAV age ${maxAge}s)`,
   );
   for (;;) {
     try {

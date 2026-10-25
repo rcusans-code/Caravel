@@ -178,7 +178,7 @@ export default function App() {
   }, [tab, signer, config]);
 
   const navAge = nav ? now - Number(nav.timestamp) : null;
-  const navStale = !!(config && navAge !== null && navAge > Number(config.max_nav_age_secs));
+  const navStale = !!(asset && navAge !== null && navAge > Number(asset.max_nav_age_secs));
   const isAdmin = isAdminNow(signer, config);
   // Access gate: writes need an issuer-AUTHORIZED tBENJI trustline. The on-chain
   // flag is the only allowlist (scripts/onboard.sh sets it). Demo burner keys
@@ -220,7 +220,7 @@ export default function App() {
           </a>
           <span className="caption app-net">Stellar testnet</span>
           <div className="app-header__end">
-          {config && <DemoInfo config={config} />}
+          {config && asset && <DemoInfo config={config} asset={asset} />}
           <div className="app-header__account">
             {signer ? (
               <AccountChip signer={signer} onDisconnect={onDisconnect} />
@@ -453,11 +453,11 @@ function BalanceFigures({ balances }: { balances: Balances | null }) {
 }
 
 /** "i" button in the header: demo notices live in a popover, not a banner in the page. */
-function DemoInfo({ config }: { config: ProtocolConfig }) {
+function DemoInfo({ config, asset }: { config: ProtocolConfig; asset: AssetConfig }) {
   const [open, setOpen] = useState(false);
   const daySecs = Number(config.day_secs);
   const dayWord = daySecs === 60 ? "1 minute" : `${daySecs} seconds`;
-  const maxAgeMin = Number(config.max_nav_age_secs) / 60;
+  const maxAgeMin = Number(asset.max_nav_age_secs) / 60;
   return (
     <div className="app-notify">
       <button
@@ -665,7 +665,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
   else if (!nav) block = "The oracle has no tBENJI price yet.";
-  else if (navStale) block = `The tBENJI price is more than ${Number(config.max_nav_age_secs) / 60} minutes old. Wait for the next update (or push one from Admin), then try again.`;
+  else if (navStale) block = `The tBENJI price is more than ${Number(asset.max_nav_age_secs) / 60} minutes old. Wait for the next update (or push one from Admin), then try again.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
   else if (balances && (balances.tbenji === null || !balances.tbenjiAuthorized))
@@ -1377,7 +1377,7 @@ function AutoRepayToggle({ checked, disabled, busy, onChange, hint }: { checked:
 // --- Admin: NAV slider ---------------------------------------------------------------
 
 function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
-  const { nav, signer, busy, config } = ctx;
+  const { nav, signer, busy, asset } = ctx;
   const [value, setValue] = useState<number | null>(null);
   const [last, setLast] = useState<{ nav: string; hash: string } | null>(null);
   const current = nav ? Number(nav.price) / 10 ** nav.decimals : 1;
@@ -1400,7 +1400,7 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
         <h1 className="title">Demo NAV</h1>
         <span className="small app-muted">
           Set the test price of tBENJI. New loans and liquidations only work if the price was updated in the last{" "}
-          {config ? Number(config.max_nav_age_secs) / 60 : 3} minutes.
+          {asset ? Number(asset.max_nav_age_secs) / 60 : 3} minutes.
           <Tip>
             Sends the price to the mock price feed (SEP-40, set_price). On mainnet this comes from the fund&apos;s published NAV, not
             from an admin.

@@ -142,7 +142,7 @@ Every state-changing call checks status first and fails with a named error other
 
 | Event | Topics | Data |
 |---|---|---|
-| `AssetConfigured` | asset | haircut_bps, enabled |
+| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
 | `RepoOpened` | repo_id, offer_id | lender, borrower, collateral_asset, collateral_amount, principal, interest, haircut_bps, maturity_ts |
@@ -163,10 +163,10 @@ Amounts are `i128` in 7-decimal Stellar units. NAV is scaled by the feed's `deci
 - **No one-legged settlement.** USDC leaves escrow only in the same transaction the collateral arrives.
 - **Debt is fixed at take.** Early repay pays the same amount.
 - **The haircut is snapshotted at take.** Re-tiering an asset changes new takes only.
-- **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV; `repay` and `top_up` never read it, so a borrower can always exit.
+- **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 
-`cargo test` runs 85 contract tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop.
+`cargo test --workspace` runs 137 contract tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop.
 
 ### Parameters
 
@@ -181,14 +181,14 @@ All durations are configuration, so the demo compresses time without touching co
 | `liquidation_discount_bps` | global | 200 | must stay below every haircut; the contract enforces it |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
-| `max_nav_age_secs` | global | 180 (3 demo days) | 5 days, to cover a long weekend |
+| `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
 | `fee_bps` | global | 1,000 (10% of interest) | illustrative |
 
 <!-- REVIEW (team): production values follow docs/mechanics.md §7 and are intent, not decisions. Confirm or cut. -->
 
 ## Stellar features used
 
-- **Authorized trustlines (AUTH_REQUIRED, AUTH_REVOCABLE, AUTH_CLAWBACK_ENABLED).** tBENJI is issued like a real fund share. Our spike proved an issuer can authorize a *contract* as a holder with `set_authorized`, and that freezing it works ([spikes/auth](spikes/auth/README.md)). This is the compliance layer: the issuer, not Caravel, decides who may hold the collateral.
+- **Authorized trustlines (AUTH_REQUIRED, AUTH_REVOCABLE, AUTH_CLAWBACK_ENABLED).** tBENJI is issued like a real fund share. Our spike proved an issuer can authorize a *contract* as a holder with `set_authorized`, and that freezing it works ([spikes/auth](spikes/auth/README.md)). This is the compliance layer: the issuer, not Caravel, decides who may hold the collateral. The core only uses the SEP-41 token interface, so the issuer decides either way: with AUTH_REQUIRED trustlines (BENJI) or in its own token contract (e.g. Spiko), which a test-only allowlist token covers (DECISIONS.md #24).
 - **Stellar Asset Contracts.** The repo contract moves classic USDC and tBENJI through their SACs. No wrapped tokens.
 - **Atomic DvP through Soroban authorization.** The borrower signs one `take_offer` call; the nested tBENJI transfer is part of the same signed authorization, at the exact collateral amount. Both legs settle in one transaction or not at all.
 - **SEP-40 price feeds.** The contract speaks the SEP-40 interface Reflector uses, so a mock feed and a live one are interchangeable by config.
