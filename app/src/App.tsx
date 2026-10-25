@@ -1255,6 +1255,10 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const fill = cover === null ? 0 : Math.min(100, Math.max(0, ((cover - 90) / 20) * 100));
   const toMaturity = Number(repo.maturity_ts) - now;
   const canRepay = live && side === "borrowed";
+  // Past maturity + grace (strict, as in the contract) the repo waits for a keeper tx (#31).
+  const pastGrace = live && now > Number(repo.maturity_ts + config.grace_secs);
+  // A borrower without auto-repay would default their own loan: Repay is their way out.
+  const canSettle = pastGrace && !!signer && (side === "lent" || repo.auto_repay);
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
   const canTopUp = canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
@@ -1279,6 +1283,20 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const toggleAuto = async (enabled: boolean) => {
     if (!signer) return;
     await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () => chain.setAutoRepay(signer, repo.id, enabled));
+  };
+
+  const doSettle = async () => {
+    if (!signer) return;
+    const out = await ctx.run(`settle-${repo.id}`, `Repo #${repo.id} not settled`, () => chain.settle(signer, repo));
+    if (out)
+      ctx.setFlash({
+        tone: "info",
+        title: `Settled Repo #${String(repo.id).padStart(3, "0")}`,
+        body:
+          out.value === "Repaid"
+            ? `Auto-repay pulled ${fmtAmount(debt)} USDC from the borrower; the ${token.code} went back to them.`
+            : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
+      });
   };
 
   const doRepay = async () => {
@@ -1360,9 +1378,9 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
           </span>
-          {live && (
+          {live && !(pastGrace && !inMarginCall) && (
             <span className="cv-countdown__time">
               {inMarginCall && toDeadline !== null
                 ? fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))
@@ -1382,8 +1400,26 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             {busy === `repay-${repo.id}` ? "Repaying" : "Repay"}
           </button>
         )}
+        {canSettle && (
+          <button
+            type="button"
+            className="cv-btn cv-btn--secondary cv-btn--sm"
+            disabled={!!busy}
+            title={repo.auto_repay ? "Sends auto_repay: pulls the debt from the borrower's USDC allowance" : "Sends default: marks the repo defaulted for liquidation"}
+            onClick={doSettle}
+            data-action="settle"
+          >
+            {busy === `settle-${repo.id}` ? "Settling" : "Settle now"}
+          </button>
+        )}
       </div>
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {ctx.tx?.key === `settle-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {pastGrace && (
+        <p className="cv-field__hint" data-hint="settle">
+          Grace is over. Settlement waits for a keeper transaction; {canSettle ? "Settle now sends it from your wallet." : "repay now to keep your collateral."}
+        </p>
+      )}
       {canTopUp && (
         <form
           className="cv-stack app-topup"
