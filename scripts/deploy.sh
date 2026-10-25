@@ -193,6 +193,25 @@ else
   as_admin --id "$REPO_ID" -- set_liquidator --liquidator "$LIQUIDATOR_ADDRESS" --allowed true >/dev/null
 fi
 
+# --- 5b. treasury can receive USDC ----------------------------------------------
+# repay/liquidate transfer the protocol fee to Config.treasury. A G-account
+# without a USDC trustline makes that SAC transfer fail (TrustlineMissing, #13),
+# so every repay with a non-zero fee reverts. Treasury defaults to ADMIN.
+if [[ -n "${USDC_ASSET:-}" ]]; then
+  if curl -fsS "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$TREASURY_ADDRESS" | python3 -c '
+import json, sys
+code, issuer = sys.argv[1].split(":")
+bs = json.load(sys.stdin)["balances"]
+sys.exit(0 if any(b.get("asset_code") == code and b.get("asset_issuer") == issuer for b in bs) else 1)' "$USDC_ASSET"; then
+    log "treasury has a USDC trustline"
+  elif [[ "$TREASURY_ADDRESS" == "$ADMIN_ADDRESS" ]]; then
+    log "adding USDC trustline to treasury (admin)"
+    loud stellar tx new change-trust --source-account "$ADMIN_SECRET" --line "$USDC_ASSET" >/dev/null
+  else
+    log "WARN: treasury $TREASURY_ADDRESS has no USDC trustline; repay will fail until it adds one"
+  fi
+fi
+
 # --- 6. issuer authorizes holders on tBENJI (AUTH_REQUIRED, spikes/auth) -------
 for who in "$REPO_ID" "$BORROWER_ADDRESS" "$LIQUIDATOR_ADDRESS"; do
   if [[ "$(view --id "$TBENJI_SAC" -- authorized --id "$who" 2>/dev/null || echo false)" == true ]]; then
