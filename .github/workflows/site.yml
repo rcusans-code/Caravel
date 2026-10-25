@@ -1,0 +1,31 @@
+# Deploys the static landing page (site/) to Cloudflare Pages on every push to main that touches it.
+# One-time setup by whoever owns the Cloudflare account (repo Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   API token with "Cloudflare Pages: Edit"
+#   CLOUDFLARE_ACCOUNT_ID  the account id from the Cloudflare dashboard
+# Until both exist the job is skipped, so it never turns main red.
+name: Deploy landing
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/site.yml"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - name: Deploy site/ to Cloudflare Pages (project caravel-site)
+        if: env.HAS_TOKEN == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name caravel-site --branch main --commit-dirty=true
+      - name: Skipped
+        if: env.HAS_TOKEN != 'true'
+        run: echo "CLOUDFLARE_API_TOKEN is not set; add it to deploy the landing (see the comment at the top of this file)."
