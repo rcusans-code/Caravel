@@ -14,6 +14,8 @@
 #   4. tBENJI balance < tbenji_amount -> issuer pays the difference (mint).
 #   5. USDC balance < usdc_amount -> ADMIN pays the difference; if ADMIN holds
 #      too little USDC it first buys more on the DEX (scripts/buy-usdc.sh).
+#   6. TSAFO_ID set -> issuer allowlists the wallet on tSAFO (Spiko-style, no
+#      trustline) and mints it up to TSAFO_AMOUNT (default = tbenji_amount).
 # Amounts are targets, not increments: a re-run tops up to them, never beyond.
 # Keys come from <repo>/.env and reach the CLI via STELLAR_ACCOUNT (not argv).
 set -euo pipefail
@@ -119,6 +121,27 @@ if lt "$US" "$USDC_AMOUNT"; then
     --destination "$ADDR" --asset "$USDC_ASSET" --amount "$(stroops "$amt")" >/dev/null
 else
   log "USDC balance $US >= $USDC_AMOUNT, nothing to pay"
+fi
+
+# 6. tSAFO: allowlist + mint (custom Soroban token, no trustline) ------------------
+if [[ -n "${TSAFO_ID:-}" ]]; then
+  tview() { "$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no --id "$TSAFO_ID" -- "$@"; }
+  tissuer() { STELLAR_ACCOUNT="$ISSUER_SECRET" "$STELLAR" contract invoke -q --id "$TSAFO_ID" -- "$@" >/dev/null; }
+  if [[ "$(tview is_whitelisted --account "$ADDR")" == true ]]; then
+    log "tSAFO already allowlisted"
+  else
+    log "issuer allowlists $ADDR on tSAFO"
+    tissuer set_whitelisted --account "$ADDR" --allowed true
+  fi
+  dec=$(tview decimals)
+  have=$(tview balance --id "$ADDR" | tr -d '"')
+  want=$(python3 -c "from decimal import Decimal as D; print(int(D('${TSAFO_AMOUNT:-$TBENJI_AMOUNT}') * 10**$dec))")
+  if (( have < want )); then
+    log "issuer mints $(( want - have )) tSAFO units"
+    tissuer mint --to "$ADDR" --amount "$(( want - have ))"
+  else
+    log "tSAFO balance $have units >= $want, nothing to mint"
+  fi
 fi
 
 # summary -------------------------------------------------------------------------

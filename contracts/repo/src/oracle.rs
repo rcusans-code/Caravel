@@ -1,10 +1,11 @@
 //! NAV client: reads collateral prices from a SEP-40 feed (DECISIONS.md #2, #22).
 //!
-//! Flows read NAV only through [`fresh_nav`] (or [`nav`] where staleness must
-//! not block, e.g. `repay` / `top_up`, DECISIONS.md #6). Never call the oracle
+//! Flows read NAV only through [`fresh_collateral_nav`] (or [`collateral_nav`]
+//! where staleness must not block, e.g. `top_up`, DECISIONS.md #6), which also
+//! fold in the collateral token's decimals (#24). Never call the oracle
 //! directly from `lib.rs`.
 
-use soroban_sdk::{contractclient, contracttype, Env};
+use soroban_sdk::{contractclient, contracttype, token, Address, Env};
 
 use crate::{
     errors::Error,
@@ -68,6 +69,58 @@ pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, 
         return Err(Error::StaleNav);
     }
     Ok((price, decimals))
+}
+
+/// Decimals of every USDC amount and collateral value in `math.rs`.
+pub const VALUE_DECIMALS: u32 = 7;
+
+/// Folds the collateral token's own `decimals()` into the NAV scale
+/// (DECISIONS.md #24). `math.rs` computes `value = amount × nav / 10^dec`
+/// in 7-decimal USDC; with `amount` in token units that holds when
+/// `dec = nav_decimals + token_decimals − 7`. A 7-decimal token (any SAC,
+/// tBENJI) is unchanged; a 5-decimal Spiko token gets `dec − 2`. Below zero
+/// the NAV itself is scaled up instead.
+pub fn scale_for_token(
+    nav: i128,
+    nav_decimals: u32,
+    token_decimals: u32,
+) -> Result<(i128, u32), Error> {
+    let total = nav_decimals
+        .checked_add(token_decimals)
+        .ok_or(Error::MathOverflow)?;
+    if total >= VALUE_DECIMALS {
+        return Ok((nav, total - VALUE_DECIMALS));
+    }
+    let up = 10i128
+        .checked_pow(VALUE_DECIMALS - total)
+        .ok_or(Error::MathOverflow)?;
+    Ok((nav.checked_mul(up).ok_or(Error::MathOverflow)?, 0))
+}
+
+/// [`fresh_nav`] for the collateral token `token`, scaled so `math.rs` reads
+/// amounts in the token's own units. Flows use this, never `fresh_nav`.
+pub fn fresh_collateral_nav(
+    env: &Env,
+    cfg: &Config,
+    token: &Address,
+    asset: &AssetConfig,
+) -> Result<(i128, u32), Error> {
+    let (price, decimals) = fresh_nav(env, cfg, asset)?;
+    scale_for_token(price, decimals, token::Client::new(env, token).decimals())
+}
+
+/// [`nav`] (no staleness check) for the collateral token `token`, scaled
+/// like [`fresh_collateral_nav`]: `(price, decimals, timestamp)`.
+pub fn collateral_nav(
+    env: &Env,
+    cfg: &Config,
+    token: &Address,
+    asset: &AssetConfig,
+) -> Result<(i128, u32, u64), Error> {
+    let (price, decimals, timestamp) = nav(env, cfg, asset)?;
+    let (price, decimals) =
+        scale_for_token(price, decimals, token::Client::new(env, token).decimals())?;
+    Ok((price, decimals, timestamp))
 }
 
 /// Test-only SEP-40 mock with an admin-free `set_price`.
@@ -141,7 +194,7 @@ mod test {
     use super::{
         fresh_nav,
         mock::{setup_mock_oracle, MockOracleClient, MOCK_DECIMALS, ONE},
-        nav, PriceFeedClient,
+        nav, scale_for_token, PriceFeedClient,
     };
     use crate::{
         errors::Error,
@@ -276,5 +329,18 @@ mod test {
         s.set_price(ONE, NOW - MAX_AGE - 1_000);
         let got = s.env.as_contract(&s.repo, || nav(&s.env, &s.cfg, &s.asset));
         assert_eq!(got, Ok((ONE, MOCK_DECIMALS, NOW - MAX_AGE - 1_000)));
+    }
+
+    #[test]
+    fn token_decimals_fold_into_nav_scale() {
+        // 7-decimal token (SAC, tBENJI): unchanged.
+        assert_eq!(scale_for_token(ONE, 14, 7), Ok((ONE, 14)));
+        // 5-decimal Spiko token: two fewer decimals of NAV scale.
+        assert_eq!(scale_for_token(ONE, 14, 5), Ok((ONE, 12)));
+        // 7-decimal feed, 0-decimal token: NAV scaled up instead.
+        assert_eq!(scale_for_token(10_000_000, 7, 0), Ok((10_000_000, 0)));
+        assert_eq!(scale_for_token(100, 2, 0), Ok((10_000_000, 0)));
+        assert_eq!(scale_for_token(i128::MAX, 0, 0), Err(Error::MathOverflow));
+        assert_eq!(scale_for_token(ONE, u32::MAX, 1), Err(Error::MathOverflow));
     }
 }

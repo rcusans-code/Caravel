@@ -4,19 +4,21 @@ import {
   ACCOUNTS,
   COLLATERAL,
   DEMO_ENABLED,
+  TSAFO,
   DEMO_ROLES,
   ORACLE_ID,
   REPO_ID,
-  TBENJI_SAC,
   assetBySac,
   roleOf,
   type DemoRole,
+  type Token,
 } from "./config";
 import * as chain from "./chain";
 import type { AssetConfig, Balances, Nav, Offer, ProtocolConfig, Repo } from "./chain";
 import { explain } from "./errors";
 import {
   BPS,
+  collateralDecimals,
   collateralValue,
   fmtAmount,
   fmtCountdown,
@@ -53,8 +55,9 @@ const CONNECT = DEMO_ENABLED ? "Connect a wallet or pick a demo account" : "Conn
 export default function App() {
   const [signer, setSigner] = useState<Signer | null>(null);
   const [config, setConfig] = useState<ProtocolConfig | null>(null);
-  const [asset, setAsset] = useState<AssetConfig | null>(null);
-  const [nav, setNav] = useState<Nav | null>(null);
+  // Per collateral token (config.ts COLLATERAL), keyed by token contract id.
+  const [assets, setAssets] = useState<Record<string, AssetConfig | null>>({});
+  const [navs, setNavs] = useState<Record<string, Nav | null>>({});
   const [offers, setOffers] = useState<Offer[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
@@ -75,8 +78,8 @@ export default function App() {
   // --- data ---------------------------------------------------------------------
   const refreshMarket = useCallback(async () => {
     try {
-      const [n, book] = await Promise.all([chain.getNav(), chain.getBook()]);
-      setNav(n);
+      const [n, book] = await Promise.all([Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))), chain.getBook()]);
+      setNavs(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, n[i]])));
       setOffers(book.offers);
       setRepos(book.repos);
       setLoaded(true);
@@ -99,10 +102,10 @@ export default function App() {
   const refreshAll = useCallback(() => Promise.all([refreshMarket(), refreshAccount()]), [refreshMarket, refreshAccount]);
 
   useEffect(() => {
-    Promise.all([chain.getConfig(), chain.getAssetConfig(TBENJI_SAC)])
+    Promise.all([chain.getConfig(), Promise.all(COLLATERAL.map((a) => chain.getAssetConfig(a.sac)))])
       .then(([c, a]) => {
         setConfig(c);
-        setAsset(a);
+        setAssets(Object.fromEntries(COLLATERAL.map((t, i) => [t.sac, a[i]])));
       })
       .catch((e) => setFlash({ tone: "error", title: "Could not read the repo contract", body: explain(e) }));
     refreshMarket();
@@ -177,8 +180,10 @@ export default function App() {
     if (tab === "admin" && !isAdminNow(signer, config)) setTab("offers");
   }, [tab, signer, config]);
 
-  const navAge = nav ? now - Number(nav.timestamp) : null;
-  const navStale = !!(config && navAge !== null && navAge > Number(config.max_nav_age_secs));
+  const stale = (sac: string) => {
+    const n = navs[sac];
+    return !!(config && n && now - Number(n.timestamp) > Number(config.max_nav_age_secs));
+  };
   const isAdmin = isAdminNow(signer, config);
   // Access gate: writes need an issuer-AUTHORIZED tBENJI trustline. The on-chain
   // flag is the only allowlist (scripts/onboard.sh sets it). Demo burner keys
@@ -188,9 +193,9 @@ export default function App() {
     signer,
     approved,
     config,
-    asset,
-    nav,
-    navStale,
+    assets,
+    navs,
+    stale,
     balances,
     busy,
     tx,
@@ -253,7 +258,9 @@ export default function App() {
           <BalancesBar signer={signer} balances={balances} run={run} refresh={refreshAccount} />
         )}
 
-        <NavStrip nav={nav} config={config} now={now} stale={navStale} loaded={loaded} />
+        {COLLATERAL.map((t) => (
+          <NavStrip key={t.sac} token={t} nav={navs[t.sac] ?? null} config={config} now={now} stale={stale(t.sac)} loaded={loaded} />
+        ))}
 
         {config && (
           <Alert tone="info" title="Demo time is on">
@@ -322,9 +329,11 @@ interface Ctx {
   /** Connected and allowed to send writes (authorized tBENJI trustline). */
   approved: boolean;
   config: ProtocolConfig | null;
-  asset: AssetConfig | null;
-  nav: Nav | null;
-  navStale: boolean;
+  /** Asset config per collateral token id; null = not registered with set_asset. */
+  assets: Record<string, AssetConfig | null>;
+  navs: Record<string, Nav | null>;
+  /** NAV for this collateral is older than max_nav_age_secs. */
+  stale: (sac: string) => boolean;
   balances: Balances | null;
   busy: string | null;
   /** Live transaction steps for the action with this key (TxProgress). */
@@ -380,6 +389,13 @@ function BalancesBar({
           value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : null}
           hint={balances?.tbenji !== null && balances && !balances.tbenjiAuthorized ? "Not authorized by the issuer" : undefined}
         />
+        {TSAFO && (
+          <Figure
+            label={TSAFO.code}
+            value={balances ? fmtAmount(balances.tsafo ?? 0n, 2, TSAFO.decimals) : null}
+            hint={balances?.exists && !balances.tsafoAllowed ? "Not on the issuer allowlist" : undefined}
+          />
+        )}
       </div>
       {balances && !balances.exists && (
         <Alert
@@ -464,12 +480,14 @@ function Figure({ label, value, hint }: { label: string; value: string | null; h
 const navDir = (a: string, b: string) => (BigInt(b) > BigInt(a) ? "up" : BigInt(b) < BigInt(a) ? "down" : undefined);
 
 function NavStrip({
+  token,
   nav,
   config,
   now,
   stale,
   loaded,
 }: {
+  token: Token;
   nav: Nav | null;
   config: ProtocolConfig | null;
   now: number;
@@ -480,9 +498,9 @@ function NavStrip({
   const navRef = useFlash(nav ? String(nav.price) : null, navDir);
   if (!loaded)
     return (
-      <section className="cv-card app-nav" aria-label="tBENJI NAV" aria-busy="true">
+      <section className="cv-card app-nav" aria-label={`${token.code} NAV`} aria-busy="true">
         <div className="app-figure">
-          <span className="cv-eyebrow">tBENJI NAV · SEP-40 mock feed</span>
+          <span className="cv-eyebrow">{token.code} NAV · SEP-40 mock feed</span>
           <Skel kind="figure" />
         </div>
         <div className="app-figure">
@@ -496,11 +514,11 @@ function NavStrip({
       </section>
     );
   return (
-    <section className="cv-card app-nav" aria-label="tBENJI NAV">
+    <section className="cv-card app-nav" aria-label={`${token.code} NAV`}>
       <div className="app-figure">
-        <span className="cv-eyebrow">tBENJI NAV · SEP-40 mock feed</span>
+        <span className="cv-eyebrow">{token.code} NAV · SEP-40 mock feed</span>
         <span>
-          <span className="cv-figure-xl app-flashable" data-testid="nav" ref={navRef}>
+          <span className="cv-figure-xl app-flashable" data-testid={token.kind === "sac" ? "nav" : `nav-${token.code}`} ref={navRef}>
             {nav ? fmtNav(nav.price, nav.decimals) : "—"}
           </span>
           <span className="cv-unit">USD</span>
@@ -535,8 +553,10 @@ function NavStrip({
 function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded: boolean }) {
   const [selected, setSelected] = useState<bigint | null>(null);
   const [receipt, setReceipt] = useState<Receipt>(null);
-  const { config, asset } = ctx;
+  const [filter, setFilter] = useState<string>("all");
+  const { config, assets } = ctx;
   const offer = offers.find((o) => o.id === selected) ?? null;
+  const shown = filter === "all" ? offers : offers.filter((o) => o.collateral_asset === filter);
 
   return (
     <section className="app-section">
@@ -545,9 +565,26 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
         <span className="small app-muted">Standing USDC offers, escrowed in the repo contract. Full takes only.</span>
       </div>
 
+      {COLLATERAL.length > 1 && (
+        <label className="cv-field app-filter">
+          <span className="cv-field__label">Collateral</span>
+          <span className="cv-field__control">
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} className="app-select" data-testid="offers-collateral">
+              <option value="all">All assets</option>
+              {COLLATERAL.map((a) => (
+                <option key={a.sac} value={a.sac}>
+                  {a.code}
+                  {assets[a.sac] ? ` · ${fmtPct(assets[a.sac]!.haircut_bps, 0)} haircut` : ""}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
+      )}
+
       {receipt && <DvpReceipt {...receipt} />}
 
-      {offer && config && asset && (
+      {offer && config && assets[offer.collateral_asset] && (
         <TakePanel ctx={ctx} offer={offer} onClose={() => setSelected(null)} onDone={(r) => { setReceipt(r); setSelected(null); }} />
       )}
 
@@ -581,14 +618,14 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
                   <td></td>
                 </tr>
               ))}
-            {loaded && offers.length === 0 && (
+            {loaded && shown.length === 0 && (
               <tr>
                 <td colSpan={9} className="app-empty">
-                  No open offers. Post one from Lend.
+                  {offers.length === 0 ? "No open offers. Post one from Lend." : `No open ${assetBySac(filter).code} offers.`}
                 </td>
               </tr>
             )}
-            {offers.map((o) => (
+            {shown.map((o) => (
               <tr key={String(o.id)} data-offer={String(o.id)}>
                 <td className="cv-num">#{String(o.id).padStart(3, "0")}</td>
                 <td className="r cv-num">{fmtAmount(o.principal)}</td>
@@ -596,7 +633,7 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
                   {fmtPct(o.apr_bps)}
                 </td>
                 <td className="r cv-num">{config ? fmtTerm(o.term_secs, config.day_secs) : "…"}</td>
-                <td className="r cv-num">{asset ? fmtPct(asset.haircut_bps, 1) : "…"}</td>
+                <td className="r cv-num">{assets[o.collateral_asset] ? fmtPct(assets[o.collateral_asset]!.haircut_bps, 1) : "…"}</td>
                 <td>{assetBySac(o.collateral_asset).code}</td>
                 <td>
                   <TxHash kind="ACCOUNT" value={o.lender} />
@@ -626,31 +663,43 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
 }
 
 function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; onClose: () => void; onDone: (r: Receipt) => void }) {
-  const { config, asset, nav, navStale, balances, signer, busy } = ctx;
+  const { config, balances, signer, busy } = ctx;
+  const token = assetBySac(offer.collateral_asset);
+  const asset = ctx.assets[offer.collateral_asset];
+  const nav = ctx.navs[offer.collateral_asset] ?? null;
+  const navStale = ctx.stale(offer.collateral_asset);
   if (!config || !asset) return null;
   const int = calcInterest(offer.principal, offer.apr_bps, offer.term_secs, config.day_secs);
   const debt = offer.principal + int;
-  const collateral = nav ? requiredCollateral(debt, nav.price, nav.decimals, asset.haircut_bps) : null;
+  const collateral = nav
+    ? requiredCollateral(debt, nav.price, collateralDecimals(nav.decimals, token.decimals), asset.haircut_bps)
+    : null;
+  const held = balances ? chain.holding(balances, offer.collateral_asset) : null;
+  const amt = (v: bigint) => fmtAmount(v, 2, token.decimals);
 
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to take this offer.`;
   else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
-  else if (!nav) block = "The oracle has no tBENJI price yet.";
+  else if (!asset.enabled) block = `${token.code} is disabled as collateral right now.`;
+  else if (!nav) block = `The oracle has no ${token.code} price yet.`;
   else if (navStale) block = "NAV is older than 3 minutes. Wait for the next update (or push one from Admin), then try again.";
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
-  else if (balances && (balances.tbenji === null || !balances.tbenjiAuthorized))
-    block = "Your account is not authorized to hold tBENJI. The issuer must authorize it first.";
-  else if (balances && collateral !== null && (balances.tbenji ?? 0n) < collateral)
-    block = `You need ${fmtAmount(collateral)} tBENJI and hold ${fmtAmount(balances.tbenji ?? 0n)} tBENJI.`;
+  else if (held && (held.amount === null || !held.allowed))
+    block =
+      token.kind === "spiko"
+        ? `Your account is not on the ${token.code} allowlist. The issuer must allowlist it first.`
+        : `Your account is not authorized to hold ${token.code}. The issuer must authorize it first.`;
+  else if (held && collateral !== null && (held.amount ?? 0n) < collateral)
+    block = `You need ${amt(collateral)} ${token.code} and hold ${amt(held.amount ?? 0n)} ${token.code}.`;
 
   const take = async () => {
     if (!signer || collateral === null) return;
     const out = await ctx.run("take", `Offer #${offer.id} not taken`, () => chain.takeOffer(signer, offer.id));
     if (out)
       onDone({
-        left: { eyebrow: "Borrower delivers", amount: fmtAmount(collateral), unit: "tBENJI", hint: "into escrow" },
+        left: { eyebrow: "Borrower delivers", amount: amt(collateral), unit: token.code, hint: "into escrow" },
         right: { eyebrow: "Borrower receives", amount: fmtAmount(offer.principal), unit: "USDC", hint: `from Offer #${offer.id}` },
         sentence: `Repo #${out.value} opened. Settled atomically in one transaction`,
         hash: out.hash,
@@ -679,6 +728,10 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
           <dd>{fmtTerm(offer.term_secs, config.day_secs)}</dd>
         </div>
         <div>
+          <dt>Collateral</dt>
+          <dd>{token.code}</dd>
+        </div>
+        <div>
           <dt>Haircut</dt>
           <dd>{fmtPct(asset.haircut_bps, 1)}</dd>
         </div>
@@ -691,9 +744,9 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         <span className="cv-field__label">Collateral you post</span>
         <span>
           <span className="figure" data-testid="collateral-preview">
-            {collateral !== null ? fmtAmount(collateral) : "—"}
+            {collateral !== null ? amt(collateral) : "—"}
           </span>
-          <span className="cv-unit">tBENJI</span>
+          <span className="cv-unit">{token.code}</span>
         </span>
         <span className="cv-field__hint">
           {nav
@@ -724,11 +777,13 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
 // --- Lend --------------------------------------------------------------------------
 
 function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
-  const { config, asset, signer, balances, busy } = ctx;
+  const { config, signer, balances, busy } = ctx;
   const [amount, setAmount] = useState("50.00");
   const [days, setDays] = useState("7");
   const [apr, setApr] = useState("5.20");
   const [collateral, setCollateral] = useState(COLLATERAL[0].sac);
+  const asset = ctx.assets[collateral] ?? null;
+  const token = assetBySac(collateral);
   const [posted, setPosted] = useState<{ id: bigint; hash: string } | null>(null);
   const [cancelled, setCancelled] = useState<{ id: bigint; hash: string } | null>(null);
 
@@ -754,7 +809,8 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   else if (balances && balances.usdc === null) block = "Add a USDC trustline first.";
   else if (balances && principal && balances.usdc !== null && balances.usdc < principal)
     block = `You hold ${fmtAmount(balances.usdc)} USDC, less than ${fmtAmount(principal)} USDC.`;
-  else if (asset && !asset.enabled) block = "tBENJI is disabled as collateral right now.";
+  else if (config && !asset) block = `${token.code} is not registered as collateral on this deployment.`;
+  else if (asset && !asset.enabled) block = `${token.code} is disabled as collateral right now.`;
 
   const post = async () => {
     if (!signer || !principal || errAmount || errDays || errApr) return;
@@ -793,12 +849,16 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                 {COLLATERAL.map((a) => (
                   <option key={a.sac} value={a.sac}>
                     {a.code}
+                    {ctx.assets[a.sac] ? ` · ${fmtPct(ctx.assets[a.sac]!.haircut_bps, 0)} haircut` : ""}
                   </option>
                 ))}
               </select>
             </span>
             <span className="cv-field__hint" id="collat-hint">
               {asset ? `Haircut ${fmtPct(asset.haircut_bps, 1)}: a safety margin, so the borrower posts collateral worth debt ÷ ${fmtPct(BPS - asset.haircut_bps, 1)}. Set per asset by the protocol.` : ""}
+              {token.kind === "spiko"
+                ? ` ${token.code} is a Spiko-style fund token: only issuer-allowlisted wallets can hold it, and the issuer can pause transfers, which also freezes repay and liquidation until it unpauses.`
+                : ""}
             </span>
           </label>
           <dl className="cv-terms">
@@ -847,13 +907,14 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                   <th className="r">Amount</th>
                   <th className="r">APR</th>
                   <th className="r">Term</th>
+                  <th>Collateral</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {mine.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="app-empty">
+                    <td colSpan={6} className="app-empty">
                       {signer ? "No open offers from this account." : "Connect to see your offers."}
                     </td>
                   </tr>
@@ -866,6 +927,7 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                       {fmtPct(o.apr_bps)}
                     </td>
                     <td className="r cv-num">{config ? fmtTerm(o.term_secs, config.day_secs) : ""}</td>
+                    <td>{assetBySac(o.collateral_asset).code}</td>
                     <td className="r">
                       <button
                         type="button"
@@ -964,13 +1026,16 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
               </thead>
               <tbody>
                 {repos.filter((r) => r.status !== "Repaid" && r.status !== "Liquidated").map((r) => {
+                  const token = assetBySac(r.collateral_asset);
+                  const rNav = ctx.navs[r.collateral_asset] ?? null;
+                  const rStale = ctx.stale(r.collateral_asset);
                   const marginMissed = r.status === "MarginCall" && r.margin_call_deadline !== null && ctx.now > Number(r.margin_call_deadline);
                   const defaultable = live(r) && (ctx.now > Number(r.maturity_ts + config.grace_secs) || marginMissed);
                   return (
                     <tr key={String(r.id)}>
                       <td className="cv-num">#{String(r.id).padStart(3, "0")}</td>
                       <td className="r cv-num">{fmtAmount(r.principal + r.interest)}</td>
-                      <td className="r cv-num">{fmtAmount(r.collateral_amount)} tBENJI</td>
+                      <td className="r cv-num">{fmtAmount(r.collateral_amount, 2, token.decimals)} {token.code}</td>
                       <td className="r cv-num">{fmtCountdown(Number(r.maturity_ts) - ctx.now, 60)}</td>
                       <td>
                         <StatusPill status={r.status} />
@@ -981,8 +1046,8 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                             type="button"
                             className="cv-btn cv-btn--secondary cv-btn--sm"
                             style={{ marginRight: 8 }}
-                            disabled={!!ctx.busy || ctx.navStale || !ctx.approved}
-                            title={ctx.navStale ? "NAV is stale; check_margin needs a fresh price" : "Raise a margin call if cover is below 100%"}
+                            disabled={!!ctx.busy || rStale || !ctx.approved}
+                            title={rStale ? "NAV is stale; check_margin needs a fresh price" : "Raise a margin call if cover is below 100%"}
                             onClick={async () => {
                               const out = await ctx.run(`check-${r.id}`, `Repo #${r.id} not checked`, () => chain.checkMargin(signer!, r.id));
                               if (out)
@@ -1013,14 +1078,14 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!liquidatorOk || !!ctx.busy || ctx.navStale || !ctx.approved}
-                            title={ctx.navStale ? "NAV is stale" : ""}
+                            disabled={!liquidatorOk || !!ctx.busy || rStale || !ctx.approved}
+                            title={rStale ? "NAV is stale" : token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : ""}
                             onClick={async () => {
                               const out = await ctx.run(`liq-${r.id}`, `Repo #${r.id} not liquidated`, () => chain.liquidate(signer!, r.id));
                               if (out)
                                 setReceipt({
-                                  left: { eyebrow: "Liquidator delivers", amount: ctx.nav ? fmtAmount((collateralValue(r.collateral_amount, ctx.nav.price, ctx.nav.decimals) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: "USDC", hint: "to lender, fee, borrower" },
-                                  right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount), unit: "tBENJI", hint: `from Repo #${r.id}` },
+                                  left: { eyebrow: "Liquidator delivers", amount: rNav ? fmtAmount((collateralValue(r.collateral_amount, rNav.price, collateralDecimals(rNav.decimals, token.decimals)) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: "USDC", hint: "to lender, fee, borrower" },
+                                  right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount, 2, token.decimals), unit: token.code, hint: `from Repo #${r.id}` },
                                   sentence: `Repo #${r.id} liquidated in one transaction`,
                                   hash: out.hash,
                                   stamp: { word: "Liquidated", sub: `Repo ${String(r.id).padStart(3, "0")}` },
@@ -1044,23 +1109,28 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
 }
 
 function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; primary: boolean; onRepaid: (r: Receipt) => void }) {
-  const { signer, config, nav, balances, busy, now } = ctx;
+  const { signer, config, balances, busy, now } = ctx;
+  const token = assetBySac(repo.collateral_asset);
+  const nav = ctx.navs[repo.collateral_asset] ?? null;
+  const dec = nav ? collateralDecimals(nav.decimals, token.decimals) : 0;
+  const amt = (v: bigint) => fmtAmount(v, 2, token.decimals);
+  const held = balances ? chain.holding(balances, repo.collateral_asset).amount : null;
   const side = signer?.address === repo.borrower ? "borrowed" : "lent";
   const debt = repo.principal + repo.interest;
   // Cover vs the margin-call line (DECISIONS.md #14): value × (1 − liq discount) ÷ debt.
   // 100% is where check_margin fires; a max-LTV take opens just above it.
   const cover = useMemo(() => {
     if (!nav || !config || debt === 0n) return null;
-    const v = collateralValue(repo.collateral_amount, nav.price, nav.decimals);
+    const v = collateralValue(repo.collateral_amount, nav.price, dec);
     return Number((v * (BPS - config.liquidation_discount_bps) * 10_000n) / (debt * BPS)) / 100;
-  }, [nav, config, repo, debt]);
+  }, [nav, dec, config, repo, debt]);
   const coverRef = useFlash(cover, (a, b) => (b > a ? "up" : b < a ? "down" : undefined));
   // Top-up to clear a margin call: back to initial margin at the repo's own haircut (DECISIONS.md #20).
   const topUpNeed = useMemo(() => {
     if (!nav) return null;
-    const need = requiredCollateral(debt, nav.price, nav.decimals, repo.haircut_bps) - repo.collateral_amount;
+    const need = requiredCollateral(debt, nav.price, dec, repo.haircut_bps) - repo.collateral_amount;
     return need > 0n ? need : 0n;
-  }, [nav, debt, repo]);
+  }, [nav, dec, debt, repo]);
   const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
   const live = repo.status === "Open" || repo.status === "MarginCall";
@@ -1073,13 +1143,11 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   const canRepay = live && side === "borrowed";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
   const canTopUp = canRepay && (inMarginCall || breached);
-  const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? fmtAmount(topUpNeed).replace(/,/g, "") : "");
-  const topUpAmount = parseAmount(topUpText);
-  const topUpErr = topUpAmount === null || topUpAmount <= 0n ? "Enter an amount above 0.00 tBENJI." : null;
+  const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
+  const topUpAmount = parseAmount(topUpText, token.decimals);
+  const topUpErr = topUpAmount === null || topUpAmount <= 0n ? `Enter an amount above 0.00 ${token.code}.` : null;
   const topUpShort =
-    !topUpErr && balances?.tbenji !== null && balances?.tbenji !== undefined && topUpAmount !== null && balances.tbenji < topUpAmount
-      ? `You hold ${fmtAmount(balances.tbenji)} tBENJI.`
-      : null;
+    !topUpErr && held !== null && topUpAmount !== null && held < topUpAmount ? `You hold ${amt(held)} ${token.code}.` : null;
 
   const doTopUp = async () => {
     if (!signer || topUpAmount === null || topUpErr) return;
@@ -1089,7 +1157,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       ctx.setFlash({
         tone: "info",
         title: `Topped up Repo #${String(repo.id).padStart(3, "0")}`,
-        body: `Added ${fmtAmount(topUpAmount)} tBENJI. ${inMarginCall ? "The margin call clears once collateral is back at the initial margin." : ""}`,
+        body: `Added ${amt(topUpAmount)} ${token.code}. ${inMarginCall ? "The margin call clears once collateral is back at the initial margin." : ""}`,
       });
     }
   };
@@ -1100,7 +1168,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
     if (out)
       onRepaid({
         left: { eyebrow: "Borrower delivers", amount: fmtAmount(debt), unit: "USDC", hint: "principal plus interest" },
-        right: { eyebrow: "Borrower receives", amount: fmtAmount(repo.collateral_amount), unit: "tBENJI", hint: `from Repo #${repo.id}` },
+        right: { eyebrow: "Borrower receives", amount: amt(repo.collateral_amount), unit: token.code, hint: `from Repo #${repo.id}` },
         sentence: `Repo #${repo.id} repaid. Settled atomically in one transaction`,
         hash: out.hash,
         stamp: { word: "Repaid", sub: fmtAmount(debt), repaid: true },
@@ -1120,7 +1188,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           {`Collateral cover is ${cover !== null ? cover.toFixed(1) : "—"}%. `}
           {side === "borrowed"
             ? topUpNeed !== null && topUpNeed > 0n
-              ? `Add ${fmtAmount(topUpNeed)} tBENJI${inMarginCall && toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
+              ? `Add ${amt(topUpNeed)} ${token.code}${inMarginCall && toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
               : "Repay, or wait for the next NAV."
             : inMarginCall
               ? "The borrower has until the deadline to add collateral; after it, anyone can default the repo."
@@ -1138,7 +1206,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         </div>
         <div>
           <dt>Collateral</dt>
-          <dd>{fmtAmount(repo.collateral_amount)} tBENJI</dd>
+          <dd>{amt(repo.collateral_amount)} {token.code}</dd>
         </div>
         <div>
           <dt>Haircut</dt>
@@ -1201,11 +1269,11 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
             label="Add collateral"
             value={topUpText}
             onChange={setTopUpInput}
-            suffix="tBENJI"
+            suffix={token.code}
             error={topUpErr ?? topUpShort}
             hint={
               topUpNeed !== null && nav
-                ? `${fmtAmount(topUpNeed)} tBENJI brings the repo back to the initial margin (${fmtPct(repo.haircut_bps, 1)} haircut at NAV ${fmtNav(nav.price, nav.decimals)}), which clears the margin call.`
+                ? `${amt(topUpNeed)} ${token.code} brings the repo back to the initial margin (${fmtPct(repo.haircut_bps, 1)} haircut at NAV ${fmtNav(nav.price, nav.decimals)}), which clears the margin call.`
                 : "Waiting for NAV."
             }
           />
@@ -1225,7 +1293,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
         <p className="cv-field__hint">
           {short
             ? `Repay needs ${fmtAmount(debt)} USDC; you hold ${fmtAmount(balances!.usdc!)} USDC.`
-            : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${fmtAmount(repo.collateral_amount)} tBENJI back.`}
+            : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
         </p>
       )}
     </article>
@@ -1235,7 +1303,10 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
 // --- Admin: NAV slider ---------------------------------------------------------------
 
 function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
-  const { nav, signer, busy, config } = ctx;
+  const { signer, busy, config } = ctx;
+  const [sac, setSac] = useState(COLLATERAL[0].sac);
+  const token = assetBySac(sac);
+  const nav = ctx.navs[sac] ?? null;
   const [value, setValue] = useState<number | null>(null);
   const [last, setLast] = useState<{ nav: string; hash: string } | null>(null);
   const current = nav ? Number(nav.price) / 10 ** nav.decimals : 1;
@@ -1245,9 +1316,9 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
   const push = async () => {
     if (!signer) return;
     const scaled = BigInt(Math.round(v * 10_000)) * 10n ** BigInt(decimals - 4);
-    const out = await ctx.run("nav", "NAV not updated", () => chain.setNav(signer, scaled));
+    const out = await ctx.run("nav", "NAV not updated", () => chain.setNav(signer, scaled, sac));
     if (out) {
-      setLast({ nav: v.toFixed(4), hash: out.hash });
+      setLast({ nav: `${token.code} ${v.toFixed(4)}`, hash: out.hash });
       setValue(null);
     }
   };
@@ -1256,7 +1327,7 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
     <section className="app-section">
       <div className="app-section__head">
         <h1 className="title">Demo NAV</h1>
-        <span className="small app-muted">Admin pushes a tBENJI price to the mock SEP-40 oracle with set_price. Takes and liquidations need a price younger than {config ? Number(config.max_nav_age_secs) / 60 : 3} minutes.</span>
+        <span className="small app-muted">Admin pushes a collateral price to the mock SEP-40 oracle with set_price. Takes and liquidations need a price younger than {config ? Number(config.max_nav_age_secs) / 60 : 3} minutes.</span>
       </div>
       {!isAdmin && (
         <Alert tone="info" title="Admin only">
@@ -1265,8 +1336,30 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
         </Alert>
       )}
       <div className="cv-card cv-stack app-admin">
+        {COLLATERAL.length > 1 && (
+          <label className="cv-field">
+            <span className="cv-field__label">Asset</span>
+            <span className="cv-field__control">
+              <select
+                value={sac}
+                onChange={(e) => {
+                  setSac(e.target.value);
+                  setValue(null);
+                }}
+                className="app-select"
+                data-testid="nav-asset"
+              >
+                {COLLATERAL.map((a) => (
+                  <option key={a.sac} value={a.sac}>
+                    {a.code}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </label>
+        )}
         <label className="cv-field">
-          <span className="cv-field__label">tBENJI NAV</span>
+          <span className="cv-field__label">{token.code} NAV</span>
           <span className="app-slider">
             <input
               type="range"

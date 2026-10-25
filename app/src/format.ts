@@ -1,19 +1,19 @@
-// Units (DECISIONS.md #8): token amounts are i128 with 7 decimals; NAV is
+// Units (DECISIONS.md #8, #24): USDC amounts are i128 with 7 decimals;
+// collateral amounts use the token's own decimals (tBENJI 7, tSAFO 5); NAV is
 // scaled by the oracle's decimals(). All math here is bigint, mirroring
 // contracts/repo/src/math.rs rounding (interest and collateral round up).
 
 export const TOKEN_DECIMALS = 7;
-const UNIT = 10n ** 7n;
 export const BPS = 10_000n;
 const DAYS_PER_YEAR = 365n;
 
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
-/** "1,000.00" style, `dp` decimals, rounded half-up for display only. */
-export function fmtAmount(v: bigint, dp = 2): string {
+/** "1,000.00" style, `dp` decimals, rounded half-up for display only. `decimals` = the token's. */
+export function fmtAmount(v: bigint, dp = 2, decimals = TOKEN_DECIMALS): string {
   const neg = v < 0n;
   const abs = neg ? -v : v;
-  const scale = 10n ** BigInt(TOKEN_DECIMALS - dp);
+  const scale = 10n ** BigInt(Math.max(0, decimals - dp));
   const rounded = (abs + scale / 2n) / scale;
   const s = rounded.toString().padStart(dp + 1, "0");
   const int = s.slice(0, s.length - dp);
@@ -22,12 +22,12 @@ export function fmtAmount(v: bigint, dp = 2): string {
   return (neg ? "-" : "") + grouped + (dp ? "." + frac : "");
 }
 
-/** Parses "1,000.50" into 7-decimal units. Returns null when not a number. */
-export function parseAmount(input: string): bigint | null {
+/** Parses "1,000.50" into units of `decimals` (default 7). Returns null when not a number. */
+export function parseAmount(input: string, decimals = TOKEN_DECIMALS): bigint | null {
   const s = input.replace(/[,\s_]/g, "");
-  if (!/^\d+(\.\d{0,7})?$/.test(s)) return null;
+  if (!new RegExp(`^\\d+(\\.\\d{0,${decimals}})?$`).test(s)) return null;
   const [i, f = ""] = s.split(".");
-  return BigInt(i) * UNIT + BigInt(f.padEnd(TOKEN_DECIMALS, "0"));
+  return BigInt(i) * 10n ** BigInt(decimals) + BigInt(f.padEnd(decimals, "0") || "0");
 }
 
 /** Horizon balance string ("12.3400000") to units. */
@@ -68,6 +68,13 @@ export const short = (s: string, n = 4) => (s.length > 2 * n + 1 ? `${s.slice(0,
 export function interest(principal: bigint, aprBps: bigint, termSecs: bigint, daySecs: bigint): bigint {
   return ceilDiv(principal * aprBps * termSecs, BPS * DAYS_PER_YEAR * daySecs);
 }
+
+/**
+ * NAV scale for collateral math on a token with `tokenDecimals` (oracle.rs
+ * `scale_for_token`, DECISIONS.md #24): amount × nav / 10^d is 7-decimal USDC.
+ */
+export const collateralDecimals = (navDecimals: number, tokenDecimals: number) =>
+  navDecimals + tokenDecimals - TOKEN_DECIMALS;
 
 export function requiredCollateral(debt: bigint, nav: bigint, navDecimals: number, haircutBps: bigint): bigint {
   const valueNeeded = ceilDiv(debt * BPS, BPS - haircutBps);

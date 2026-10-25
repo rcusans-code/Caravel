@@ -278,6 +278,14 @@ dependencies = [
 name = "caravel-repo"
 version = "0.1.0"
 dependencies = [
+ "caravel-spiko-mock",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "caravel-spiko-mock"
+version = "0.1.0"
+dependencies = [
  "soroban-sdk",
 ]
 

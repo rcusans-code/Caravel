@@ -4,14 +4,21 @@
 #   scripts/deploy.sh            # build, deploy what changed, (re)apply config
 #   scripts/deploy.sh --fresh    # force new oracle + repo contracts
 #   NAV=0.97 scripts/deploy.sh   # also push a tBENJI price (default: 1.00, only if none set)
+#   SAFO_NAV=1.02 scripts/deploy.sh   # same for tSAFO
 #
 # Idempotent: an existing ORACLE_ID / REPO_ID from .env is kept when its
 # on-chain wasm matches the fresh build; otherwise a new contract is deployed.
 # Admin steps (price, set_asset, set_liquidator, issuer authorization) are
 # read first and only sent when the on-chain value differs.
 #
-# Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, DEPLOYED_AT
-# back to it, writes the public deployments/testnet.json for the app and
+# Collateral #2 is tSAFO (issue #20): a Spiko-style mock token
+# (contracts/spiko-mock, allowlist on every transfer, no approve, 5 decimals)
+# with ISSUER as its admin. The script allowlists the repo contract, the
+# liquidator and the demo wallets (+ TSAFO_HOLDERS), mints demo tSAFO to the
+# borrower, prices it and registers it with set_asset at SAFO_HAIRCUT_BPS.
+#
+# Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
+# DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app and
 # regenerates TS bindings in packages/ when a contract ID changes.
 set -euo pipefail
 
@@ -24,7 +31,7 @@ FRESH=0
 for arg in "$@"; do
   case "$arg" in
     --fresh) FRESH=1 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
@@ -33,6 +40,9 @@ done
 FEE_BPS="${FEE_BPS:-1000}"                       # 10% of interest (#3)
 LIQ_DISCOUNT_BPS="${LIQ_DISCOUNT_BPS:-200}"      # 2% liquidator discount (#4)
 HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount (#18)
+SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (collateral-research §3, #24)
+TSAFO_DECIMALS="${TSAFO_DECIMALS:-5}"            # Spiko tokens use 5 (mainnet eurSAFO decimals())
+TSAFO_BORROWER_MINT="${TSAFO_BORROWER_MINT:-2000}" # whole tSAFO minted to BORROWER when it holds none
 DAY_SECS="${DAY_SECS:-60}"                       # 1 day = 60 s (#5)
 MARGIN_WINDOW_SECS="${MARGIN_WINDOW_SECS:-120}"
 GRACE_SECS="${GRACE_SECS:-60}"
@@ -116,7 +126,8 @@ log "building contracts"
 (cd "$ROOT" && stellar contract build >/dev/null 2>&1) || die "stellar contract build failed (run it in $ROOT to see why)"
 ORACLE_WASM="$WASM_DIR/caravel_oracle.wasm"
 REPO_WASM="$WASM_DIR/caravel_repo.wasm"
-[[ -f "$ORACLE_WASM" && -f "$REPO_WASM" ]] || die "wasm not found in $WASM_DIR"
+SPIKO_WASM="$WASM_DIR/caravel_spiko_mock.wasm"
+[[ -f "$ORACLE_WASM" && -f "$REPO_WASM" && -f "$SPIKO_WASM" ]] || die "wasm not found in $WASM_DIR"
 ensure_admin_xlm
 
 # --- 2. oracle -------------------------------------------------------------------
@@ -142,6 +153,29 @@ if [[ -n "${NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
   as_admin --id "$ORACLE_ID" -- set_price --asset "$TBENJI_ORACLE_ASSET" --price "$PRICE" >/dev/null
 else
   log "tBENJI price already set: $LAST"
+fi
+
+# --- 2b. tSAFO: Spiko-style mock token, ISSUER is its admin ----------------------
+if [[ $FRESH == 0 ]] && same_wasm "${TSAFO_ID:-}" "$SPIKO_WASM"; then
+  log "tSAFO unchanged, reusing $TSAFO_ID"
+else
+  log "deploying tSAFO (Spiko mock, $TSAFO_DECIMALS decimals)"
+  TSAFO_ID=$(deploy --wasm "$SPIKO_WASM" -- \
+    --admin "$ISSUER_ADDRESS" --name "Test Spiko SAFO (USD)" --symbol tSAFO --decimals "$TSAFO_DECIMALS")
+  log "tSAFO $TSAFO_ID"
+  DEPLOYED_NEW=1
+fi
+set_env TSAFO_ID "$TSAFO_ID"
+
+TSAFO_ORACLE_ASSET="{\"Stellar\":\"$TSAFO_ID\"}"
+LAST=$(view --id "$ORACLE_ID" -- lastprice --asset "$TSAFO_ORACLE_ASSET")
+if [[ -n "${SAFO_NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
+  NAV_VALUE="${SAFO_NAV:-1.00}"
+  PRICE=$(python3 -c "from decimal import Decimal as D; print(int(D('$NAV_VALUE') * 10**$ORACLE_DECIMALS))")
+  log "set_price tSAFO = $NAV_VALUE ($PRICE)"
+  as_admin --id "$ORACLE_ID" -- set_price --asset "$TSAFO_ORACLE_ASSET" --price "$PRICE" >/dev/null
+else
+  log "tSAFO price already set: $LAST"
 fi
 
 # --- 3. repo -------------------------------------------------------------------
@@ -170,20 +204,26 @@ else
 fi
 set_env REPO_ID "$REPO_ID"
 
-# --- 4. collateral asset -------------------------------------------------------
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true}"
-GOT_ASSET=$(view --id "$REPO_ID" -- asset --asset "$TBENJI_SAC" 2>/dev/null || true)
-if python3 - "$GOT_ASSET" "$ASSET_JSON" <<'PY'
+# --- 4. collateral assets ------------------------------------------------------
+ensure_asset() { # ensure_asset LABEL TOKEN_ID ASSET_JSON
+  local label="$1" token="$2" want="$3" got
+  got=$(view --id "$REPO_ID" -- asset --asset "$token" 2>/dev/null || true)
+  if python3 - "$got" "$want" <<'PY'
 import json, sys
 try: sys.exit(0 if json.loads(sys.argv[1]) == json.loads(sys.argv[2]) else 1)
 except Exception: sys.exit(1)
 PY
-then
-  log "tBENJI asset config already set"
-else
-  log "set_asset tBENJI haircut=${HAIRCUT_BPS}bps"
-  as_admin --id "$REPO_ID" -- set_asset --asset "$TBENJI_SAC" --config "$ASSET_JSON" >/dev/null
-fi
+  then
+    log "$label asset config already set"
+  else
+    log "set_asset $label $want"
+    as_admin --id "$REPO_ID" -- set_asset --asset "$token" --config "$want" >/dev/null
+  fi
+}
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"enabled\":true}"
+TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"enabled\":true}"
+ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
+ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 
 # --- 5. liquidator whitelist ---------------------------------------------------
 if [[ "$(view --id "$REPO_ID" -- is_liquidator --who "$LIQUIDATOR_ADDRESS")" == true ]]; then
@@ -223,6 +263,27 @@ for who in "$REPO_ID" "$BORROWER_ADDRESS" "$LIQUIDATOR_ADDRESS"; do
   fi
 done
 
+# --- 6b. Spiko-style allowlist on tSAFO ----------------------------------------
+# Every transfer checks both sides, so the repo contract and every liquidator
+# must be on it, not only borrowers (issue #20). The lender never holds tSAFO
+# but is allowlisted so the demo lender wallet can also borrow.
+for who in "$REPO_ID" "$LIQUIDATOR_ADDRESS" "$BORROWER_ADDRESS" "$LENDER_ADDRESS" ${TSAFO_HOLDERS:-}; do
+  if [[ "$(view --id "$TSAFO_ID" -- is_whitelisted --account "$who" 2>/dev/null || echo false)" == true ]]; then
+    log "tSAFO allowlisted: $who"
+  else
+    log "issuer allowlists $who on tSAFO"
+    as_issuer --id "$TSAFO_ID" -- set_whitelisted --account "$who" --allowed true >/dev/null
+  fi
+done
+BAL=$(view --id "$TSAFO_ID" -- balance --id "$BORROWER_ADDRESS" 2>/dev/null | tr -d '"' || echo 0)
+if [[ "${BAL:-0}" == 0 ]]; then
+  AMT=$(python3 -c "print($TSAFO_BORROWER_MINT * 10**$TSAFO_DECIMALS)")
+  log "issuer mints $TSAFO_BORROWER_MINT tSAFO to borrower"
+  as_issuer --id "$TSAFO_ID" -- mint --to "$BORROWER_ADDRESS" --amount "$AMT" >/dev/null
+else
+  log "borrower holds $BAL tSAFO units"
+fi
+
 # --- 7. outputs ------------------------------------------------------------------
 # DEPLOYED_AT moves only when a contract was (re)deployed, so no-op runs leave no diff.
 [[ -n "${DEPLOYED_NEW:-}" || -z "${DEPLOYED_AT:-}" ]] && DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -240,6 +301,7 @@ out = {
     "oracle": "$ORACLE_ID",
     "usdc": "$USDC_SAC",
     "tbenji": "$TBENJI_SAC",
+    "tsafo": "$TSAFO_ID",
   },
   "assets": {"usdc": "${USDC_ASSET:-}", "tbenji": "${TBENJI_ASSET:-}"},
   "accounts": {
@@ -252,6 +314,8 @@ out = {
   },
   "config": json.loads('''$CONFIG_JSON'''),
   "tbenjiAsset": json.loads('''$ASSET_JSON'''),
+  "tsafoAsset": json.loads('''$TSAFO_ASSET_JSON'''),
+  "tsafo": {"symbol": "tSAFO", "decimals": $TSAFO_DECIMALS, "kind": "spiko-mock"},
   "oracle": {"base": json.loads('''$ORACLE_BASE'''), "decimals": $ORACLE_DECIMALS, "resolution": $ORACLE_RESOLUTION},
 }
 with open(sys.argv[1], "w") as f:
@@ -276,5 +340,6 @@ fi
 log "done in $(( $(date +%s) - T0 ))s"
 echo "ORACLE_ID=$ORACLE_ID"
 echo "REPO_ID=$REPO_ID"
+echo "TSAFO_ID=$TSAFO_ID"
 echo "https://stellar.expert/explorer/testnet/contract/$ORACLE_ID"
 echo "https://stellar.expert/explorer/testnet/contract/$REPO_ID"

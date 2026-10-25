@@ -1,4 +1,4 @@
-import { TBENJI_SAC, USDC_SAC, ORACLE_ID } from "./config";
+import { TBENJI_SAC, TSAFO, USDC_SAC, ORACLE_ID } from "./config";
 
 // contracts/repo/src/errors.rs
 const REPO_ERRORS: Record<number, string> = {
@@ -9,12 +9,20 @@ const REPO_ERRORS: Record<number, string> = {
   5: "This offer is gone: it was taken or cancelled. The board has been refreshed.",
   6: "Repo not found.",
   7: "This repo is no longer open, so it cannot change state that way.",
-  8: "tBENJI is not enabled as collateral right now.",
+  8: "This collateral asset is not enabled right now.",
   9: "NAV is older than 3 minutes. Wait for the next update (or push one from Admin), then try again.",
   10: "The collateral does not cover the debt at the current NAV.",
   11: "Only whitelisted liquidators can liquidate.",
   12: "This repo cannot be defaulted yet: it is before maturity plus grace.",
-  13: "The oracle has no tBENJI price yet. Push one from Admin.",
+  13: "The oracle has no price for this collateral yet. Push one from Admin.",
+};
+
+// contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.
+const SPIKO_ERRORS: Record<number, string> = {
+  100: "An account in this transfer is not on the issuer's allowlist. Spiko must allowlist the borrower, the repo contract and the liquidator.",
+  101: "The issuer has paused the token. Transfers resume when it unpauses.",
+  102: "Amounts must be positive.",
+  103: "Not enough balance for this transfer.",
 };
 
 // Built-in Stellar Asset Contract errors (soroban-env-host ContractError).
@@ -48,6 +56,7 @@ export function explain(err: unknown): string {
   if (ev) {
     const [, id, codeStr] = ev;
     const code = Number(codeStr);
+    if (TSAFO && id === TSAFO.sac) return `${TSAFO.code}: ${SPIKO_ERRORS[code] ?? `token error #${code}.`}`;
     const token = assetName(id);
     if (token) {
       const who = msg.match(/trustline entry is missing for account", (G[A-Z2-7]{55})/)?.[1];
@@ -60,6 +69,7 @@ export function explain(err: unknown): string {
   }
   const m = msg.match(/Error\(Contract, #(\d+)\)/);
   if (m && REPO_ERRORS[Number(m[1])]) return REPO_ERRORS[Number(m[1])];
+  if (m && SPIKO_ERRORS[Number(m[1])]) return SPIKO_ERRORS[Number(m[1])];
   if (/trustline entry is missing|TrustlineMissing/i.test(msg))
     return "The account has no trustline for this asset. Add the trustline, then try again.";
   if (/Account not found|account not found|MissingValue.*account/i.test(msg))

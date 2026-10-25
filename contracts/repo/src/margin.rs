@@ -28,7 +28,8 @@ pub fn check_margin(env: &Env, repo_id: u64) -> Result<Status, Error> {
     // A disabled asset still margins; only new offers are blocked (#22).
     let asset = storage::read_asset(env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
     let config = storage::read_config(env);
-    let (nav, nav_decimals) = oracle::fresh_nav(env, &config, &asset)?;
+    let (nav, nav_decimals) =
+        oracle::fresh_collateral_nav(env, &config, &repo.collateral_asset, &asset)?;
     storage::extend_instance(env);
 
     // Already called: keep the first deadline, no second event.
@@ -110,7 +111,9 @@ fn initial_margin_restored(env: &Env, repo: &crate::types::Repo) -> Result<bool,
         return Ok(false);
     };
     let config = storage::read_config(env);
-    let Ok((nav, nav_decimals, _)) = oracle::nav(env, &config, &asset) else {
+    let Ok((nav, nav_decimals, _)) =
+        oracle::collateral_nav(env, &config, &repo.collateral_asset, &asset)
+    else {
         return Ok(false);
     };
     let debt = math::debt(repo.principal, repo.interest)?;

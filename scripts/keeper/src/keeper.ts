@@ -6,6 +6,7 @@
 //
 // Signs with KEEPER_SECRET from .env (falls back to LIQUIDATOR_SECRET).
 // --refresh-nav signs set_price with ADMIN_SECRET (the oracle admin).
+// Covers every collateral asset: tBENJI, and tSAFO when TSAFO_ID is set.
 import { ContractError, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
 import { setNav } from "./set-nav.js";
 
@@ -13,6 +14,7 @@ type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
 interface Repo {
   id: bigint;
   status: Status;
+  collateral_asset: string;
   principal: bigint;
   interest: bigint;
   collateral_amount: bigint;
@@ -37,7 +39,12 @@ const REFRESH_SECS = opt("--refresh-secs", 120);
 
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
-const TBENJI = stellarAsset(env("TBENJI_SAC"));
+// Collateral tokens the keeper prices and labels (decimals read on-chain at start).
+const ASSETS = [
+  { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7 },
+  ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5 }] : []),
+];
+const assetOf = (id: string) => ASSETS.find((a) => a.id === id) ?? { label: id.slice(0, 6) + "…", id, decimals: 7 };
 const signer = process.env.KEEPER_SECRET ? keypair("KEEPER") : keypair("LIQUIDATOR");
 
 const LIVE: Status[] = ["Open", "MarginCall"];
@@ -73,27 +80,35 @@ async function liveRepos(): Promise<Repo[]> {
 
 async function tick(cfg: { discountBps: bigint; graceSecs: bigint; decimals: number; maxAge: bigint }) {
   const t = now();
-  const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [TBENJI]).catch(() => null);
-  const navAge = last ? t - last.timestamp : null;
-
-  if (REFRESH_NAV && last && navAge !== null && navAge >= BigInt(REFRESH_SECS)) {
-    try {
-      const { hash } = await setNav(last.price);
-      log(`refresh-nav  re-posted ${fmt(last.price, cfg.decimals)} (was ${navAge}s old)  ${txLink(hash)}`);
-    } catch (e) {
-      log(`refresh-nav  FAILED: ${(e as Error).message}`);
+  const navs = new Map<string, PriceData | null>();
+  for (const a of ASSETS) {
+    const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [stellarAsset(a.id)]).catch(() => null);
+    navs.set(a.id, last);
+    const age = last ? t - last.timestamp : null;
+    if (REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+      try {
+        const { hash } = await setNav(last.price, a.id);
+        log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
+      } catch (e) {
+        log(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
+      }
     }
   }
 
   const repos = await liveRepos();
   const next = new Map<bigint, string>();
   for (const r of repos) {
+    const asset = assetOf(r.collateral_asset);
+    const last = navs.get(r.collateral_asset) ?? null;
+    const navAge = last ? t - last.timestamp : null;
     const debt = r.principal + r.interest;
     const deadline = r.margin_call_deadline ?? null;
     const matured = t > r.maturity_ts + cfg.graceSecs;
     const marginMissed = r.status === "MarginCall" && deadline !== null && t > deadline;
-    const ltv = last ? Number(debt) / ((Number(r.collateral_amount) * Number(last.price)) / 10 ** cfg.decimals) : NaN;
-    const desc = `repo ${r.id} ${r.status} debt ${fmt(debt)} coll ${fmt(r.collateral_amount)} ltv ${(ltv * 100).toFixed(2)}%`;
+    // Value in USDC: amount (token decimals) × NAV (oracle decimals), DECISIONS.md #24.
+    const value = last ? (Number(r.collateral_amount) / 10 ** asset.decimals) * (Number(last.price) / 10 ** cfg.decimals) : NaN;
+    const ltv = Number(debt) / 1e7 / value;
+    const desc = `repo ${r.id} ${r.status} debt ${fmt(debt)} coll ${fmt(r.collateral_amount, asset.decimals)} ${asset.label} ltv ${(ltv * 100).toFixed(2)}%`;
 
     // 1. default: margin window missed, or past maturity + grace. Needs no NAV.
     if (matured || marginMissed) {
@@ -145,6 +160,7 @@ function note(next: Map<bigint, string>, id: bigint, state: string, line: string
 async function main() {
   const config = await view<Record<string, bigint>>(REPO_ID, "config");
   const decimals = await view<number>(ORACLE_ID, "decimals");
+  for (const a of ASSETS) a.decimals = await view<number>(a.id, "decimals");
   const cfg = {
     discountBps: BigInt(config.liquidation_discount_bps),
     graceSecs: BigInt(config.grace_secs),
@@ -152,7 +168,7 @@ async function main() {
     decimals,
   };
   log(
-    `keeper ${signer.publicKey()} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s` +
+    `keeper ${signer.publicKey()} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${config.max_nav_age_secs}s)`,
   );

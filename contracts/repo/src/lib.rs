@@ -14,6 +14,8 @@ mod types;
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 
@@ -188,7 +190,8 @@ impl CaravelRepo {
             _ => return Err(Error::AssetNotSupported),
         };
         let config = storage::read_config(&env);
-        let (nav, nav_decimals) = oracle::fresh_nav(&env, &config, &asset)?;
+        let (nav, nav_decimals) =
+            oracle::fresh_collateral_nav(&env, &config, &offer.collateral_asset, &asset)?;
 
         let interest = math::interest(
             offer.principal,
@@ -352,7 +355,8 @@ impl CaravelRepo {
         let asset =
             storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
         let config = storage::read_config(&env);
-        let (nav, nav_decimals) = oracle::fresh_nav(&env, &config, &asset)?;
+        let (nav, nav_decimals) =
+            oracle::fresh_collateral_nav(&env, &config, &repo.collateral_asset, &asset)?;
 
         let proceeds = math::liquidation_proceeds(
             repo.collateral_amount,
