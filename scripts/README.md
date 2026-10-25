@@ -25,8 +25,55 @@ What it does, idempotently (each step reads chain state first and only sends a t
 
 Every param can be overridden from the environment (`HAIRCUT_BPS`, `MAX_NAV_AGE_SECS`, …); see the top of the script.
 
-The mock price goes stale after `max_nav_age_secs` (180 s): run the keeper with `--refresh-nav` (below), or refresh it with `NAV=1.00 scripts/deploy.sh` or
+The mock price goes stale after `max_nav_age_secs` (180 s): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## `onboard.sh`: give a team wallet access and a test allowance
+
+The public app is read-only for any wallet whose tBENJI trustline is not AUTHORIZED by the issuer; that on-chain flag is the only allowlist.
+
+```sh
+scripts/onboard.sh <G-address> [tbenji_amount=200] [usdc_amount=100]
+```
+
+Idempotent, amounts are targets (a re-run tops up to them, never beyond):
+
+1. Unfunded account: friendbot funds it.
+2. Missing tBENJI or USDC trustline: prints how to add it and exits 2. Only the wallet owner can sign a trustline: in the app, connect and press **Add … trustline** (one tx for both), then re-run.
+3. Issuer `set_authorized(addr, true)` on the tBENJI SAC (skipped if `authorized(addr)` is already true).
+4. Issuer pays tBENJI up to `tbenji_amount` (a payment from the issuer mints).
+5. ADMIN pays USDC up to `usdc_amount`. If ADMIN holds too little, it first runs `buy-usdc.sh` for the shortfall (min 100).
+
+Tested 25 Oct on fresh throwaway keys: unfunded -> funded + exit 2 (no trustlines) -> trustlines added with the throwaway key -> 200 tBENJI (authorized) + 100 USDC; a re-run sends nothing. Two onboarded throwaways then ran create_offer -> take_offer -> repay end to end.
+
+## `buy-usdc.sh`: testnet USDC from the DEX
+
+There is no Circle USDC faucet on testnet. `scripts/buy-usdc.sh [amount=100] [destination=ADMIN]` buys it on the SDEX with friendbot XLM: per 500 USDC chunk, friendbot funds a throwaway account, which sends a `path-payment-strict-receive` (XLM -> USDC, Horizon-quoted, 3% slippage) straight to the destination and then merges its leftover XLM into ADMIN. ADMIN's own XLM is not spent. Price on 25 Oct: ~1.15 XLM per USDC (500 USDC for ~572 XLM). The destination needs a USDC trustline.
+
+## `nav-keeper.sh`: keep the tBENJI NAV fresh
+
+Takes and liquidations revert with `StaleNav` when the oracle price is older than 180 s. The keeper re-posts the oracle's current tBENJI price every 60 s (`NAV=0.97` pins a value instead; with no price at all it posts 1.00), so a value set from the app's Admin tab sticks. A failed push is retried 3 times 5 s apart, then the next round starts after 15 s. (Back-to-back pushes sometimes fail simulation with `ResourceLimitExceeded` on write bytes; the retry lands.)
+
+```sh
+scripts/nav-keeper.sh --once     # one push
+scripts/nav-keeper.sh            # loop (INTERVAL=60)
+```
+
+On sim-server it runs as a systemd user service (linger is on, so it survives logout and reboot):
+
+```sh
+install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh   # copy: branch switches cannot break it
+install -Dm644 scripts/caravel-nav-keeper.service ~/.config/systemd/user/caravel-nav-keeper.service
+systemctl --user daemon-reload && systemctl --user enable --now caravel-nav-keeper
+systemctl --user status caravel-nav-keeper; journalctl --user -u caravel-nav-keeper -f
+```
+
+It reads keys and `ORACLE_ID` from `~/src/caravel/.env` every round, so a redeploy is picked up without a restart. Re-run the `install` lines after editing the script.
+
+**Cost:** each `set_price` costs ~9 XLM in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
+
+The TypeScript keeper (`scripts/keeper`, below) also sends `check_margin` and `default`. Until the repo contract is redeployed from current main, the deployed one returns `NotImplemented` for `check_margin`; note that it auto-defaults repos during demos.
+
 
 ## `keeper/`: keeper + NAV setter
 
