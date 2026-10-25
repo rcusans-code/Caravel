@@ -7,9 +7,7 @@
 mod errors;
 mod events;
 pub mod math;
-#[allow(dead_code)] // read by take_offer / check_margin / liquidate (G1/G2)
 mod oracle;
-#[allow(dead_code)] // writers are wired up by the G1/G2 flows
 mod storage;
 mod types;
 
@@ -177,14 +175,117 @@ impl CaravelRepo {
     /// `collateral = required_collateral(debt, nav, dec, haircut)`, rounded up,
     /// and fixes debt = principal + full-term interest (#15). The borrower's
     /// auth on the SAC transfer pins the exact amount, so if NAV moves between
-    /// simulate and submit the tx fails instead of overcharging.
-    pub fn take_offer(_env: Env, _borrower: Address, _offer_id: u64) -> Result<u64, Error> {
-        Err(Error::NotImplemented)
+    /// simulate and submit the tx fails instead of overcharging (#21).
+    ///
+    /// Rejects stale NAV (#6) and an asset disabled since the offer was
+    /// posted (#23). The haircut is snapshotted on the repo (#19).
+    pub fn take_offer(env: Env, borrower: Address, offer_id: u64) -> Result<u64, Error> {
+        borrower.require_auth();
+        let offer = storage::read_offer(&env, offer_id).ok_or(Error::OfferNotFound)?;
+        let asset = match storage::read_asset(&env, &offer.collateral_asset) {
+            Some(asset) if asset.enabled => asset,
+            _ => return Err(Error::AssetNotSupported),
+        };
+        let config = storage::read_config(&env);
+        let (nav, nav_decimals) = oracle::fresh_nav(&env, &config, &asset)?;
+
+        let interest = math::interest(
+            offer.principal,
+            offer.apr_bps,
+            offer.term_secs,
+            config.day_secs,
+        )?;
+        let debt = math::debt(offer.principal, interest)?;
+        let collateral = math::required_collateral(debt, nav, nav_decimals, asset.haircut_bps)?;
+        // Holds by construction; kept as the explicit initial LTV gate (#14).
+        if !math::ltv_ok(debt, collateral, nav, nav_decimals, asset.haircut_bps)? {
+            return Err(Error::InsufficientCollateral);
+        }
+
+        let now = env.ledger().timestamp();
+        let repo = Repo {
+            id: storage::next_repo_id(&env),
+            offer_id,
+            lender: offer.lender,
+            borrower,
+            collateral_asset: offer.collateral_asset,
+            collateral_amount: collateral,
+            principal: offer.principal,
+            interest,
+            haircut_bps: asset.haircut_bps,
+            start_ts: now,
+            maturity_ts: now
+                .checked_add(offer.term_secs)
+                .ok_or(Error::MathOverflow)?,
+            margin_call_deadline: None,
+            status: Status::Open,
+        };
+        // The offer is gone once taken: no double take, no cancel after take.
+        storage::remove_offer(&env, offer_id);
+        storage::write_repo(&env, &repo);
+        storage::extend_instance(&env);
+
+        let this = env.current_contract_address();
+        token::Client::new(&env, &repo.collateral_asset).transfer(
+            &repo.borrower,
+            &this,
+            &collateral,
+        );
+        token::Client::new(&env, &config.usdc).transfer(&this, &repo.borrower, &repo.principal);
+
+        events::RepoOpened {
+            repo_id: repo.id,
+            offer_id,
+            lender: repo.lender,
+            borrower: repo.borrower,
+            collateral_asset: repo.collateral_asset,
+            collateral_amount: collateral,
+            principal: repo.principal,
+            interest,
+            haircut_bps: repo.haircut_bps,
+            maturity_ts: repo.maturity_ts,
+        }
+        .publish(&env);
+        Ok(repo.id)
     }
 
-    /// Pays principal + interest; collateral back. Works with stale NAV.
-    pub fn repay(_env: Env, _repo_id: u64) -> Result<(), Error> {
-        Err(Error::NotImplemented)
+    /// Borrower pays principal + full-term interest and gets the collateral
+    /// back. The lender receives exactly `principal + interest − fee`, the
+    /// treasury the fee (#3). Works from `Open` or `MarginCall`, before or
+    /// after maturity until someone calls `default`, and needs no NAV (#6).
+    pub fn repay(env: Env, repo_id: u64) -> Result<(), Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if !matches!(repo.status, Status::Open | Status::MarginCall) {
+            return Err(Error::InvalidStatus);
+        }
+        repo.borrower.require_auth();
+
+        let config = storage::read_config(&env);
+        let debt = math::debt(repo.principal, repo.interest)?;
+        let split = math::waterfall(debt, repo.principal, repo.interest, config.fee_bps)?;
+
+        repo.status = Status::Repaid;
+        storage::write_repo(&env, &repo);
+        storage::extend_instance(&env);
+
+        let usdc = token::Client::new(&env, &config.usdc);
+        usdc.transfer(&repo.borrower, &repo.lender, &split.lender);
+        if split.fee > 0 {
+            usdc.transfer(&repo.borrower, &config.treasury, &split.fee);
+        }
+        token::Client::new(&env, &repo.collateral_asset).transfer(
+            &env.current_contract_address(),
+            &repo.borrower,
+            &repo.collateral_amount,
+        );
+
+        events::Repaid {
+            repo_id,
+            lender_amount: split.lender,
+            fee: split.fee,
+        }
+        .publish(&env);
+        Ok(())
     }
 
     /// Adds collateral. Clears a margin call once
