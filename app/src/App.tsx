@@ -33,6 +33,7 @@ import {
 import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
 import { onPhase } from "./txphase";
 import { trustlineUi } from "./trustline";
+import { ACCESS_LIMITED, autoRepayHint, collateralBlock, fmtDuration } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 
 type Tab = "offers" | "lend" | "positions" | "admin";
@@ -47,8 +48,6 @@ const fmtAge = (s: number) => {
   return `${Math.floor(a / 3600)} h ${Math.floor((a % 3600) / 60)} min ago`;
 };
 
-const ACCESS_LIMITED =
-  "Access is limited to approved team wallets during the hackathon. Add the tBENJI trustline, then send your address to the team.";
 const isAdminNow = (signer: Signer | null, config: ProtocolConfig | null) =>
   !!(signer && config && signer.address === config.admin);
 /** Marketing landing page (site/), served at the root of the same Pages site; the app lives under /app/. */
@@ -178,7 +177,11 @@ export default function App() {
       console.error(e);
       setTx((t) => (t && t.key === key ? { ...t, failed: true } : t));
       setTimeout(() => setTx((t) => (t && t.key === key && t.failed ? null : t)), 6000);
-      setFlash({ tone: "error", title, body: explain(e) });
+      const navAges = COLLATERAL.flatMap((t) => {
+        const a = assets[t.sac];
+        return a ? [{ code: t.code, secs: a.max_nav_age_secs }] : [];
+      });
+      setFlash({ tone: "error", title, body: explain(e, navAges) });
       return null;
     } finally {
       setBusy(null);
@@ -198,13 +201,18 @@ export default function App() {
     return !!(a && n && now - Number(n.timestamp) > Number(a.max_nav_age_secs));
   };
   const isAdmin = isAdminNow(signer, config);
-  // Access gate: writes need an issuer-AUTHORIZED tBENJI trustline. The on-chain
-  // flag is the only allowlist (scripts/onboard.sh sets it). Demo burner keys
-  // exist only in dev builds (VITE_DEMO_SIGNER=1) and are team accounts.
-  const approved = !!signer && (signer.kind === "demo" || !!balances?.tbenjiAuthorized);
+  // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
+  // trustline, tSAFO the issuer allowlist (scripts/onboard.sh sets both). Lending
+  // needs neither. Keeper-style writes (check margin, default) need a wallet the
+  // issuer approved for at least one asset. Demo burner keys exist only in dev
+  // builds (VITE_DEMO_SIGNER=1) and are team accounts.
+  const canHold = (sac: string) =>
+    !!signer && (signer.kind === "demo" || collateralBlock(balances, assetBySac(sac)) === null);
+  const approved = !!signer && (signer.kind === "demo" || COLLATERAL.some((t) => canHold(t.sac)));
   const ctx: Ctx = {
     signer,
     approved,
+    canHold,
     config,
     assets,
     navs,
@@ -343,8 +351,10 @@ export default function App() {
 
 interface Ctx {
   signer: Signer | null;
-  /** Connected and allowed to send writes (authorized tBENJI trustline). */
+  /** Connected and approved by the issuer of at least one collateral asset. */
   approved: boolean;
+  /** Connected and allowed to hold this collateral (tBENJI authorized / tSAFO allowlisted). */
+  canHold: (sac: string) => boolean;
   config: ProtocolConfig | null;
   /** Asset config per collateral token id; null = not registered with set_asset. */
   assets: Record<string, AssetConfig | null>;
@@ -451,10 +461,10 @@ function AccountAlerts({
       {gated && balances && (
         <Alert
           tone="margin"
-          title="Read-only: wallet not approved yet"
+          title="Borrowing not approved yet"
           action={trustButton || undefined}
         >
-          {ACCESS_LIMITED}{" "}
+          You can lend USDC now. Borrowing needs the collateral issuer&apos;s approval. {ACCESS_LIMITED}{" "}
           {balances.tbenji !== null
             ? `Your tBENJI trustline is in place; the issuer has not authorized ${signer.address.slice(0, 4)}…${signer.address.slice(-4)} yet.`
             : ""}
@@ -772,11 +782,11 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
 
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to take this offer.`;
-  else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
+  else if (signer.kind !== "demo" && collateralBlock(balances, token)) block = collateralBlock(balances, token);
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
   else if (!asset.enabled) block = `${token.code} is disabled as collateral right now.`;
   else if (!nav) block = `The oracle has no ${token.code} price yet.`;
-  else if (navStale) block = `The ${token.code} price is more than ${Number(asset.max_nav_age_secs) / 60} minutes old. Wait for the next update (or push one from Admin), then try again.`;
+  else if (navStale) block = `The ${token.code} price is more than ${fmtDuration(asset.max_nav_age_secs)} old. Wait for the next update (or push one from Admin), then try again.`;
   else if (cap !== null && used !== null && used + debt > cap)
     block =
       cap === 0n
@@ -784,11 +794,6 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         : `This loan would take ${token.code} past its exposure cap: ${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} USDC used, this loan adds ${fmtAmount(debt)}.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
-  else if (held && (held.amount === null || !held.allowed))
-    block =
-      token.kind === "spiko"
-        ? `Your account is not on the ${token.code} allowlist. The issuer must allowlist it first.`
-        : `Your account is not authorized to hold ${token.code}. The issuer must authorize it first.`;
   else if (held && collateral !== null && (held.amount ?? 0n) < collateral)
     block = `You need ${amt(collateral)} ${token.code} and hold ${amt(held.amount ?? 0n)} ${token.code}.`;
 
@@ -870,11 +875,13 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
             checked={autoRepay}
             disabled={!!busy}
             onChange={setAutoRepay}
-            hint={
-              autoRepay
-                ? `At maturity the contract takes ${fmtAmount(debt)} USDC from this wallet and gives your ${token.code} back. If the USDC is not there, the loan defaults.`
-                : `Repay ${fmtAmount(debt)} USDC yourself by maturity (plus ${String(config.grace_secs)} s grace), or your ${token.code} is sold at a ${fmtPct(config.liquidation_discount_bps, 1)} discount.`
-            }
+            hint={autoRepayHint({
+              on: autoRepay,
+              debt: fmtAmount(debt),
+              code: token.code,
+              graceSecs: config.grace_secs,
+              discount: fmtPct(config.liquidation_discount_bps, 1),
+            })}
           />
           {block && <p className="cv-field__hint app-block">{block}</p>}
           <button
@@ -923,7 +930,6 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
 
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to post an offer.`;
-  else if (balances && balances.exists && !ctx.approved) block = ACCESS_LIMITED;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline first.";
   else if (balances && principal && balances.usdc !== null && balances.usdc < principal)
@@ -1055,8 +1061,7 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                       <button
                         type="button"
                         className="cv-btn cv-btn--secondary cv-btn--sm"
-                        disabled={!!busy || !ctx.approved}
-                        title={ctx.approved ? "" : ACCESS_LIMITED}
+                        disabled={!!busy}
                         aria-busy={busy === `cancel-${o.id}` ? "true" : undefined}
                         onClick={async () => {
                           const out = await ctx.run(`cancel-${o.id}`, `Offer #${o.id} not cancelled`, () => chain.cancelOffer(signer!, o.id));
@@ -1226,7 +1231,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!liquidatorOk || !!ctx.busy || rStale || !ctx.approved}
+                            disabled={!liquidatorOk || !!ctx.busy || rStale || !ctx.canHold(r.collateral_asset)}
                             title={rStale ? "NAV is stale" : token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : ""}
                             onClick={async () => {
                               const out = await ctx.run(`liq-${r.id}`, `Repo #${r.id} not liquidated`, () => chain.liquidate(signer!, r.id));
@@ -1263,6 +1268,9 @@ function isClosed(r: Repo) {
 function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; primary: boolean; onRepaid: (r: Receipt) => void }) {
   const { signer, config, balances, busy, now } = ctx;
   const token = assetBySac(repo.collateral_asset);
+  // Repay, top-up and auto-repay move this repo's collateral: gate on its issuer only.
+  const mayHold = ctx.canHold(repo.collateral_asset);
+  const holdBlock = collateralBlock(ctx.balances, token) ?? "";
   const nav = ctx.navs[repo.collateral_asset] ?? null;
   const dec = nav ? collateralDecimals(nav.decimals, token.decimals) : 0;
   const amt = (v: bigint) => fmtAmount(v, 2, token.decimals);
@@ -1430,8 +1438,8 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           <button
             type="button"
             className={`cv-btn ${primary && !canTopUp ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
-            disabled={!!busy || !!short || !ctx.approved}
-            title={ctx.approved ? "" : ACCESS_LIMITED}
+            disabled={!!busy || !!short || !mayHold}
+            title={mayHold ? "" : holdBlock}
             onClick={doRepay}
             data-action="repay"
           >
@@ -1490,8 +1498,8 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
           <button
             type="submit"
             className={`cv-btn ${inMarginCall ? "cv-btn--primary" : "cv-btn--secondary"}`}
-            disabled={!!busy || !!topUpErr || !!topUpShort || !ctx.approved}
-            title={ctx.approved ? "" : ACCESS_LIMITED}
+            disabled={!!busy || !!topUpErr || !!topUpShort || !mayHold}
+            title={mayHold ? "" : holdBlock}
             data-action="top-up"
           >
             {busy === `topup-${repo.id}` ? "Topping up" : "Top up"}
@@ -1509,7 +1517,7 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
       {canRepay && (
         <AutoRepayToggle
           checked={repo.auto_repay}
-          disabled={!!busy || !ctx.approved}
+          disabled={!!busy || !mayHold}
           busy={busy === `auto-${repo.id}`}
           onChange={toggleAuto}
           hint={
