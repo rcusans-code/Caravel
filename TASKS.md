@@ -14,8 +14,8 @@ Exit: AUTH_REQUIRED go/no-go, repo public, decisions locked.
 
 - [x] **I** ⚠️ AUTH_REQUIRED spike: issue tBENJI (AUTH_REQUIRED + REVOCABLE + CLAWBACK), deploy dummy contract, `set_authorized(contract)` via SAC, transfer in and out. *Done when: go/no-go posted by 13:00*
 - [x] **I** ⚠️ Testnet accounts (admin, issuer, lender, borrower, liquidator) + trustlines to **Circle testnet USDC** and tBENJI. Testnet keys in `.env` (gitignored). *Done when: every demo account holds USDC or tBENJI*
-- [ ] **C** Contract skeleton: `Offer`, `Repo`, `Status`, `Config`, storage keys (instance = config, persistent = offers/repos), TTL helper, events. *Done when: compiles with stubs*
-- [ ] **C** ⚠️ `math.rs` with tests: interest, collateral value, margin threshold, liquidation waterfall incl. fee and shortfall. *Done when: the 3 brief scenarios pass*
+- [x] **C** Contract skeleton: `Offer`, `Repo`, `Status`, `Config`, storage keys (instance = config, persistent = offers/repos), TTL helper, events. *Done when: compiles with stubs*
+- [x] **C** ⚠️ `math.rs` with tests: interest, collateral value, margin threshold, liquidation waterfall incl. fee and shortfall. *Done when: the 3 brief scenarios pass*
 - [ ] **F** Frontend scaffold: Scaffold Stellar or Next.js + `@stellar/stellar-sdk` + Freighter, testnet, role switcher (lender / borrower / liquidator / admin). *Done when: wallet connects, balances show*
 - [x] **P** Public repo + README skeleton
 - [ ] **T** 15-min lock-in on DECISIONS.md, demo time profile, 6 demo beats. *Done when: everyone can say the one-liner*
@@ -88,3 +88,4 @@ Exit: margin call, default, liquidation in the UI.
 ## Status log
 - **Sun 12:01** — Repo created, board pushed. All tasks to do.
 - **Sun 13:05** — AUTH_REQUIRED spike: **GO** (contract authorized via SAC `set_authorized`, transfer in/out and freeze verified, see `spikes/auth/README.md`). 5 testnet accounts funded: lender 500 USDC, liquidator 500 USDC, borrower 100 USDC + 1000 tBENJI. Real Circle USDC bought on the testnet DEX (no faucet). Testnet burner keys committed in `.env`.
+- **Sun 13:08** — C: `contracts/repo` skeleton (soroban-sdk 29, testnet is protocol 29) + `math.rs`, 25 tests green incl. surplus / made-whole / shortfall. Flows are `NotImplemented` stubs. Build: `stellar contract build` (stellar-cli ≥ 25.2), test: `cargo test`.
