@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo/caravel-mark-square.svg" alt="Caravel logo: a conquistador climbing a C, carrying a flag" width="160"></p>
+
 # Caravel
 
 **On-chain term repo for tokenized Treasuries on Stellar.**
