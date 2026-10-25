@@ -17,8 +17,12 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-loadEnv({ path: process.env.ENV_FILE ?? path.join(ROOT, ".env"), quiet: true });
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+export const ENV_FILE = process.env.ENV_FILE ?? path.join(ROOT, ".env");
+loadEnv({ path: ENV_FILE, quiet: true });
+
+/** Re-read .env over process.env, e.g. after deploy.sh wrote new contract IDs. */
+export const reloadEnv = () => loadEnv({ path: ENV_FILE, quiet: true, override: true });
 
 export function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
