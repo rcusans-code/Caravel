@@ -160,8 +160,11 @@ body {
 .app-motto { font-style: italic; font-family: var(--font-display); }
 
 /* Settlement receipt with its seal (SealStamp sits beside the DvP receipt). */
-.app-receipt { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
-.app-receipt > .cv-dvp { flex: 1 1 420px; }
+.app-receipt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: var(--space-4); }
+.app-receipt > .cv-dvp { min-width: 0; }
+/* Square slot on the right that the seal is pressed into. */
+.app-receipt__seal { display: grid; place-items: center; aspect-ratio: 1 / 1; min-width: 132px; box-sizing: border-box; background: var(--surface-sunken); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--bg), 4px 4px 0 0 var(--line-strong); }
+@media (max-width: 560px) { .app-receipt { grid-template-columns: minmax(0, 1fr); } .app-receipt__seal { width: 132px; min-width: 0; justify-self: start; } }
 /* ValueFlash needs a little room for its glow. */
 .app-flashable { padding: 0 4px; margin: 0 -4px; }
 .cv-table td.r .cv-skel { margin-left: auto; }
@@ -259,7 +262,7 @@ a{color:var(--primary)}a:hover{color:var(--primary-hover)}
 <div class="cv-dvp" data-testid="dvp-receipt">
 <div class="cv-dvp__leg"><span class="cv-eyebrow">Borrower delivers</span><span><span class="cv-num" style="font-size: 18px; font-weight: 500;">1,000.50</span><span class="cv-unit">tBENJI</span></span><span class="cv-field__hint">into escrow</span></div><span class="cv-dvp__arrow" aria-hidden="true">⇄</span>
 <div class="cv-dvp__leg"><span class="cv-eyebrow">Borrower receives</span><span><span class="cv-num" style="font-size: 18px; font-weight: 500;">970.00</span><span class="cv-unit">USDC</span></span><span class="cv-field__hint">from Offer #5</span></div>
-<div class="cv-dvp__foot"><span>Repo #6 opened. Settled atomically in one transaction</span><a class="cv-hash" href="https://stellar.expert/explorer/testnet/tx/77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680" target="_blank" rel="noopener" title="77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680" data-hash="77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680"><span class="cv-hash__tag">TX</span>77bd…7680</a></div></div><span class="cv-stamp" role="status" data-testid="seal"><span><b>Settled</b>Repo 006</span></span></div>
+<div class="cv-dvp__foot"><span>Repo #6 opened. Settled atomically in one transaction</span><a class="cv-hash" href="https://stellar.expert/explorer/testnet/tx/77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680" target="_blank" rel="noopener" title="77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680" data-hash="77bd0dab3c5aa6e64e7ec33a7090dae93bae188107e0451047ee0f4894b07680"><span class="cv-hash__tag">TX</span>77bd…7680</a></div></div><div class="app-receipt__seal"><span class="cv-stamp" role="status" data-testid="seal"><span><b>Settled</b>Repo 006</span></span></div></div>
 <div class="cv-table-wrap">
 <table class="cv-table" data-testid="offers-table">
 <thead>

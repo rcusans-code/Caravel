@@ -250,7 +250,9 @@ export function DvpReceipt({
   return (
     <div className="app-receipt" key={hash}>
       {receipt}
-      <Seal {...stamp} />
+      <div className="app-receipt__seal">
+        <Seal {...stamp} />
+      </div>
     </div>
   );
 }

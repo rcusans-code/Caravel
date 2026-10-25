@@ -166,8 +166,11 @@ body {
 .app-motto { font-style: italic; font-family: var(--font-display); }
 
 /* Settlement receipt with its seal (SealStamp sits beside the DvP receipt). */
-.app-receipt { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
-.app-receipt > .cv-dvp { flex: 1 1 420px; }
+.app-receipt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: var(--space-4); }
+.app-receipt > .cv-dvp { min-width: 0; }
+/* Square slot on the right that the seal is pressed into. */
+.app-receipt__seal { display: grid; place-items: center; aspect-ratio: 1 / 1; min-width: 132px; box-sizing: border-box; background: var(--surface-sunken); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--bg), 4px 4px 0 0 var(--line-strong); }
+@media (max-width: 560px) { .app-receipt { grid-template-columns: minmax(0, 1fr); } .app-receipt__seal { width: 132px; min-width: 0; justify-self: start; } }
 /* ValueFlash needs a little room for its glow. */
 .app-flashable { padding: 0 4px; margin: 0 -4px; }
 .cv-table td.r .cv-skel { margin-left: auto; }
