@@ -25,6 +25,7 @@ const REPO_ERRORS: Record<number, string> = {
   21: "The timelock on this change has not passed yet.",
   22: "There is no pending change for this asset.",
   23: "Only the admin or the guardian can cancel a pending change.",
+  24: "Nothing to claim: no USDC payout is waiting for this account.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

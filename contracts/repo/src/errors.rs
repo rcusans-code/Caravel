@@ -23,7 +23,8 @@ pub enum Error {
     AutoRepayOff = 14,
     /// `auto_repay` before maturity (and no missed margin call).
     NotDue = 15,
-    /// The USDC pull failed: short balance, allowance too small or expired.
+    /// The USDC pull failed (short balance, allowance too small or expired),
+    /// or the collateral could not be returned to the borrower.
     AutoRepayFailed = 16,
     /// The asset's `no_new_repos` or `no_seize` switch blocks this call (#30).
     Paused = 17,
@@ -41,4 +42,6 @@ pub enum Error {
     NoProposal = 22,
     /// `cancel_*` by someone who is neither admin nor guardian.
     NotAdminOrGuardian = 23,
+    /// `claim` by an address with no parked USDC payout.
+    NothingToClaim = 24,
 }

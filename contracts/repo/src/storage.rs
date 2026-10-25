@@ -1,6 +1,7 @@
 //! Storage layout: instance = config, counters, asset configs and per-asset
 //! open debt (few entries, they share the instance TTL), persistent = offers,
-//! repos, the liquidator whitelist and auto-repay allowance expiries. Every read or write of a persistent
+//! repos, the liquidator whitelist, auto-repay allowance expiries and parked
+//! USDC payouts (claimable balances). Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
 use soroban_sdk::{contracttype, Address, Env};
@@ -39,6 +40,9 @@ pub enum DataKey {
     Liquidator(Address),
     /// Last ledger of the borrower's USDC allowance to this contract (#27).
     AllowanceUntil(Address),
+    /// USDC a payout could not push to this address (frozen account, closed
+    /// trustline). Paid out by `claim`.
+    Claimable(Address),
 }
 
 pub fn extend_instance(env: &Env) {
@@ -248,4 +252,30 @@ pub fn remove_allowance_until(env: &Env, borrower: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::AllowanceUntil(borrower.clone()));
+}
+
+// --- parked payouts ---------------------------------------------------------
+
+pub fn read_claimable(env: &Env, who: &Address) -> i128 {
+    let key = DataKey::Claimable(who.clone());
+    let amount = env.storage().persistent().get(&key).unwrap_or(0);
+    if amount > 0 {
+        extend_persistent(env, &key);
+    }
+    amount
+}
+
+/// Adds `amount` to `who`'s parked balance. Saturates: the USDC is already
+/// in the contract, so the counter can never block an exit.
+pub fn add_claimable(env: &Env, who: &Address, amount: i128) {
+    let key = DataKey::Claimable(who.clone());
+    let total = read_claimable(env, who).saturating_add(amount);
+    env.storage().persistent().set(&key, &total);
+    extend_persistent(env, &key);
+}
+
+pub fn remove_claimable(env: &Env, who: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::Claimable(who.clone()));
 }
