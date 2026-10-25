@@ -1,0 +1,46 @@
+# Deploys the public site to Cloudflare Pages project caravel-repo (https://caravel-repo.pages.dev):
+# the landing page (site/) at / and the web app (app/) at /app/, built into dist-pages/ by `npm run build:pages`.
+# Runs on every push to main that touches the landing, the app, the design system, the bindings or the deployment ids.
+# One-time setup by whoever owns the Cloudflare account (repo Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   API token with "Cloudflare Pages: Edit"
+#   CLOUDFLARE_ACCOUNT_ID  the account id from the Cloudflare dashboard
+# Until both exist the job is skipped, so it never turns main red.
+# Public build only: build:public forces the demo signer off and check-no-secrets scans app/dist and dist-pages/.
+name: Deploy site + app
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "site/**", "design/**", "packages/**", "deployments/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/setup-node@v4
+        if: env.HAS_TOKEN == 'true'
+        with:
+          node-version: 22
+      - name: Install (builds the contract bindings in packages/)
+        if: env.HAS_TOKEN == 'true'
+        working-directory: app
+        run: npm install --no-audit --no-fund
+      - name: Public build + landing + secret check (dist-pages/)
+        if: env.HAS_TOKEN == 'true'
+        working-directory: app
+        run: npm run build:pages
+      - name: Deploy dist-pages/ to Cloudflare Pages (project caravel-repo)
+        if: env.HAS_TOKEN == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist-pages --project-name caravel-repo --branch main --commit-dirty=true
+      - name: Skipped
+        if: env.HAS_TOKEN != 'true'
+        run: echo "CLOUDFLARE_API_TOKEN is not set; add it to deploy the site (see the comment at the top of this file)."

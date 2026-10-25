@@ -23,7 +23,7 @@ Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` wri
 
 ## Public deploy
 
-Live at **https://caravel-repo.pages.dev** (Cloudflare Pages project `caravel-repo`, static, no server). Wallet login only.
+Live at **https://caravel-repo.pages.dev/app/** (Cloudflare Pages project `caravel-repo`, static, no server). Wallet login only. The same project serves the landing page (`../site`) at https://caravel-repo.pages.dev/; the header's *About Caravel* link goes there (`/`), and the landing's demo buttons come back to `/app/`.
 
 ```sh
 cd app
@@ -31,7 +31,13 @@ export CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=…   # token needs Pages 
 npm run deploy:pages
 ```
 
-`deploy:pages` runs `build:public` (build with `VITE_DEMO_SIGNER` forced off, then `scripts/check-no-secrets.mjs`, which fails if `dist/` holds any secret value from the repo-root `.env`, any string shaped like a Stellar secret seed, or the demo-account UI), then `wrangler pages deploy dist --project-name caravel-repo --branch main`. `PAGES_PROJECT=…` deploys to another project. There are no client routes, so Pages' default SPA fallback is enough (no `_redirects`).
+`deploy:pages` runs `build:pages`, then `wrangler pages deploy ../dist-pages --project-name caravel-repo --branch main`. `PAGES_PROJECT=…` deploys to another project. `build:pages` is:
+
+1. `build:public`: production build with `VITE_DEMO_SIGNER` forced off and `base: "/app/"` (`vite.config.ts`; `npm run dev` stays at `/`), then `scripts/check-no-secrets.mjs`, which fails if `dist/` holds any secret value from the repo-root `.env`, any string shaped like a Stellar secret seed, or the demo-account UI.
+2. `scripts/build-pages.mjs`: writes repo-root `dist-pages/` (gitignored) = `../site` at `/` + `dist/` at `/app/`, and rewrites the landing's demo CTAs (*Try the demo*, *Borrow against fund shares*, *Lend at a fixed rate*, *Or try the testnet demo*, footer *Testnet demo*) from `#launch` to `/app/`. It fails if none of them is found and warns for each one missing, so a landing re-export cannot silently drop the link to the app.
+3. `check-no-secrets.mjs ../dist-pages`: the same scan over the combined output.
+
+`.github/workflows/pages.yml` runs the same build and deploy on pushes to `main` (skipped while the repo has no Cloudflare secrets). There are no client routes, so no `_redirects`.
 
 Takes need a NAV younger than 180 s: on sim-server the `caravel-nav-keeper` user service pushes one every minute (see `../scripts/README.md`).
 

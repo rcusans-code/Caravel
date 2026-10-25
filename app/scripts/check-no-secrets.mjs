@@ -1,12 +1,13 @@
 // Fails if dist/ contains any secret from the repo-root .env (the testnet
 // burner seeds) or anything shaped like a Stellar secret seed (S + 55 base32).
 // Run after `npm run build`; `npm run deploy:pages` runs it before uploading.
+// Optional argument: another directory to scan (build:pages scans ../dist-pages too).
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dist = path.join(appDir, "dist");
+const dist = process.argv[2] ? path.resolve(process.argv[2]) : path.join(appDir, "dist");
 const envFile = path.resolve(appDir, "..", ".env");
 
 const secrets = [];
@@ -18,7 +19,7 @@ if (existsSync(envFile)) {
 }
 const files = [];
 const walk = (d) => readdirSync(d).forEach((f) => (statSync(path.join(d, f)).isDirectory() ? walk(path.join(d, f)) : files.push(path.join(d, f))));
-if (!existsSync(dist)) throw new Error("no dist/; run npm run build first");
+if (!existsSync(dist)) throw new Error(`no ${path.relative(appDir, dist)}/; run the build first`);
 walk(dist);
 
 const problems = [];

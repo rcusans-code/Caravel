@@ -50,8 +50,8 @@ const ACCESS_LIMITED =
   "Access is limited to approved team wallets during the hackathon. Add the tBENJI trustline, then send your address to the team.";
 const isAdminNow = (signer: Signer | null, config: ProtocolConfig | null) =>
   !!(signer && config && signer.address === config.admin);
-/** Marketing landing page (site/, Cloudflare Pages project caravel-landing). */
-const LANDING_URL = "https://caravel-landing.pages.dev";
+/** Marketing landing page (site/), served at the root of the same Pages site; the app lives under /app/. */
+const LANDING_URL = "/";
 const CONNECT = DEMO_ENABLED ? "Connect a wallet or pick a demo account" : "Connect a wallet";
 
 export default function App() {
@@ -215,7 +215,7 @@ export default function App() {
       <header className="app-header">
         <div className="app-wrap app-header__inner">
           <a
-            href="/"
+            href={import.meta.env.BASE_URL}
             className="app-brand"
             aria-label="Caravel home: offers board"
             onClick={(e) => {

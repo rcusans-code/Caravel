@@ -7,5 +7,6 @@ target/
 node_modules/
 .next/
 dist/
+dist-pages/
 .DS_Store
 *.log

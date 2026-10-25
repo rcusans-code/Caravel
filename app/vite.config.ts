@@ -24,7 +24,7 @@ function bindingsUseAppSdk(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode, isPreview }) => {
   // Repo-root .env holds the committed TESTNET burner keys (see ../.gitignore).
   const rootEnv = loadEnv(mode, repoRoot, "");
   const appEnv = loadEnv(mode, appDir, "VITE_");
@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
     : null;
 
   return {
+    // The public site serves the landing (site/) at / and the app under /app/ (see scripts/build-pages.mjs).
+    // The dev server stays at / so local URLs do not change.
+    base: command === "build" || isPreview ? "/app/" : "/",
     plugins: [bindingsUseAppSdk(), react()],
     define: {
       __DEMO_KEYS__: JSON.stringify(demoKeys),
