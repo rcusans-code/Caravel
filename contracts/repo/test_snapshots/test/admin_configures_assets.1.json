@@ -46,6 +46,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_nav_move_bps"
+                      },
+                      "val": {
+                        "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_ceiling"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_floor"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "oracle_asset"
                       },
                       "val": {
@@ -106,6 +126,26 @@
                       "val": {
                         "u64": "180"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_nav_move_bps"
+                      },
+                      "val": {
+                        "u32": 10000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_ceiling"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "nav_floor"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -234,6 +274,26 @@
                             "val": {
                               "u64": "180"
                             }
+                          },
+                          {
+                            "key": {
+                              "symbol": "max_nav_move_bps"
+                            },
+                            "val": {
+                              "u32": 10000
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_ceiling"
+                            },
+                            "val": "void"
+                          },
+                          {
+                            "key": {
+                              "symbol": "nav_floor"
+                            },
+                            "val": "void"
                           },
                           {
                             "key": {

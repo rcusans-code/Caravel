@@ -12,6 +12,9 @@ pub struct AssetConfigured {
     pub haircut_bps: u32,
     pub enabled: bool,
     pub max_nav_age_secs: u64,
+    pub max_nav_move_bps: u32,
+    pub nav_floor: Option<i128>,
+    pub nav_ceiling: Option<i128>,
 }
 
 /// Admin set an asset's pause switches (DECISIONS.md #30).

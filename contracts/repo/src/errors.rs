@@ -27,4 +27,7 @@ pub enum Error {
     AutoRepayFailed = 16,
     /// The asset's `no_new_repos` or `no_seize` switch blocks this call (#30).
     Paused = 17,
+    /// NAV outside the asset's sanity band: beyond `nav_floor` / `nav_ceiling`,
+    /// or more than `max_nav_move_bps` from a recent oracle record (#31).
+    NavOutOfBand = 18,
 }

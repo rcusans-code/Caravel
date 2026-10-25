@@ -79,7 +79,7 @@ flowchart LR
   I -->|"set_authorized: contract, borrowers, liquidators"| T
 ```
 
-- **Repo contract** ([contracts/repo](contracts/repo/src/lib.rs)): holds offers, escrow and collateral; runs every flow. All arithmetic lives in one module, [math.rs](contracts/repo/src/math.rs), with its own tests. NAV is read only through [oracle.rs](contracts/repo/src/oracle.rs), which enforces the staleness rule.
+- **Repo contract** ([contracts/repo](contracts/repo/src/lib.rs)): holds offers, escrow and collateral; runs every flow. All arithmetic lives in one module, [math.rs](contracts/repo/src/math.rs), with its own tests. NAV is read only through [oracle.rs](contracts/repo/src/oracle.rs), which enforces the staleness rule and the NAV sanity band.
 - **Token contracts (SAC):** USDC and tBENJI are classic Stellar assets. The contract moves them through their Stellar Asset Contracts, so balances stay visible in any Stellar wallet.
 - **Price feed:** a mock of the SEP-40 interface Reflector uses (same `Asset` and `PriceData` shapes, 14 decimals). Pointing the contract at a live SEP-40 feed is a config change, not a code change.
 - **Keeper:** an off-chain script that calls `check_margin` on open repos and `default` once a deadline passes. Both calls are permissionless; the keeper has no special rights.
@@ -111,14 +111,14 @@ stateDiagram-v2
 ```
 
 1. `take_offer` (borrower): offer → **Open**. Collateral in, USDC out in one atomic transaction. The offer is gone after this.
-2. `check_margin` (anyone): Open → **MarginCall** when `debt > collateral × NAV × (1 − 2%)`. Starts the margin window. Blocked on stale NAV.
-3. `top_up` (borrower): MarginCall → **Open**, only once collateral is back at the initial haircut. Works with stale NAV.
+2. `check_margin` (anyone): Open → **MarginCall** when `debt > collateral × NAV × (1 − 2%)`. Starts the margin window. Blocked on stale or out-of-band NAV.
+3. `top_up` (borrower): MarginCall → **Open**, only once collateral is back at the initial haircut. Works with stale or out-of-band NAV, but an out-of-band NAV never clears the call.
 4. `repay` (borrower): Open or MarginCall → **Repaid** (final). Works with stale NAV, and after maturity until someone calls `default`.
-5. `default` (anyone): Open past maturity + grace, or MarginCall past the window → **Defaulted**. Then `liquidate` (whitelisted, fresh NAV): Defaulted → **Liquidated** (final).
+5. `default` (anyone): Open past maturity + grace, or MarginCall past the window → **Defaulted**. Then `liquidate` (whitelisted, fresh in-band NAV): Defaulted → **Liquidated** (final).
 
 ### Methods
 
-| Method | Caller | Status change | Fresh NAV | Funds moved |
+| Method | Caller | Status change | Fresh, in-band NAV | Funds moved |
 |---|---|---|---|---|
 | `create_offer(lender, collateral_asset, principal, apr_bps, term_secs) → offer_id` | lender | → offer | no | lender USDC → contract |
 | `cancel_offer(offer_id)` | the offer's lender | offer removed | no | contract USDC → lender |
@@ -143,7 +143,7 @@ Every state-changing call checks status first and fails with a named error other
 
 | Event | Topics | Data |
 |---|---|---|
-| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs |
+| `AssetConfigured` | asset | haircut_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling |
 | `PauseSet` | asset | no_new_repos, no_seize |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
@@ -166,10 +166,11 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Debt is fixed at take.** Early repay pays the same amount.
 - **The haircut is snapshotted at take.** Re-tiering an asset changes new takes only.
 - **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
+- **No action on an implausible price.** The same three calls fail with `NavOutOfBand` when the latest NAV is more than the asset's `max_nav_move_bps` from any of the feed's last 20 records, or outside its optional `nav_floor` / `nav_ceiling` (DECISIONS #31). Re-posting a bad price doesn't hide the jump. `repay` and `top_up` still work.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
 
-`cargo test --workspace` runs 167 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 183 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -185,6 +186,8 @@ All durations are configuration, so the demo compresses time without touching co
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
 | `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
+| `max_nav_move_bps` | per asset | 2,500 (tBENJI, tSAFO), so the Admin NAV slider still works | BENJI/USTBL/USDY 50, EUTBL 150, CETES 300 ([DECISIONS #31](DECISIONS.md)) |
+| `nav_floor` / `nav_ceiling` | per asset | unset | BENJI 0.90 / 1.10; others unset |
 | `fee_bps` | global | 1,000 (10% of interest) | illustrative |
 
 <!-- REVIEW (team): production values follow docs/mechanics.md §7 and are intent, not decisions. Confirm or cut. -->
@@ -251,14 +254,14 @@ scripts/deploy.sh
 - **Negative carry.** A passive holder pays 5% to borrow against a fund yielding 3.87%. Caravel's target borrower is a trader or market maker whose USDC earns more than the repo costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (6.69% on Blend), in exchange for a fixed term, a fixed rate and T-bill collateral.
 - **Dividends.** Real BENJI pays its yield as new tokens to the holder of record, which during a repo is the contract. Passing them back to the borrower is on the roadmap; the demo token pays none.
 - **Liquidators.** Liquidators must be issuer-approved, and nothing obliges one to buy, so a defaulted repo can wait. A liquidation sells all the collateral, so defaulting at NAV 1.00 costs the borrower about 21.60 USDC per 1,000 against 0.96 of interest for repaying. Once a repo is Defaulted the borrower can no longer repay.
-- **One admin key.** The admin sets the asset list and the liquidator whitelist, and the feed is only as good as whoever writes it. A wrong but fresh price plus a friendly liquidator could cost the lender principal. Target: split keys and a timelock.
+- **One admin key.** The admin sets the asset list and the liquidator whitelist, and the feed is only as good as whoever writes it. A wrong but fresh price plus a friendly liquidator could cost the lender principal; the NAV band blocks a print far from recent ones, but not a wrong price that moves slowly or has filled the 20-record window. Target: split keys and a timelock.
 - **Push payouts.** Repay and liquidation pay lender, treasury and borrower directly. An account that removes its USDC trustline can make those payments fail. Target: hold payouts in the contract for each party to claim.
 - **Staleness means feed liveness.** The rule catches a feed that stopped updating, not a fund that stopped publishing.
 - **Regulatory scope.** This is a testnet demo, not a public offer. Tokenized fund shares are financial instruments and USDC is an e-money token under MiCA; a live deployment needs a legal analysis per issuer and jurisdiction.
 
 <!-- REVIEW (team): docs/mechanics.md §14 proposes an earlier margin trigger (2.5%) that would leave a cushion between the call and any lender loss. If the team adopts it before freeze, rewrite the Shortfall bullet; if not, it stays as written. -->
 
-**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; per-asset NAV bounds; split admin keys; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
+**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; split admin keys; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
 
 ## Built during HackMeridian
 

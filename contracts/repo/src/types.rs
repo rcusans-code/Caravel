@@ -55,6 +55,19 @@ pub struct AssetConfig {
     /// a fund that prints NAV only on business days needs ~96 h to cover a
     /// weekend, a daily-priced token less. Must be > 0.
     pub max_nav_age_secs: u64,
+    /// NAV sanity band (DECISIONS.md #31): the latest NAV may differ from
+    /// every one of the oracle's last `oracle::NAV_BAND_RECORDS` records by
+    /// at most this many bps, else `NavOutOfBand`. Measuring against the
+    /// whole window, not just the previous record, means re-posts of a bad
+    /// price cannot hide the jump. Blocks `take_offer`, `check_margin` and
+    /// `liquidate`, the same set as a stale NAV; never `repay` or `top_up`.
+    /// Must be > 0.
+    pub max_nav_move_bps: u32,
+    /// Optional hard bounds on the latest NAV, in the feed's own scale
+    /// (`decimals()`), inclusive. Same effect as the move limit. If set,
+    /// each must be > 0 and `nav_floor <= nav_ceiling`.
+    pub nav_floor: Option<i128>,
+    pub nav_ceiling: Option<i128>,
 }
 
 /// Per-asset emergency switches (DECISIONS.md #30), stored apart from

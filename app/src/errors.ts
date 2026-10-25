@@ -19,6 +19,7 @@ const REPO_ERRORS: Record<number, string> = {
   15: "Auto-repay runs from maturity, not before.",
   16: "Auto-repay could not pull the debt: this wallet holds too little USDC. Top up USDC and repay before grace ends.",
   17: "This collateral asset is paused for this action. Repay and top-up always work.",
+  18: "The NAV jumped outside this asset's sanity band, so new loans, margin calls and liquidations are paused. Repay and top-up still work.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

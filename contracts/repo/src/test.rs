@@ -16,6 +16,9 @@ use crate::{
 pub(crate) const UNIT: i128 = 10_000_000; // 1.0 in 7-decimal units
 /// Demo tBENJI staleness limit: 3 demo days at 60 s per day.
 pub(crate) const DEMO_NAV_AGE: u64 = 180;
+/// NAV sanity band (#31) for tests about other rules: 100%, so NAV moves the
+/// tests make on purpose never trip it. Band tests set their own.
+pub(crate) const WIDE_BAND_BPS: u32 = 10_000;
 
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
@@ -76,6 +79,9 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
     };
 
     client.set_asset(&token, &config);
@@ -84,6 +90,9 @@ fn admin_configures_assets() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: DEMO_NAV_AGE,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
     };
     assert_eq!(
         env.events().all().filter_by_contract(&client.address),
@@ -110,6 +119,9 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
             haircut_bps,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         };
         assert_eq!(
             client.try_set_asset(&token, &config),
@@ -131,6 +143,9 @@ fn set_asset_rejects_zero_max_nav_age() {
         haircut_bps: 300,
         enabled: true,
         max_nav_age_secs: 0,
+        max_nav_move_bps: WIDE_BAND_BPS,
+        nav_floor: None,
+        nav_ceiling: None,
     };
     assert_eq!(
         client.try_set_asset(&token, &config),
@@ -152,6 +167,9 @@ fn set_asset_requires_admin_auth() {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
 }
@@ -217,6 +235,9 @@ fn world<'a>() -> World<'a> {
             haircut_bps: 300,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
 
@@ -368,6 +389,9 @@ fn create_offer_rejects_missing_or_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
     assert_eq!(
@@ -649,6 +673,9 @@ fn take_offer_rejects_asset_disabled_after_offer() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
     assert_eq!(
@@ -703,6 +730,9 @@ fn retiering_asset_does_not_touch_live_repo() {
             haircut_bps: 800,
             enabled: true,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
     assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
@@ -1344,6 +1374,9 @@ fn liquidate_works_on_disabled_asset() {
             haircut_bps: 300,
             enabled: false,
             max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: WIDE_BAND_BPS,
+            nav_floor: None,
+            nav_ceiling: None,
         },
     );
     w.set_nav(ONE, MATURED);
@@ -1729,6 +1762,9 @@ impl World<'_> {
                 haircut_bps: 300,
                 enabled: true,
                 max_nav_age_secs,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
             },
         );
         StellarAssetClient::new(&self.env, &token).mint(&self.borrower, &(3_000 * UNIT));
@@ -2044,4 +2080,272 @@ fn auto_repay_settles_under_no_seize() {
     w.env.set_auths(&[]);
     assert_eq!(w.repo.default(&repo_id), Status::Repaid);
     w.assert_repaid(repo_id);
+}
+
+// --- NAV sanity band (DECISIONS.md #31) ---------------------------------------
+
+/// Launch band for BENJI / USTBL (#31).
+const BAND_BPS: u32 = 50;
+/// A fresh, good NAV record a minute before MATURED.
+const GOOD_TS: u64 = MATURED - 60;
+
+/// Repos and an offer for the band tests, all opened at NAV 1.00.
+struct BandScene {
+    topped: u64,
+    repaid: u64,
+    defaulted: u64,
+    offer: u64,
+}
+
+impl World<'_> {
+    /// Re-tiers tBENJI with a NAV sanity band; everything else as `world()`.
+    fn set_band(&self, max_nav_move_bps: u32, nav_floor: Option<i128>, nav_ceiling: Option<i128>) {
+        self.repo.set_asset(
+            &self.tbenji,
+            &AssetConfig {
+                oracle_asset: Asset::Stellar(self.tbenji.clone()),
+                haircut_bps: 300,
+                enabled: true,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps,
+                nav_floor,
+                nav_ceiling,
+            },
+        );
+    }
+
+    /// Two open repos, one defaulted repo and an untaken offer. Time is
+    /// MATURED, the NAV 1.00 is fresh (printed at GOOD_TS) and tBENJI has
+    /// the 50 bps launch band.
+    fn band_scene(&self) -> BandScene {
+        StellarAssetClient::new(&self.env, &self.tbenji).mint(&self.borrower, &(3_000 * UNIT));
+        let topped = self.take();
+        let repaid = self.take();
+        let defaulted = self.take();
+        let offer = self.offer();
+        self.set_time(MATURED);
+        self.repo.default(&defaulted);
+        self.set_nav(ONE, GOOD_TS);
+        self.set_band(BAND_BPS, None, None);
+        BandScene {
+            topped,
+            repaid,
+            defaulted,
+            offer,
+        }
+    }
+
+    /// `take_offer`, `check_margin` and `liquidate` all fail with
+    /// `NavOutOfBand` and nothing moves.
+    fn assert_band_blocks(&self, s: &BandScene) {
+        assert_eq!(
+            self.repo.try_take_offer(&self.borrower, &s.offer, &false),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(
+            self.repo.try_check_margin(&s.topped),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(
+            self.repo.try_liquidate(&self.liquidator, &s.defaulted),
+            Err(Ok(Error::NavOutOfBand))
+        );
+        assert_eq!(self.repo.offer(&s.offer).id, s.offer);
+        assert_eq!(self.repo.repo(&s.topped).status, Status::Open);
+        assert_eq!(self.repo.repo(&s.defaulted).status, Status::Defaulted);
+    }
+
+    /// `take_offer`, `check_margin` and `liquidate` all go through.
+    fn assert_band_passes(&self, s: &BandScene) {
+        assert!(self.repo.try_check_margin(&s.topped).is_ok());
+        self.repo.take_offer(&self.borrower, &s.offer, &false);
+        self.repo.liquidate(&self.liquidator, &s.defaulted);
+        assert_eq!(self.repo.repo(&s.defaulted).status, Status::Liquidated);
+    }
+
+    /// The exits a bad NAV must never block (#6, #31).
+    fn assert_exits_work(&self, s: &BandScene) {
+        self.repo.top_up(&s.topped, &UNIT);
+        assert_eq!(
+            self.repo.repo(&s.topped).collateral_amount,
+            TAKE_COLLATERAL + UNIT
+        );
+        self.repo.repay(&s.repaid);
+        assert_eq!(self.repo.repo(&s.repaid).status, Status::Repaid);
+        self.repo.repay(&s.topped);
+        assert_eq!(self.repo.repo(&s.topped).status, Status::Repaid);
+    }
+}
+
+#[test]
+fn set_asset_validates_nav_band() {
+    let w = world();
+    let bad = [
+        (0, None, None),
+        (BAND_BPS, Some(0), None),
+        (BAND_BPS, Some(-ONE), None),
+        (BAND_BPS, None, Some(0)),
+        (BAND_BPS, Some(ONE + 1), Some(ONE)),
+    ];
+    for (bps, floor, ceiling) in bad {
+        let config = AssetConfig {
+            oracle_asset: Asset::Stellar(w.tbenji.clone()),
+            haircut_bps: 300,
+            enabled: true,
+            max_nav_age_secs: DEMO_NAV_AGE,
+            max_nav_move_bps: bps,
+            nav_floor: floor,
+            nav_ceiling: ceiling,
+        };
+        assert_eq!(
+            w.repo.try_set_asset(&w.tbenji, &config),
+            Err(Ok(Error::InvalidConfig))
+        );
+    }
+    // Unchanged by the rejected calls.
+    assert_eq!(w.repo.asset(&w.tbenji).max_nav_move_bps, WIDE_BAND_BPS);
+
+    w.set_band(BAND_BPS, Some(ONE), Some(ONE));
+    let got = w.repo.asset(&w.tbenji);
+    assert_eq!(
+        (got.max_nav_move_bps, got.nav_floor, got.nav_ceiling),
+        (BAND_BPS, Some(ONE), Some(ONE))
+    );
+}
+
+#[test]
+fn nav_band_in_band_passes() {
+    // +50 bps, the edge of the band: everything goes through.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE + ONE / 200, MATURED);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn nav_band_jump_up_blocks_risk_actions_but_never_repay_or_top_up() {
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(102 * ONE / 100, MATURED);
+    w.assert_band_blocks(&s);
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_jump_down_blocks_risk_actions_but_never_repay_or_top_up() {
+    // 0.98 is below the margin trigger (~0.98977): without the band this
+    // print would margin-call every repo and liquidate at a 2% loss.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(98 * ONE / 100, MATURED);
+    w.assert_band_blocks(&s);
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_single_record_uses_only_floor_and_ceiling() {
+    // world() prints exactly one NAV record: nothing to measure a move
+    // against, so the move limit passes and only the bounds apply.
+    let w = world();
+    w.set_band(BAND_BPS, Some(ONE + 1), None);
+    let offer = w.offer();
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer, &false),
+        Err(Ok(Error::NavOutOfBand))
+    );
+    w.set_band(BAND_BPS, None, Some(ONE - 1));
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer, &false),
+        Err(Ok(Error::NavOutOfBand))
+    );
+    w.set_band(BAND_BPS, Some(ONE), Some(ONE));
+    w.repo.take_offer(&w.borrower, &offer, &false);
+}
+
+#[test]
+fn nav_band_holds_after_nav_keeper_reposts() {
+    // Issue #26 comment / QA qa_fix2_jump_invisible_after_nav_keeper_reposts:
+    // a bad 0.50 push, then nav-keeper re-posts it every 60 s. From the first
+    // re-post the two newest records are both 0.50, so a prices(asset, 2)
+    // check passes it. The band measures against the whole window.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    let mut ts = MATURED;
+    for _ in 0..3 {
+        ts += 60;
+        w.set_time(ts);
+        w.set_nav(ONE / 2, ts);
+        w.assert_band_blocks(&s);
+    }
+    w.assert_exits_work(&s);
+}
+
+#[test]
+fn nav_band_second_push_next_to_a_bad_one_stays_blocked() {
+    // 0.50 then 0.5001: within 50 bps of each other, not of the good record.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    w.set_time(MATURED + 60);
+    w.set_nav(ONE / 2 + ONE / 10_000, MATURED + 60);
+    w.assert_band_blocks(&s);
+}
+
+#[test]
+fn nav_band_accepts_a_price_once_it_fills_the_window() {
+    // Defined limit: a price every record of the window agrees with is
+    // accepted. With 20 records that is 19 re-posts after the push (~19 min
+    // at nav-keeper's 60 s); the off-chain keeper hold covers that window.
+    let w = world();
+    let s = w.band_scene();
+    let jumped = 102 * ONE / 100;
+    let mut ts = MATURED;
+    w.set_nav(jumped, ts);
+    for _ in 0..(crate::oracle::NAV_BAND_RECORDS - 2) {
+        ts += 60;
+        w.set_time(ts);
+        w.set_nav(jumped, ts);
+    }
+    // 19 records of 1.02 and the good 1.00 at GOOD_TS still in the window.
+    w.assert_band_blocks(&s);
+    ts += 60;
+    w.set_time(ts);
+    w.set_nav(jumped, ts);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn nav_band_admin_widens_the_band_to_accept_a_real_move() {
+    // Recovery path: a genuine move (or a correction back after a bad push)
+    // is accepted at once when the admin widens the band with set_asset.
+    let w = world();
+    let s = w.band_scene();
+    w.set_nav(ONE / 2, MATURED);
+    w.set_time(MATURED + 60);
+    w.set_nav(ONE, MATURED + 60); // correction: 1.00 is still 100% from 0.50
+    w.assert_band_blocks(&s);
+    w.set_band(WIDE_BAND_BPS, None, None);
+    w.assert_band_passes(&s);
+}
+
+#[test]
+fn top_up_does_not_clear_margin_call_on_out_of_band_nav() {
+    // A bad high print must not clear a real margin call; the collateral is
+    // still accepted (top_up is never blocked). An in-band price clears it.
+    let w = world();
+    let repo_id = w.breached();
+    w.set_band(BAND_BPS, None, None);
+    w.set_time(NOW + 60);
+    w.set_nav(110 * ONE / 100, NOW + 60);
+
+    w.repo.top_up(&repo_id, &UNIT);
+    let repo = w.repo.repo(&repo_id);
+    assert_eq!(repo.status, Status::MarginCall);
+    assert_eq!(repo.collateral_amount, TAKE_COLLATERAL + UNIT);
+
+    // Same price, band wide enough: the same top-up clears the call.
+    w.set_band(WIDE_BAND_BPS, None, None);
+    w.repo.top_up(&repo_id, &UNIT);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Open);
 }
