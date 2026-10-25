@@ -1,5 +1,6 @@
 // Seed a demo state on the deployed repo contract:
-//   2 open offers from LENDER + 1 repo taken by BORROWER that matures soon.
+//   2 open tBENJI offers from LENDER (+ 1 tSAFO offer when TSAFO_ID is set)
+//   + 1 repo taken by BORROWER that matures soon.
 //
 //   npm run seed              # seed the contract in .env
 //   npm run seed -- --reset   # scripts/deploy.sh --fresh first (new oracle + repo), then seed
@@ -155,22 +156,29 @@ interface Row {
   hash: string;
 }
 
-async function createOffer(repoId: string, days: number, aprBps: number, daySecs: number): Promise<Row> {
+async function createOffer(
+  repoId: string,
+  days: number,
+  aprBps: number,
+  daySecs: number,
+  collateral = env("TBENJI_SAC"),
+): Promise<Row> {
   const termSecs = days * daySecs;
   const { hash, result } = await invoke(keypair("LENDER"), repoId, "create_offer", [
     addr(env("LENDER_ADDRESS")),
-    addr(env("TBENJI_SAC")),
+    addr(collateral),
     i128(PRINCIPAL),
     u32(aprBps),
     u64(termSecs),
   ]);
   const id = result as bigint;
-  say(`offer ${id}: ${fmt(PRINCIPAL)} USDC, ${days} d, ${aprBps / 100}%`);
-  return { kind: "offer", id, principal: PRINCIPAL, aprBps, termSecs, days, note: "open", hash };
+  const tsafo = collateral === process.env.TSAFO_ID;
+  say(`offer ${id}: ${fmt(PRINCIPAL)} USDC, ${days} d, ${aprBps / 100}%${tsafo ? ", tSAFO collateral" : ""}`);
+  return { kind: "offer", id, principal: PRINCIPAL, aprBps, termSecs, days, note: tsafo ? "open (tSAFO)" : "open", hash };
 }
 
 async function main() {
-  const totalUsdc = Number(PRINCIPAL / UNIT) * (OPEN_OFFERS.length + 1);
+  const totalUsdc = Number(PRINCIPAL / UNIT) * (OPEN_OFFERS.length + 1 + (process.env.TSAFO_ID ? 1 : 0));
   // ~debt / (NAV × (1 − haircut)) for the taken repo, plus room for a top-up demo.
   const needTbenji = Math.ceil((Number(PRINCIPAL / UNIT) * 1.02) / 0.97) + 100;
 
@@ -206,6 +214,14 @@ async function main() {
   ]);
   const open: Row[] = [];
   for (const o of OPEN_OFFERS) open.push(await createOffer(REPO_ID, o.days, o.aprBps, daySecs));
+  // Collateral #2 (issue #20): one open tSAFO offer, priced fresh. deploy.sh
+  // already allowlisted the borrower and minted it tSAFO.
+  const tsafoId = process.env.TSAFO_ID;
+  if (tsafoId) {
+    const { hash } = await setNav(toUnits("1.00", decimals), tsafoId);
+    say(`tSAFO NAV 1.00 posted  ${txLink(hash)}`);
+    open.push(await createOffer(REPO_ID, 7, 650, daySecs, tsafoId));
+  }
   const take = await takeP;
   const repoId = take.result as bigint;
   const repo = await view<{ collateral_amount: bigint; interest: bigint; maturity_ts: bigint }>(REPO_ID, "repo", [

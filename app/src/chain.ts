@@ -1,9 +1,12 @@
 import {
+  Account,
   Address,
   Asset as ClassicAsset,
   BASE_FEE,
+  Contract,
   Operation,
   TransactionBuilder,
+  contract as sdkContract,
   rpc,
   scValToNative,
   xdr,
@@ -20,6 +23,7 @@ import {
   RPC_URL,
   TBENJI,
   TBENJI_SAC,
+  TSAFO,
   USDC,
 } from "./config";
 import { horizonToUnits } from "./format";
@@ -89,6 +93,16 @@ export interface Balances {
   usdc: bigint | null; // null = no trustline
   tbenji: bigint | null;
   tbenjiAuthorized: boolean;
+  /** tSAFO units (5 decimals); null when tSAFO is not deployed. No trustline. */
+  tsafo: bigint | null;
+  /** On the tSAFO issuer allowlist (Spiko-style, checked on every transfer). */
+  tsafoAllowed: boolean;
+}
+
+/** Balance and issuer permission for one collateral token. */
+export function holding(b: Balances, sac: string): { amount: bigint | null; allowed: boolean } {
+  if (TSAFO && sac === TSAFO.sac) return { amount: b.tsafo, allowed: b.tsafoAllowed };
+  return { amount: b.tbenji, allowed: b.tbenjiAuthorized };
 }
 
 const big = (v: unknown) => BigInt(v as bigint | number | string);
@@ -97,7 +111,20 @@ const big = (v: unknown) => BigInt(v as bigint | number | string);
 
 const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
 const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
-const TBENJI_ORACLE_ASSET = { tag: "Stellar" as const, values: [TBENJI_SAC] as const };
+const oracleAsset = (sac: string) => ({ tag: "Stellar" as const, values: [sac] as const });
+
+// Read-only call on a contract without TS bindings (the tSAFO mock), from the
+// all-zero source account the SDK's own read-only simulations use.
+async function simulateView<T>(contractId: string, method: string, ...args: xdr.ScVal[]): Promise<T> {
+  const tx = new TransactionBuilder(new Account(sdkContract.NULL_ACCOUNT, "0"), { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
+    .addOperation(new Contract(contractId).call(method, ...args))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
+  const ret = sim.result?.retval;
+  return (ret ? scValToNative(ret) : undefined) as T;
+}
 
 export async function getConfig(): Promise<ProtocolConfig> {
   const c = (await readRepo.config()).result;
@@ -124,9 +151,9 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
   return { haircut_bps: big(a.haircut_bps), enabled: a.enabled, max_nav_age_secs: big(maxAge) };
 }
 
-export async function getNav(): Promise<Nav | null> {
+export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {
   const [last, dec] = await Promise.all([
-    readOracle.lastprice({ asset: TBENJI_ORACLE_ASSET }),
+    readOracle.lastprice({ asset: oracleAsset(sac) }),
     readOracle.decimals(),
   ]);
   const p = last.result;
@@ -219,7 +246,8 @@ export async function getBook(): Promise<{ offers: Offer[]; repos: Repo[] }> {
 
 export async function getBalances(address: string): Promise<Balances> {
   const res = await fetch(`${HORIZON_URL}/accounts/${address}`);
-  if (res.status === 404) return { exists: false, xlm: 0n, usdc: null, tbenji: null, tbenjiAuthorized: false };
+  if (res.status === 404)
+    return { exists: false, xlm: 0n, usdc: null, tbenji: null, tbenjiAuthorized: false, tsafo: TSAFO ? 0n : null, tsafoAllowed: false };
   if (!res.ok) throw new Error(`Horizon ${res.status}`);
   const acc = (await res.json()) as {
     balances: { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string; is_authorized?: boolean }[];
@@ -229,12 +257,21 @@ export async function getBalances(address: string): Promise<Balances> {
   const native = acc.balances.find((b) => b.asset_type === "native");
   const u = find(USDC.code, USDC.issuer);
   const t = find(TBENJI.code, TBENJI.issuer);
+  const who = new Address(address).toScVal();
+  const [tsafo, tsafoAllowed] = TSAFO
+    ? await Promise.all([
+        simulateView<bigint>(TSAFO.sac, "balance", who).then(BigInt),
+        simulateView<boolean>(TSAFO.sac, "is_whitelisted", who),
+      ])
+    : [null, false];
   return {
     exists: true,
     xlm: native ? horizonToUnits(native.balance) : 0n,
     usdc: u ? horizonToUnits(u.balance) : null,
     tbenji: t ? horizonToUnits(t.balance) : null,
     tbenjiAuthorized: !!t?.is_authorized,
+    tsafo,
+    tsafoAllowed,
   };
 }
 
@@ -366,10 +403,10 @@ export async function isLiquidator(address: string): Promise<boolean> {
   return (await readRepo.is_liquidator({ who: address })).result;
 }
 
-/** Admin only: mock oracle `set_price` (contracts/oracle). */
-export async function setNav(signer: Signer, price: bigint): Promise<TxOutcome<null>> {
+/** Admin only: mock oracle `set_price` (contracts/oracle) for collateral `sac`. */
+export async function setNav(signer: Signer, price: bigint, sac: string = TBENJI_SAC): Promise<TxOutcome<null>> {
   const c = new OracleClient({ contractId: ORACLE_ID, ...clientOpts(signer) });
-  const out = await submit(await c.set_price({ asset: TBENJI_ORACLE_ASSET, price }));
+  const out = await submit(await c.set_price({ asset: oracleAsset(sac), price }));
   unwrapResult(out.value);
   return { hash: out.hash, value: null };
 }

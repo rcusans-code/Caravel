@@ -8,29 +8,34 @@ Needs `stellar` CLI 28.x, `python3`, `curl`, and the burner keys in the repo-roo
 scripts/deploy.sh                # build, deploy what changed, apply config (~50 s fresh, ~5 s no-op)
 scripts/deploy.sh --fresh        # force a new oracle + repo contract
 NAV=0.97 scripts/deploy.sh       # also push a tBENJI price (default 1.00, only if none is set)
+SAFO_NAV=1.02 scripts/deploy.sh  # same for tSAFO
 SKIP_BINDINGS=1 scripts/deploy.sh
 ```
 
 What it does, idempotently (each step reads chain state first and only sends a tx if it differs):
 
-1. `stellar contract build` (both contracts).
+1. `stellar contract build` (repo, oracle, and the tSAFO mock).
 2. Tops ADMIN up to 6,000 XLM by merging a friendbot-funded throwaway account into it (testnet rent is steep: a wasm upload costs ~1,000–1,500 XLM).
 3. Mock oracle: reused if the on-chain wasm matches the build, otherwise deployed with admin = ADMIN, base `Other("USD")`, 14 decimals, resolution 60. Sets tBENJI (`Stellar(TBENJI_SAC)`) to 1.00 if it has no price.
+   tSAFO (collateral #2, issue #20): `contracts/spiko-mock`, a Spiko-style token (allowlist checked on every transfer, no `approve`/`transfer_from`, issuer pause, 5 decimals like Spiko's mainnet tokens). Reused if the wasm matches, otherwise deployed with admin = ISSUER; `TSAFO_ID` goes into `.env`. Priced at 1.00 if it has none.
 4. Repo contract: reused if wasm and `config()` match, otherwise deployed with the demo profile (#5): fee 1000 bps (#3), liquidation discount 200 bps (#4), `day_secs` 60, margin window 120 s, grace 60 s. Treasury = ADMIN (override with `TREASURY_ADDRESS`).
-5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, enabled, max NAV age 180 s })` (#18: haircut > discount; #25: staleness is per asset).
+5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, enabled, max NAV age 180 s })` (#18: haircut > discount; #25: staleness is per asset) and `set_asset(tSAFO, { Stellar(TSAFO_ID), haircut 3000 bps, enabled, max NAV age 180 s })` (testnet only, DECISIONS #29; override with `SAFO_HAIRCUT_BPS`, `SAFO_MAX_NAV_AGE_SECS`).
 6. `set_liquidator(LIQUIDATOR, true)`.
 7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`).
-8. Writes `ORACLE_ID`, `REPO_ID`, `DEPLOYED_AT` into `.env` and the public `deployments/testnet.json` (IDs, addresses, params) for the app.
+   Issuer `set_whitelisted(…, true)` on tSAFO for the repo contract, the liquidator, the borrower and lender wallets, plus any `TSAFO_HOLDERS` (space-separated). Without the repo contract and every liquidator on the list, takes and liquidations revert with the token's `NotWhitelisted` (#100). Then mints `TSAFO_BORROWER_MINT` (2,000) tSAFO to the borrower if it holds none.
+8. Writes `ORACLE_ID`, `REPO_ID`, `TSAFO_ID`, `DEPLOYED_AT` into `.env` and the public `deployments/testnet.json` (IDs, addresses, params) for the app.
 9. Regenerates TS bindings in `packages/caravel-repo` and `packages/caravel-oracle` when a contract ID changes.
 
-Every param can be overridden from the environment (`HAIRCUT_BPS`, `MAX_NAV_AGE_SECS`, …); see the top of the script.
+Every param can be overridden from the environment (`HAIRCUT_BPS`, `SAFO_HAIRCUT_BPS`, `TSAFO_DECIMALS`, `MAX_NAV_AGE_SECS`, `SAFO_MAX_NAV_AGE_SECS`, …); see the top of the script.
+
+Dry run, 25 Oct, on throwaway keys and a separate `ENV_FILE` (the app's deployment untouched): fresh deploy in 129 s (oracle, tSAFO, repo, both `set_asset`, allowlist, mint), a re-run in 14 s with no tx. On that deployment, with the CLI: tSAFO `take_offer` with no approve (100 USDC against 142.99413 tSAFO at 30%), `repay`, `default` → `liquidate` to the allowlisted liquidator; a borrower off the allowlist fails with `Error(Contract, #100)`, a paused token with `#101`, and the offer stays open.
 
 The mock price goes stale after tBENJI's `max_nav_age_secs` (180 s, set per asset): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
 
 ## `onboard.sh`: give a team wallet access and a test allowance
 
-The public app is read-only for any wallet whose tBENJI trustline is not AUTHORIZED by the issuer; that on-chain flag is the only allowlist.
+The public app is read-only for any wallet whose tBENJI trustline is not AUTHORIZED by the issuer; that on-chain flag is the only allowlist. With `TSAFO_ID` in `.env`, step 6 also puts the wallet on the tSAFO allowlist and mints it tSAFO (`TSAFO_AMOUNT`, default = `tbenji_amount`); tSAFO needs no trustline.
 
 ```sh
 scripts/onboard.sh <G-address> [tbenji_amount=200] [usdc_amount=100]
@@ -50,9 +55,9 @@ Tested 25 Oct on fresh throwaway keys: unfunded -> funded + exit 2 (no trustline
 
 There is no Circle USDC faucet on testnet. `scripts/buy-usdc.sh [amount=100] [destination=ADMIN]` buys it on the SDEX with friendbot XLM: per 500 USDC chunk, friendbot funds a throwaway account, which sends a `path-payment-strict-receive` (XLM -> USDC, Horizon-quoted, 3% slippage) straight to the destination and then merges its leftover XLM into ADMIN. ADMIN's own XLM is not spent. Price on 25 Oct: ~1.15 XLM per USDC (500 USDC for ~572 XLM). The destination needs a USDC trustline.
 
-## `nav-keeper.sh`: keep the tBENJI NAV fresh
+## `nav-keeper.sh`: keep the collateral NAVs fresh
 
-Takes and liquidations revert with `StaleNav` when the oracle price is older than 180 s. The keeper re-posts the oracle's current tBENJI price every 60 s (`NAV=0.97` pins a value instead; with no price at all it posts 1.00), so a value set from the app's Admin tab sticks. A failed push is retried 3 times 5 s apart, then the next round starts after 15 s. (Back-to-back pushes sometimes fail simulation with `ResourceLimitExceeded` on write bytes; the retry lands.)
+Takes and liquidations revert with `StaleNav` when the oracle price is older than 180 s. The keeper re-posts the oracle's current tBENJI price every 60 s, and tSAFO's too when `TSAFO_ID` is set (`NAV=0.97` / `SAFO_NAV=1.02` pin a value instead; with no price at all it posts 1.00), so a value set from the app's Admin tab sticks. A failed push is retried 3 times 5 s apart, then the next round starts after 15 s. (Back-to-back pushes sometimes fail simulation with `ResourceLimitExceeded` on write bytes; the retry lands.)
 
 ```sh
 scripts/nav-keeper.sh --once     # one push
@@ -70,14 +75,14 @@ systemctl --user status caravel-nav-keeper; journalctl --user -u caravel-nav-kee
 
 It reads keys and `ORACLE_ID` from `~/src/caravel/.env` every round, so a redeploy is picked up without a restart. Re-run the `install` lines after editing the script.
 
-**Cost:** each `set_price` costs ~9 XLM in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
+**Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
 
 The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. Until the repo contract is redeployed from current main, the deployed one returns `NotImplemented` for `check_margin` (the keeper logs that once per repo and skips it); maturity default and liquidate work.
 
 
 ## `keeper/`: keeper + NAV setter
 
-TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `USDC_SAC` and keys from the repo-root `.env` at start (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly). When `REPO_ID` in `.env` changes (redeploy, `seed --reset`) it logs one line and exits; the systemd unit restarts it on the new IDs. Run by hand, restart it yourself.
+TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `TSAFO_ID` (optional), `USDC_SAC` and keys from the repo-root `.env` at start (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly). When `REPO_ID` in `.env` changes (redeploy, `seed --reset`) it logs one line and exits; the systemd unit restarts it on the new IDs. Run by hand, restart it yourself.
 
 ```sh
 cd scripts/keeper && npm install
@@ -85,7 +90,10 @@ npm run keeper                      # poll every 10 s
 npm run keeper -- --refresh-nav     # also re-post the last NAV once it is ≥120 s old (max age 180 s)
 npm run repos                       # every repo: status, maturity, lender, debt; lender + liquidator USDC
 npm run set-nav -- 0.97             # admin: oracle set_price(Stellar(TBENJI_SAC), 0.97 × 10^decimals())
+npm run set-nav -- 1.02 tsafo       # same for Stellar(TSAFO_ID)
 ```
+
+Each repo is priced and labelled by its own collateral (tBENJI or tSAFO); `--refresh-nav` refreshes every asset's price.
 
 Each tick the keeper:
 
@@ -177,7 +185,7 @@ What it does:
 1. `--reset` only: runs `scripts/deploy.sh --fresh` (new IDs into `.env`, `deployments/testnet.json`, bindings). In parallel, LENDER and BORROWER get their balances topped up (different signers, so no sequence clashes).
 2. Balances. USDC: LENDER needs 3 × principal, BORROWER ≥ 20 for the repay interest. We can't mint Circle's testnet USDC, so the script buys it with XLM on the testnet DEX (`pathPaymentStrictReceive` to self, ~1.15 XLM per USDC right now); XLM comes from friendbot when an account is below 1,500. If the DEX has no path, it fails and points you to https://faucet.circle.com. tBENJI: the issuer `mint`s on the SAC to BORROWER whenever it holds less than the collateral for one repo plus 100.
 3. Admin posts NAV 1.00 (fresh timestamp, so `take_offer` passes the 180 s staleness check). While that runs, LENDER creates the short offer.
-4. BORROWER takes the short offer while LENDER posts the two open ones.
+4. BORROWER takes the short offer while LENDER posts the two open ones. With `TSAFO_ID` set, admin also prices tSAFO at 1.00 and LENDER posts a third open offer (7 d, 6.5%) against tSAFO (deploy.sh already allowlisted and funded the borrower).
 5. Prints the contract links and a table with the ids and tx links.
 
 Default seed (100 USDC each, `day_secs` read from `config()`):

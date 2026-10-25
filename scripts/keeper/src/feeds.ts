@@ -4,14 +4,18 @@
 //   npm run feeds            # one reading of each
 //   npm run feeds -- --json  # machine-readable
 //
-// Mock:  ORACLE_ID,      Stellar(TBENJI_SAC)
+// Mock:  ORACLE_ID,      Stellar(TBENJI_SAC), Stellar(TSAFO_ID) when set
 // Live:  LIVE_ORACLE_ID, LIVE_ORACLE_ASSET (e.g. Reflector testnet CEX/DEX feed, Other:USDC)
 import { env, NETWORK } from "./chain.js";
 import { assetLabel, parseAsset, readFeed, type FeedReading } from "./sep40.js";
 
+const LIVE = { label: "live feed", oracle: env("LIVE_ORACLE_ID"), asset: parseAsset(env("LIVE_ORACLE_ASSET")) };
 const feeds = [
   { label: "mock NAV  tBENJI", oracle: env("ORACLE_ID"), asset: parseAsset(`Stellar:${env("TBENJI_SAC")}`) },
-  { label: "live feed", oracle: env("LIVE_ORACLE_ID"), asset: parseAsset(env("LIVE_ORACLE_ASSET")) },
+  ...(process.env.TSAFO_ID
+    ? [{ label: "mock NAV  tSAFO", oracle: env("ORACLE_ID"), asset: parseAsset(`Stellar:${env("TSAFO_ID")}`) }]
+    : []),
+  LIVE,
 ];
 
 const readings: FeedReading[] = await Promise.all(feeds.map((f) => readFeed(f.oracle, f.asset)));
@@ -22,7 +26,7 @@ if (process.argv.includes("--json")) {
   console.log(JSON.stringify(out, null, 2));
 } else {
   for (const [i, r] of readings.entries()) {
-    const label = i === 1 ? `${feeds[i].label} ${assetLabel(r.asset)}` : feeds[i].label;
+    const label = feeds[i] === LIVE ? `${feeds[i].label} ${assetLabel(r.asset)}` : feeds[i].label;
     if (r.price === null || r.timestamp === null) {
       console.log(`${label.padEnd(28)} no price  (${r.oracle})`);
       continue;

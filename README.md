@@ -155,7 +155,7 @@ Every state-changing call checks status first and fails with a named error other
 
 ### Units and rounding
 
-Amounts are `i128` in 7-decimal Stellar units. NAV is scaled by the feed's `decimals()`, read on every call. Every rounding goes the lender's way: interest and required collateral round up, collateral value rounds down, liquidation proceeds round up, and the fee rounds down so the lender keeps the dust.
+USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in the token's own units (tBENJI 7 decimals, tSAFO 5, like Spiko's mainnet tokens). NAV is scaled by the feed's `decimals()`, read on every call, with the token's `decimals()` folded in so the math always lands in USDC units (DECISIONS #28). Every rounding goes the lender's way: interest and required collateral round up, collateral value rounds down, liquidation proceeds round up, and the fee rounds down so the lender keeps the dust.
 
 ### Rules the tests hold
 
@@ -166,7 +166,7 @@ Amounts are `i128` in 7-decimal Stellar units. NAV is scaled by the feed's `deci
 - **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 
-`cargo test --workspace` runs 137 contract tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop.
+`cargo test --workspace` runs 160 tests, including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -177,7 +177,7 @@ All durations are configuration, so the demo compresses time without touching co
 | `day_secs` | global | 60 | 86,400 |
 | `term_secs` | per offer | 420 (7 demo days) | lender's choice, 7–30 days |
 | `apr_bps` | per offer | 500 | lender's choice; quoted as a spread over T-bills (3.87%) |
-| `haircut_bps` | per asset | 300 (tBENJI) | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000 ([DECISIONS #26](DECISIONS.md)) |
+| `haircut_bps` | per asset | 300 (tBENJI), 3,000 (tSAFO, testnet only) | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000; SAFO not enabled until due diligence ([DECISIONS #26](DECISIONS.md)) |
 | `liquidation_discount_bps` | global | 200 | must stay below every haircut; the contract enforces it |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |
@@ -190,6 +190,7 @@ All durations are configuration, so the demo compresses time without touching co
 
 - **Authorized trustlines (AUTH_REQUIRED, AUTH_REVOCABLE, AUTH_CLAWBACK_ENABLED).** tBENJI is issued like a real fund share. Our spike proved an issuer can authorize a *contract* as a holder with `set_authorized`, and that freezing it works ([spikes/auth](spikes/auth/README.md)). This is the compliance layer: the issuer, not Caravel, decides who may hold the collateral. The core only uses the SEP-41 token interface, so the issuer decides either way: with AUTH_REQUIRED trustlines (BENJI) or in its own token contract (e.g. Spiko), which a test-only allowlist token covers (DECISIONS.md #24).
 - **Stellar Asset Contracts.** The repo contract moves classic USDC and tBENJI through their SACs. No wrapped tokens.
+- **Custom permissioned tokens.** Collateral #2, tSAFO, is a Spiko-style Soroban token (`contracts/spiko-mock`): no trustlines, an issuer allowlist checked on every transfer, no `approve` / `transfer_from`, and an issuer pause. The repo contract moves it through the same token interface, and the borrower's signed `take_offer` covers the transfer, so no allowance is needed.
 - **Atomic DvP through Soroban authorization.** The borrower signs one `take_offer` call; the nested tBENJI transfer is part of the same signed authorization, at the exact collateral amount. Both legs settle in one transaction or not at all.
 - **SEP-40 price feeds.** The contract speaks the SEP-40 interface Reflector uses, so a mock feed and a live one are interchangeable by config.
 - **Real Circle testnet USDC**, not a mock token.
@@ -235,6 +236,7 @@ scripts/deploy.sh
 | Price feed (mock SEP-40) | _final deploy, Mon 06:00_ |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
+| tSAFO (Spiko-style mock, 5 decimals) | _deployed by `scripts/deploy.sh` with the redeploy (#18)_ |
 
 <!-- REVIEW (Misha): fill repo and oracle IDs after the final deploy, plus a stellar.expert link to one take_offer DvP transaction. -->
 
@@ -242,6 +244,7 @@ scripts/deploy.sh
 
 - **Shortfall.** The margin call fires while a liquidation would still pay the lender in full, about a 1% NAV fall at maximum LTV. If NAV keeps falling during the margin window and the borrower doesn't top up, the lender takes the loss. At NAV 0.97 the lender gets 980.94 of the 1,000.86 owed, and a `Shortfall` event records the 19.92 gap. There is no insurance fund yet. For a stable-$1 money-market fund a 1% fall means the fund broke the buck, which is the event the margin check guards against.
 - **Issuer dependence.** The design rests on the fund issuer authorizing the contract as a holder of record. No contract holds BENJI today; our testnet runs on a team-issued tBENJI. A freeze, clawback or de-authorization by the issuer stops repay and liquidation, and the haircut doesn't cover that.
+- **Spiko issuer controls (tSAFO / SAFO).** Every transfer checks Spiko's allowlist, so Spiko must allowlist the Caravel contract **and every liquidator**, not only borrowers; a liquidator Caravel whitelisted but Spiko did not cannot liquidate. Spiko can pause the token, which freezes repay, top-up and liquidation until it unpauses (tested: nothing is lost, every call works after). Removing a borrower from the allowlist blocks their repay; the repo then defaults and an allowlisted liquidator takes the collateral. Spiko can also upgrade the token contract. SAFO's assets are equities and bonds whose return is swapped with banks for €STR, not T-bills, hence the 30% testnet haircut; for launch SAFO stays disabled until due diligence (DECISIONS #26). Its NAV is daily and no SEP-40 feed covers it yet; the testnet tSAFO is priced by our mock oracle. Testnet only: nothing here touches mainnet.
 - **Negative carry.** A passive holder pays 5% to borrow against a fund yielding 3.87%. Caravel's target borrower is a trader or market maker whose USDC earns more than the repo costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (6.69% on Blend), in exchange for a fixed term, a fixed rate and T-bill collateral.
 - **Dividends.** Real BENJI pays its yield as new tokens to the holder of record, which during a repo is the contract. Passing them back to the borrower is on the roadmap; the demo token pays none.
 - **Liquidators.** Liquidators must be issuer-approved, and nothing obliges one to buy, so a defaulted repo can wait. A liquidation sells all the collateral, so defaulting at NAV 1.00 costs the borrower about 21.60 USDC per 1,000 against 0.96 of interest for repaying. Once a repo is Defaulted the borrower can no longer repay.
@@ -252,7 +255,7 @@ scripts/deploy.sh
 
 <!-- REVIEW (team): docs/mechanics.md §14 proposes an earlier margin trigger (2.5%) that would leave a cushion between the call and any lender loss. If the team adopts it before freeze, rewrite the Shortfall bullet; if not, it stays as written. -->
 
-**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; per-asset NAV bounds; split admin keys; a live Reflector or RedStone feed; Spiko USTBL as the second asset; passkey smart wallets.
+**Roadmap:** dividend pass-through; claimable payouts; repay out of Defaulted with a short liquidation delay; sell only enough collateral to cover the debt; per-asset NAV bounds; split admin keys; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
 
 ## Built during HackMeridian
 

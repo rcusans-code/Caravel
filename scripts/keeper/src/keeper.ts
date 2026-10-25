@@ -9,6 +9,7 @@
 // Signs check_margin / default with KEEPER_SECRET from .env (falls back to
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
 // USDC). --refresh-nav signs set_price with ADMIN_SECRET (the oracle admin).
+// Covers every collateral asset: tBENJI, and tSAFO when TSAFO_ID is set.
 import { readFileSync } from "node:fs";
 import { Address } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
@@ -20,6 +21,7 @@ interface Repo {
   id: bigint;
   lender: string;
   status: Status;
+  collateral_asset: string;
   principal: bigint;
   interest: bigint;
   collateral_amount: bigint;
@@ -46,7 +48,15 @@ const REFRESH_SECS = opt("--refresh-secs", 120);
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
 const USDC_SAC = env("USDC_SAC");
-const TBENJI = stellarAsset(env("TBENJI_SAC"));
+// Collateral tokens the keeper prices and labels (decimals and per-asset NAV
+// max age, DECISIONS.md #25, read on-chain at start).
+type Collateral = { label: string; id: string; decimals: number; maxAge: bigint };
+const ASSETS: Collateral[] = [
+  { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7, maxAge: 0n },
+  ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5, maxAge: 0n }] : []),
+];
+const assetOf = (id: string): Collateral =>
+  ASSETS.find((a) => a.id === id) ?? { label: id.slice(0, 6) + "…", id, decimals: 7, maxAge: ASSETS[0].maxAge };
 const signer = process.env.KEEPER_SECRET ? keypair("KEEPER") : keypair("LIQUIDATOR");
 const liquidator = keypair("LIQUIDATOR");
 
@@ -94,7 +104,7 @@ async function liveRepos(): Promise<Repo[]> {
   return out;
 }
 
-type Cfg = { discountBps: bigint; graceSecs: bigint; decimals: number; maxAge: bigint };
+type Cfg = { discountBps: bigint; graceSecs: bigint; decimals: number };
 
 async function tick(cfg: Cfg) {
   const changed = fileRepoId();
@@ -106,32 +116,40 @@ async function tick(cfg: Cfg) {
   }
 
   const t = now();
-  const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [TBENJI]).catch(() => null);
-  const navAge = last ? t - last.timestamp : null;
-
-  if (REFRESH_NAV && last && navAge !== null && navAge >= BigInt(REFRESH_SECS)) {
-    try {
-      const { hash } = await setNav(last.price);
-      log(`refresh-nav  re-posted ${fmt(last.price, cfg.decimals)} (was ${navAge}s old)  ${txLink(hash)}`);
-    } catch (e) {
-      log(`refresh-nav  FAILED: ${(e as Error).message}`);
+  const navs = new Map<string, PriceData | null>();
+  for (const a of ASSETS) {
+    const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [stellarAsset(a.id)]).catch(() => null);
+    navs.set(a.id, last);
+    const age = last ? t - last.timestamp : null;
+    if (REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+      try {
+        const { hash } = await setNav(last.price, a.id);
+        log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
+      } catch (e) {
+        log(`refresh-nav  ${a.label} FAILED: ${(e as Error).message}`);
+      }
     }
   }
 
   const repos = await liveRepos();
   const next = new Map<bigint, string>();
-  const nav = { last, navAge };
   for (const r of repos) {
+    const asset = assetOf(r.collateral_asset);
+    const last = navs.get(r.collateral_asset) ?? null;
+    const navAge = last ? t - last.timestamp : null;
+    const nav = { last, navAge };
     const debt = r.principal + r.interest;
     const deadline = r.margin_call_deadline ?? null;
     const matured = t > r.maturity_ts + cfg.graceSecs;
     const marginMissed = r.status === "MarginCall" && deadline !== null && t > deadline;
-    const ltv = last ? Number(debt) / ((Number(r.collateral_amount) * Number(last.price)) / 10 ** cfg.decimals) : NaN;
-    const desc = `repo ${r.id} ${r.status} debt ${fmt(debt)} coll ${fmt(r.collateral_amount)} ltv ${(ltv * 100).toFixed(2)}%`;
+    // Value in USDC: amount (token decimals) × NAV (oracle decimals), DECISIONS.md #28.
+    const value = last ? (Number(r.collateral_amount) / 10 ** asset.decimals) * (Number(last.price) / 10 ** cfg.decimals) : NaN;
+    const ltv = Number(debt) / 1e7 / value;
+    const desc = `repo ${r.id} ${r.status} debt ${fmt(debt)} coll ${fmt(r.collateral_amount, asset.decimals)} ${asset.label} ltv ${(ltv * 100).toFixed(2)}%`;
 
     // 0. Defaulted (by us last tick, or by anyone): liquidate pays the lender.
     if (r.status === "Defaulted") {
-      await liquidateRepo(r, cfg, nav, next);
+      await liquidateRepo(r, asset, cfg, nav, next);
       continue;
     }
 
@@ -170,7 +188,7 @@ async function tick(cfg: Cfg) {
         else log(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }
-      await liquidateRepo({ ...r, status: "Defaulted" }, cfg, { last, navAge: last ? now() - last.timestamp : null }, next);
+      await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null }, next);
       continue;
     }
 
@@ -192,7 +210,7 @@ async function tick(cfg: Cfg) {
       }
     } catch (e) {
       if (e instanceof ContractError && e.code === Err.StaleNav) {
-        note(next, r.id, "stale", `skip         repo ${r.id} check_margin: StaleNav (NAV ${navAge}s old > ${cfg.maxAge}s)`);
+        note(next, r.id, "stale", `skip         repo ${r.id} check_margin: StaleNav (NAV ${navAge}s old > ${asset.maxAge}s)`);
       } else if (e instanceof ContractError && e.code === Err.NotImplemented) {
         // Contract deployed before the margin code: margin calls cannot fire,
         // maturity default + liquidate still do.
@@ -217,14 +235,22 @@ function note(next: Map<bigint, string>, id: bigint, state: string, line: string
  * interest − fee first. Stale NAV or too little liquidator USDC: one line,
  * retried next tick.
  */
-async function liquidateRepo(r: Repo, cfg: Cfg, nav: { last: PriceData | null; navAge: bigint | null }, next: Map<bigint, string>) {
+async function liquidateRepo(
+  r: Repo,
+  asset: Collateral,
+  cfg: Cfg,
+  nav: { last: PriceData | null; navAge: bigint | null },
+  next: Map<bigint, string>,
+) {
   const { last, navAge } = nav;
-  if (!last || navAge === null || navAge > cfg.maxAge) {
-    const why = last ? `NAV ${navAge}s old > ${cfg.maxAge}s` : "no NAV";
+  if (!last || navAge === null || navAge > asset.maxAge) {
+    const why = last ? `NAV ${navAge}s old > ${asset.maxAge}s` : "no NAV";
     return note(next, r.id, "liq-stale", `skip         repo ${r.id} liquidate: ${why}, retrying each tick`);
   }
-  // Same rounding as math::liquidation_proceeds (ceil).
-  const proceeds = ceilDiv(r.collateral_amount * last.price * (BPS - cfg.discountBps), 10n ** BigInt(cfg.decimals) * BPS);
+  // Same rounding as math::liquidation_proceeds (ceil), with the token's
+  // decimals folded into the NAV scale like oracle::scale_for_token (#28).
+  const scale = 10n ** BigInt(cfg.decimals + asset.decimals - 7);
+  const proceeds = ceilDiv(r.collateral_amount * last.price * (BPS - cfg.discountBps), scale * BPS);
   const who = liquidator.publicKey();
   const have = await view<bigint>(USDC_SAC, "balance", [new Address(who).toScVal()]);
   if (have < proceeds) {
@@ -237,7 +263,7 @@ async function liquidateRepo(r: Repo, cfg: Cfg, nav: { last: PriceData | null; n
   }
   try {
     const { hash } = await invoke(liquidator, REPO_ID, "liquidate", [new Address(who).toScVal(), u64(r.id)]);
-    log(`LIQUIDATE    repo ${r.id} Defaulted debt ${fmt(r.principal + r.interest)} coll ${fmt(r.collateral_amount)} proceeds ${fmt(proceeds)} USDC -> lender ${r.lender.slice(0, 6)}…  ${txLink(hash)}`);
+    log(`LIQUIDATE    repo ${r.id} Defaulted debt ${fmt(r.principal + r.interest)} coll ${fmt(r.collateral_amount, asset.decimals)} ${asset.label} proceeds ${fmt(proceeds)} USDC -> lender ${r.lender.slice(0, 6)}…  ${txLink(hash)}`);
     settled.add(r.id);
     next.delete(r.id);
   } catch (e) {
@@ -249,21 +275,24 @@ async function liquidateRepo(r: Repo, cfg: Cfg, nav: { last: PriceData | null; n
 async function main() {
   const config = await view<Record<string, bigint>>(REPO_ID, "config");
   const decimals = await view<number>(ORACLE_ID, "decimals");
-  // NAV staleness is per asset (DECISIONS.md #25); a contract deployed before
-  // #25 still carries it in config().
-  const tbenjiAsset = await view<Record<string, bigint>>(REPO_ID, "asset", [new Address(env("TBENJI_SAC")).toScVal()]);
-  const maxAge = BigInt(tbenjiAsset.max_nav_age_secs ?? config.max_nav_age_secs);
+  for (const a of ASSETS) {
+    a.decimals = await view<number>(a.id, "decimals");
+    // NAV staleness is per asset (DECISIONS.md #25); a contract deployed before
+    // #25 still carries it in config().
+    // An asset the contract does not know yet (tSAFO before the redeploy) reads null.
+    const ac = await view<Record<string, bigint> | null>(REPO_ID, "asset", [new Address(a.id).toScVal()]).catch(() => null);
+    a.maxAge = BigInt(ac?.max_nav_age_secs ?? config.max_nav_age_secs ?? 0n);
+  }
   const cfg = {
     discountBps: BigInt(config.liquidation_discount_bps),
     graceSecs: BigInt(config.grace_secs),
-    maxAge,
     decimals,
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
-    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s` +
+    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
-      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, tBENJI max NAV age ${maxAge}s)`,
+      ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})`,
   );
   for (;;) {
     try {

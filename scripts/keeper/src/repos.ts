@@ -11,6 +11,7 @@ interface Repo {
   borrower: string;
   principal: bigint;
   interest: bigint;
+  collateral_asset: string;
   collateral_amount: bigint;
   maturity_ts: bigint;
 }
@@ -20,6 +21,11 @@ const USDC = env("USDC_SAC");
 const cfg = await view<{ grace_secs: bigint }>(REPO_ID, "config");
 const now = BigInt(Math.floor(Date.now() / 1000));
 const fmt = (u: bigint) => (Number(u) / 1e7).toFixed(4);
+// Collateral in the token's own decimals (tSAFO 5, DECISIONS #28).
+const coll = (r: Repo) =>
+  r.collateral_asset === process.env.TSAFO_ID
+    ? `${(Number(r.collateral_amount) / 1e5).toFixed(4)} tSAFO`
+    : `${fmt(r.collateral_amount)} tBENJI`;
 const usdc = async (a: string) => fmt(await view<bigint>(USDC, "balance", [new Address(a).toScVal()]));
 const iso = (t: bigint) => new Date(Number(t) * 1000).toISOString().slice(0, 19) + "Z";
 
@@ -39,7 +45,7 @@ for (let id = 1n; ; id++) {
   lenders.add(r.lender);
   console.log(
     `repo ${String(id).padStart(2)}  ${status.padEnd(10)}  maturity ${iso(r.maturity_ts)} (${when})  ` +
-      `lender ${r.lender}  debt ${fmt(r.principal + r.interest)}  coll ${fmt(r.collateral_amount)}`,
+      `lender ${r.lender}  debt ${fmt(r.principal + r.interest)}  coll ${coll(r)}`,
   );
 }
 for (const l of lenders) console.log(`lender     ${l}  USDC ${await usdc(l)}`);

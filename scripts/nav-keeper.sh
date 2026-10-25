@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# NAV keeper: keeps the mock oracle's tBENJI price fresh so takes and
-# liquidations never hit StaleNav (tBENJI max_nav_age_secs = 180 s).
+# NAV keeper: keeps the mock oracle's collateral prices fresh (tBENJI, and
+# tSAFO when TSAFO_ID is set) so takes and liquidations never hit StaleNav
+# (each asset's own max_nav_age_secs; demo 180 s).
 #
 #   scripts/nav-keeper.sh           # loop forever, every INTERVAL s (default 60)
-#   scripts/nav-keeper.sh --once    # one push, then exit
-#   NAV=1.00 scripts/nav-keeper.sh  # pin the price instead of re-posting the last one
+#   scripts/nav-keeper.sh --once    # one push per asset, then exit
+#   NAV=1.00 scripts/nav-keeper.sh  # pin the tBENJI price instead of re-posting the last one
+#   SAFO_NAV=1.02 scripts/nav-keeper.sh  # same for tSAFO
 #
-# Each round re-posts the oracle's current tBENJI price (so a value set from
-# the app's Admin tab sticks), or NAV if set, or 1.00 when there is no price.
+# Each round re-posts each asset's current price (so a value set from the
+# app's Admin tab sticks), or NAV / SAFO_NAV if set, or 1.00 when there is none.
 # Signs set_price with ADMIN_SECRET from <repo>/.env (the oracle admin), passed
 # to the CLI through STELLAR_ACCOUNT so it never shows up in `ps`.
 # Cost: ~8 XLM per push at today's testnet fees; tops ADMIN up from friendbot
@@ -29,16 +31,22 @@ load_env() {
   export STELLAR_NETWORK="${NETWORK:-testnet}"
   [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
   [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
-  ASSET="{\"Stellar\":\"$TBENJI_SAC\"}"
 }
 
-push() {
-  local last price ts out
-  load_env   # re-read every round: a redeploy changes ORACLE_ID
+push() { # one round: every collateral asset in .env
+  load_env   # re-read every round: a redeploy changes ORACLE_ID / TSAFO_ID
+  local rc=0
+  push_asset tBENJI "$TBENJI_SAC" "${NAV:-}" || rc=1
+  if [[ -n "${TSAFO_ID:-}" ]]; then push_asset tSAFO "$TSAFO_ID" "${SAFO_NAV:-}" || rc=1; fi
+  return $rc
+}
+
+push_asset() { # push_asset LABEL TOKEN_ID PINNED_NAV
+  local label="$1" ASSET="{\"Stellar\":\"$2\"}" pin="$3" last price ts out
   last=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
-           --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>&1) || { log "lastprice failed: ${last##*$'\n'}"; return 1; }
-  if [[ -n "${NAV:-}" ]]; then
-    price=$(python3 -c "from decimal import Decimal as D; print(int(D('$NAV') * 10**14))")
+           --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>&1) || { log "$label lastprice failed: ${last##*$'\n'}"; return 1; }
+  if [[ -n "$pin" ]]; then
+    price=$(python3 -c "from decimal import Decimal as D; print(int(D('$pin') * 10**14))")
   elif [[ "$last" == "null" || -z "$last" ]]; then
     price=100000000000000          # 1.00 at 14 decimals
   else
@@ -50,16 +58,16 @@ push() {
                --id "$ORACLE_ID" -- set_price --asset "$ASSET" --price "$price" 2>&1); then
       ok=1; break
     fi
-    log "set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"
+    log "$label set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"
     (( try < 3 )) && sleep 5
   done
   (( ok )) || return 1
   ts=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
          --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>/dev/null)
-  log "set_price tBENJI=$price oracle=${ORACLE_ID:0:8}… now $ts"
+  log "set_price $label=$price oracle=${ORACLE_ID:0:8}… now $ts"
 }
 
-# Each push costs ~8 XLM on testnet today (~11.7k XLM/day at 60 s), so keep
+# Each push costs ~8 XLM (per asset) on testnet today (~11.7k XLM/day at 60 s), so keep
 # ADMIN above MIN_ADMIN_XLM by merging a friendbot-funded throwaway account
 # into it (+~10k XLM), the same trick scripts/deploy.sh uses.
 MIN_ADMIN_XLM="${MIN_ADMIN_XLM:-3000}"

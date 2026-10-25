@@ -14,15 +14,37 @@ export const USDC_SAC = deployment.contracts.usdc;
 export const TBENJI_SAC = deployment.contracts.tbenji;
 export const DEPLOYED_AT = deployment.deployedAt;
 
+/**
+ * A token the UI shows. `sac`: classic asset SAC (balance + authorization via
+ * Horizon trustlines). `spiko`: custom Soroban token with an allowlist and no
+ * trustline (tSAFO, contracts/spiko-mock; balance read from the contract).
+ */
+export interface Token {
+  code: string;
+  issuer: string;
+  sac: string;
+  decimals: number;
+  kind: "sac" | "spiko";
+}
+
 const [usdcCode, usdcIssuer] = deployment.assets.usdc.split(":");
 const [tbenjiCode, tbenjiIssuer] = deployment.assets.tbenji.split(":");
-export const USDC = { code: usdcCode, issuer: usdcIssuer, sac: USDC_SAC };
-export const TBENJI = { code: tbenjiCode, issuer: tbenjiIssuer, sac: TBENJI_SAC };
+export const USDC: Token = { code: usdcCode, issuer: usdcIssuer, sac: USDC_SAC, decimals: 7, kind: "sac" };
+export const TBENJI: Token = { code: tbenjiCode, issuer: tbenjiIssuer, sac: TBENJI_SAC, decimals: 7, kind: "sac" };
+
+// Collateral #2 (issue #20). Present once scripts/deploy.sh has deployed tSAFO.
+const dep = deployment as typeof deployment & {
+  contracts: { tsafo?: string };
+  tsafo?: { symbol?: string; decimals?: number };
+};
+export const TSAFO: Token | null = dep.contracts.tsafo
+  ? { code: dep.tsafo?.symbol ?? "tSAFO", issuer: "", sac: dep.contracts.tsafo, decimals: dep.tsafo?.decimals ?? 5, kind: "spiko" }
+  : null;
 
 /** Collateral assets the UI offers. Haircut and enabled flag are read on-chain. */
-export const COLLATERAL = [TBENJI];
-export const assetBySac = (sac: string) =>
-  [USDC, TBENJI].find((a) => a.sac === sac) ?? { code: sac.slice(0, 4) + "…", issuer: "", sac };
+export const COLLATERAL: Token[] = [TBENJI, ...(TSAFO ? [TSAFO] : [])];
+export const assetBySac = (sac: string): Token =>
+  [USDC, ...COLLATERAL].find((a) => a.sac === sac) ?? { code: sac.slice(0, 4) + "…", issuer: "", sac, decimals: 7, kind: "sac" };
 
 export const ACCOUNTS = deployment.accounts;
 export const ORACLE_DECIMALS = deployment.oracle.decimals;
