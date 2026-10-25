@@ -5,6 +5,7 @@
 //
 //   npm run keeper                   # every 10 s
 //   npm run keeper -- --refresh-nav  # also re-post the last NAV every ~120 s
+//   npm run keeper -- --once         # one tick, then exit
 //
 // Signs check_margin / default with KEEPER_SECRET from .env (falls back to
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
@@ -13,6 +14,7 @@
 // A NAV that just jumped holds check_margin, missed-margin default and
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 import { readFileSync } from "node:fs";
+import process from "node:process";
 import { Address, nativeToScVal } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, stellarAsset, txLink, u64, view } from "./chain.js";
@@ -43,6 +45,7 @@ const opt = (name: string, dflt: number) => {
 const INTERVAL_MS = opt("--interval", 10) * 1000;
 const REFRESH_NAV = flag("--refresh-nav");
 const REFRESH_SECS = opt("--refresh-secs", 120);
+const ONCE = flag("--once");
 
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
@@ -371,17 +374,20 @@ async function main() {
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
   log(
-    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} every ${INTERVAL_MS / 1000}s, assets ${ASSETS.map((a) => a.label).join(", ")}` +
+    `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps`,
   );
   for (;;) {
+    let failed = false;
     try {
       await tick(cfg);
     } catch (e) {
+      failed = true;
       log(`tick failed: ${(e as Error).message}`);
     }
+    if (ONCE) process.exit(failed ? 1 : 0);
     await new Promise((r) => setTimeout(r, INTERVAL_MS));
   }
 }

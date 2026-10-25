@@ -82,12 +82,13 @@ The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` 
 
 ## `keeper/`: keeper + NAV setter
 
-TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `TSAFO_ID` (optional), `USDC_SAC` and keys from the repo-root `.env` at start (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly). When `REPO_ID` in `.env` changes (redeploy, `seed --reset`) it logs one line and exits; the systemd unit restarts it on the new IDs. Run by hand, restart it yourself.
+TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `TSAFO_ID` (optional), `USDC_SAC` and keys from the repo-root `.env` at start (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly). From a worktree run it with `ENV_FILE=~/src/caravel/.env`. A `--once` process starts with an empty NAV latch like a restart, so do not run it while the live keeper logs a `needs-ack` / `latched` hold (it could act on a price the live process holds). When `REPO_ID` in `.env` changes (redeploy, `seed --reset`) it logs one line and exits; the systemd unit restarts it on the new IDs. Run by hand, restart it yourself.
 
 ```sh
 cd scripts/keeper && npm install
 npm run keeper                      # poll every 10 s
 npm run keeper -- --refresh-nav     # also re-post the last NAV once it is ≥120 s old (max age 180 s)
+npm run keeper -- --once            # one tick (check_margin / default / liquidate / auto_repay as due), then exit; exit 1 if the tick failed
 npm run repos                       # every repo: status, maturity, lender, debt; lender + liquidator USDC
 npm run set-nav -- 0.97             # admin: oracle set_price(Stellar(TBENJI_SAC), 0.97 × 10^decimals())
 npm run set-nav -- 1.02 tsafo       # same for Stellar(TSAFO_ID)
