@@ -25,28 +25,77 @@ What it does, idempotently (each step reads chain state first and only sends a t
 
 Every param can be overridden from the environment (`HAIRCUT_BPS`, `MAX_NAV_AGE_SECS`, …); see the top of the script.
 
-The mock price goes stale after `max_nav_age_secs` (180 s): run the keeper with `--refresh-nav` (below), or refresh it with `NAV=1.00 scripts/deploy.sh` or
+The mock price goes stale after `max_nav_age_secs` (180 s): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## `onboard.sh`: give a team wallet access and a test allowance
+
+The public app is read-only for any wallet whose tBENJI trustline is not AUTHORIZED by the issuer; that on-chain flag is the only allowlist.
+
+```sh
+scripts/onboard.sh <G-address> [tbenji_amount=200] [usdc_amount=100]
+```
+
+Idempotent, amounts are targets (a re-run tops up to them, never beyond):
+
+1. Unfunded account: friendbot funds it.
+2. Missing tBENJI or USDC trustline: prints how to add it and exits 2. Only the wallet owner can sign a trustline: in the app, connect and press **Add … trustline** (one tx for both), then re-run.
+3. Issuer `set_authorized(addr, true)` on the tBENJI SAC (skipped if `authorized(addr)` is already true).
+4. Issuer pays tBENJI up to `tbenji_amount` (a payment from the issuer mints).
+5. ADMIN pays USDC up to `usdc_amount`. If ADMIN holds too little, it first runs `buy-usdc.sh` for the shortfall (min 100).
+
+Tested 25 Oct on fresh throwaway keys: unfunded -> funded + exit 2 (no trustlines) -> trustlines added with the throwaway key -> 200 tBENJI (authorized) + 100 USDC; a re-run sends nothing. Two onboarded throwaways then ran create_offer -> take_offer -> repay end to end.
+
+## `buy-usdc.sh`: testnet USDC from the DEX
+
+There is no Circle USDC faucet on testnet. `scripts/buy-usdc.sh [amount=100] [destination=ADMIN]` buys it on the SDEX with friendbot XLM: per 500 USDC chunk, friendbot funds a throwaway account, which sends a `path-payment-strict-receive` (XLM -> USDC, Horizon-quoted, 3% slippage) straight to the destination and then merges its leftover XLM into ADMIN. ADMIN's own XLM is not spent. Price on 25 Oct: ~1.15 XLM per USDC (500 USDC for ~572 XLM). The destination needs a USDC trustline.
+
+## `nav-keeper.sh`: keep the tBENJI NAV fresh
+
+Takes and liquidations revert with `StaleNav` when the oracle price is older than 180 s. The keeper re-posts the oracle's current tBENJI price every 60 s (`NAV=0.97` pins a value instead; with no price at all it posts 1.00), so a value set from the app's Admin tab sticks. A failed push is retried 3 times 5 s apart, then the next round starts after 15 s. (Back-to-back pushes sometimes fail simulation with `ResourceLimitExceeded` on write bytes; the retry lands.)
+
+```sh
+scripts/nav-keeper.sh --once     # one push
+scripts/nav-keeper.sh            # loop (INTERVAL=60)
+```
+
+On sim-server it runs as a systemd user service (linger is on, so it survives logout and reboot):
+
+```sh
+install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh   # copy: branch switches cannot break it
+install -Dm644 scripts/caravel-nav-keeper.service ~/.config/systemd/user/caravel-nav-keeper.service
+systemctl --user daemon-reload && systemctl --user enable --now caravel-nav-keeper
+systemctl --user status caravel-nav-keeper; journalctl --user -u caravel-nav-keeper -f
+```
+
+It reads keys and `ORACLE_ID` from `~/src/caravel/.env` every round, so a redeploy is picked up without a restart. Re-run the `install` lines after editing the script.
+
+**Cost:** each `set_price` costs ~9 XLM in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
+
+The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. Until the repo contract is redeployed from current main, the deployed one returns `NotImplemented` for `check_margin` (the keeper logs that once per repo and skips it); maturity default and liquidate work.
+
 
 ## `keeper/`: keeper + NAV setter
 
-TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC` and keys from the repo-root `.env` at start, so restart it after a redeploy (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly).
+TypeScript, Node 20+. Reads `REPO_ID`, `ORACLE_ID`, `TBENJI_SAC`, `USDC_SAC` and keys from the repo-root `.env` at start (no bindings rebuild needed; it talks to the contracts with `@stellar/stellar-sdk` directly). When `REPO_ID` in `.env` changes (redeploy, `seed --reset`) it logs one line and exits; the systemd unit restarts it on the new IDs. Run by hand, restart it yourself.
 
 ```sh
 cd scripts/keeper && npm install
 npm run keeper                      # poll every 10 s
 npm run keeper -- --refresh-nav     # also re-post the last NAV once it is ≥120 s old (max age 180 s)
+npm run repos                       # every repo: status, maturity, lender, debt; lender + liquidator USDC
 npm run set-nav -- 0.97             # admin: oracle set_price(Stellar(TBENJI_SAC), 0.97 × 10^decimals())
 ```
 
 Each tick the keeper:
 
-1. Walks repo ids `1, 2, …` via the `repo(id)` view until `RepoNotFound`. Settled repos (`Repaid`, `Defaulted`, `Liquidated`) are remembered and not read again.
-2. `default(id)` once the margin window has passed (`MarginCall` and now > `margin_call_deadline`) or now > maturity + grace. Needs no NAV. Ledger time can lag the wall clock by a few seconds; a `NotDefaultable` simulation just means "next tick".
-3. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` is logged once and skipped (#17).
-4. `MarginCall` repos wait for a top-up, repay or the deadline.
+1. Walks repo ids `1, 2, …` via the `repo(id)` view until `RepoNotFound`. Only `Repaid` and `Liquidated` repos are remembered and not read again; `Defaulted` stays live because the lender is not paid until `liquidate`.
+2. `default(id)` once the margin window has passed (`MarginCall` and now > `margin_call_deadline`) or now > maturity + grace, then `liquidate` in the same tick. Needs no NAV. Ledger time can lag the wall clock by a few seconds; a `NotDefaultable` simulation just means "next tick".
+3. `liquidate(LIQUIDATOR, id)` on every `Defaulted` repo (defaulted by the keeper or by anyone else). The liquidator pays collateral × NAV × (1 − 2%) in USDC; the lender gets principal + interest − fee first, the treasury the fee, the borrower any rest. Before sending it checks NAV age ≤ `max_nav_age_secs` and the liquidator's USDC ≥ proceeds; if either fails it logs one line (with the `buy-usdc.sh` command to top up) and retries every tick.
+4. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` is logged once and skipped (#17).
+5. `MarginCall` repos wait for a top-up, repay or the deadline.
 
-Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQUIDATOR_SECRET`); `--refresh-nav` and `set-nav` sign with `ADMIN_SECRET` (oracle admin). Flags: `--interval <s>` (10), `--refresh-secs <s>` (120). Logs one line per action, plus a line when a repo's state changes:
+Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQUIDATOR_SECRET`); `liquidate` with `LIQUIDATOR_SECRET` (must be whitelisted with `set_liquidator`; the start line says so if it is not, and the liquidator receives the tBENJI); `--refresh-nav` and `set-nav` sign with `ADMIN_SECRET` (oracle admin). Flags: `--interval <s>` (10), `--refresh-secs <s>` (120). Logs one line per action, plus a line when a repo's state changes:
 
 ```
 14:47:00 healthy      repo 1 Open debt 100.82 coll 103.94 ltv 97.00%
@@ -54,9 +103,24 @@ Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQU
 14:47:53 waiting      repo 1 MarginCall debt 100.82 coll 103.94 ltv 100.00%, default possible in 111s
 14:49:37 refresh-nav  re-posted 0.97 (was 125s old)  https://stellar.expert/explorer/testnet/tx/056e74…
 14:49:53 DEFAULT      repo 1 MarginCall … (margin window missed)  https://stellar.expert/explorer/testnet/tx/2b73b4…
+16:25:27 DEFAULT      repo 2 Open debt 50.05 coll 51.60 ltv 97.00% (matured + grace)  https://stellar.expert/explorer/testnet/tx/7f8153…
+16:25:32 LIQUIDATE    repo 2 Defaulted debt 50.05 coll 51.60 proceeds 50.57 USDC -> lender GB44DX…  https://stellar.expert/explorer/testnet/tx/db1924…
 ```
 
-Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it on the next tick and `default` follows ~120 s later (margin window).
+Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it on the next tick and `default` follows ~120 s later (margin window), then `liquidate`.
+
+On sim-server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
+
+```sh
+mkdir -p ~/.local/lib/caravel/keeper   # copy: branch switches cannot break it
+cp -r scripts/keeper/{package.json,package-lock.json,tsconfig.json,src} ~/.local/lib/caravel/keeper/
+(cd ~/.local/lib/caravel/keeper && npm ci --silent)
+install -Dm644 scripts/caravel-keeper.service ~/.config/systemd/user/caravel-keeper.service
+systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper
+systemctl --user status caravel-keeper; journalctl --user -u caravel-keeper -f
+```
+
+Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. Liquidator USDC runs down by the proceeds of each liquidation (it gets tBENJI instead); top it up with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
 
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 
@@ -135,7 +199,7 @@ offer   3     100.00  6%     30 d (1800 s)   open                               
 repo    1     100.00  5%     3 d (180 s)     coll 103.14 tBENJI, debt 100.04; matures 15:04:12Z (in 175s), defaultable after 15:05:12Z  https://stellar.expert/explorer/testnet/tx/1fa7e2…
 ```
 
-The old contract is left as is after `--reset`: its open offers keep their escrowed USDC and nothing cancels or repays them. The script buys new USDC instead. NAV goes stale 180 s after seeding, so run the keeper with `--refresh-nav` during the demo. After a reset, restart the keeper and rebuild the app (new IDs).
+The old contract is left as is after `--reset`: its open offers keep their escrowed USDC and nothing cancels or repays them. The script buys new USDC instead. NAV goes stale 180 s after seeding, so run the keeper with `--refresh-nav` during the demo. After a reset, restart a hand-run keeper (the `caravel-keeper` service restarts itself on the new `REPO_ID`) and rebuild the app (new IDs).
 
 ## Bindings
 

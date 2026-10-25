@@ -17,8 +17,23 @@ Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` wri
 
 ## Log in
 
-- **Connect wallet**: Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit` 2.x; Freighter, xBull, Albedo, Lobstr, Rabet, Hana …). The wallet must be on Testnet. A fresh wallet can fund itself with friendbot and add the USDC/tBENJI trustlines from the balances card. tBENJI is AUTH_REQUIRED, so the issuer still has to authorize a new account before it can borrow.
+- **Connect wallet**: Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit` 2.x; Freighter, xBull, Albedo, Lobstr, Rabet, Hana …). The wallet must be on Testnet. A fresh wallet can fund itself with friendbot and add the USDC/tBENJI trustlines from the balances card.
+- **Access gate**: anyone can browse offers and the NAV. Writes (post, cancel, take, repay, default, liquidate) are enabled only when the connected wallet's tBENJI trustline is AUTHORIZED by the issuer (Horizon `is_authorized`). Otherwise the app shows *"Access is limited to approved team wallets during the hackathon. Add the tBENJI trustline, then send your address to the team."* The team then runs `scripts/onboard.sh <G-address>` (authorizes it and tops it up to 200 tBENJI + 100 USDC). There is no allowlist in the frontend. The Admin tab only appears for the oracle admin address.
 - **Demo account (testnet burner)**: only when started with `VITE_DEMO_SIGNER=1` and `NETWORK=testnet`. Vite injects the lender, borrower, liquidator and admin secrets from the repo-root `.env` (the committed testnet burner keys) and signs in the browser. Role switcher: Lender / Borrower / Liquidator / Admin. Never set the flag for a public build.
+
+## Public deploy
+
+Live at **https://caravel-repo.pages.dev** (Cloudflare Pages project `caravel-repo`, static, no server). Wallet login only.
+
+```sh
+cd app
+export CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=…   # token needs Pages edit
+npm run deploy:pages
+```
+
+`deploy:pages` runs `build:public` (build with `VITE_DEMO_SIGNER` forced off, then `scripts/check-no-secrets.mjs`, which fails if `dist/` holds any secret value from the repo-root `.env`, any string shaped like a Stellar secret seed, or the demo-account UI), then `wrangler pages deploy dist --project-name caravel-repo --branch main`. `PAGES_PROJECT=…` deploys to another project. There are no client routes, so Pages' default SPA fallback is enough (no `_redirects`).
+
+Takes need a NAV younger than 180 s: on sim-server the `caravel-nav-keeper` user service pushes one every minute (see `../scripts/README.md`).
 
 ## What it does
 
@@ -27,7 +42,7 @@ Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` wri
 | (header) | anyone | XLM / USDC / tBENJI balances (Horizon), tBENJI NAV + feed timestamp + fresh/stale (`oracle.lastprice`) |
 | Offers | borrower | Offers board read from ledger entries; Take shows debt and collateral at the current NAV and haircut, then `take_offer` and a DvP receipt |
 | Lend | lender | `create_offer` (amount, term in demo days, APR, collateral asset) with interest and fee preview; `cancel_offer` for your open offers |
-| My positions | borrower / lender | Repo cards: status pill, collateral cover vs the margin-call line, maturity countdown, `repay` with a DvP receipt. Liquidator desk: `default`, `liquidate` |
+| My positions | borrower / lender | Repo cards: status pill, collateral cover vs the margin-call line, maturity countdown, `repay` with a DvP receipt. Repaid and Liquidated repos are hidden behind "Show closed (N)" and shown muted when on; Defaulted repos stay visible with an "Awaiting liquidation" note. Liquidator desk: `default`, `liquidate` |
 | Admin | oracle admin | NAV slider → mock oracle `set_price` (pushing the same value refreshes the timestamp) |
 
 Every confirmed transaction shows a TxHash chip linked to stellar.expert.

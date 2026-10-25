@@ -10,7 +10,7 @@ Fixed-term, fixed-rate USDC loans against tokenized money-market funds, priced o
 Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis path · Stellar Unlocked + Stellar Composed.
 
 <!-- REVIEW (Bohdan Koldun): drop this WIP line before submission. -->
-> 🚧 Work in progress during the hackathon. New to the team? Start with [INTRO.md](INTRO.md) · Team board: [TASKS.md](TASKS.md) · Who does what: [DEVS.md](DEVS.md) · Locked decisions: [DECISIONS.md](DECISIONS.md) · Design system: [design/](design/README.md) · Collateral research (sourced numbers for Problem/Insight/Risks): [docs/collateral-research.md](docs/collateral-research.md)
+> 🚧 Work in progress during the hackathon. New to the team? Start with [INTRO.md](INTRO.md) · Team board: [TASKS.md](TASKS.md) · Who does what: [DEVS.md](DEVS.md) · Locked decisions: [DECISIONS.md](DECISIONS.md) · Design system: [design/](design/README.md) · Landing page: [site/](site/README.md) · App: [app/](app/README.md) · Collateral research (sourced numbers for Problem/Insight/Risks): [docs/collateral-research.md](docs/collateral-research.md)
 
 ## Problem
 
@@ -18,9 +18,9 @@ Stellar holds billions in tokenized fund shares that no on-chain lender can hold
 
 | Fact | Value | Source |
 |---|---|---|
-| Distributed RWAs on Stellar | **$3.75B** | [rwa.xyz](https://app.rwa.xyz/networks/stellar) |
-| Franklin BENJI ($435M) held by any smart contract | **0 contracts** | [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5) |
-| Spiko SAFO fund shares on Stellar | ≈$1.64B, ≈44% of Stellar RWAs | rwa.xyz, [backing-chain map](docs/research/backing-chain-map.md) |
+| RWAs on Stellar (active market cap, 25 Oct) | **≈$2.4B** | [DefiLlama RWA](https://defillama.com/rwa/chain/stellar) |
+| Spiko on Stellar, the largest issuer (eurSAFO $1.47B, EUTBL $272M, USTBL $36M) | **≈$1.78B** | DefiLlama: [eurSAFO](https://defillama.com/rwa/asset/eurSAFO), [EUTBL](https://defillama.com/rwa/asset/EUTBL), [USTBL](https://defillama.com/rwa/asset/USTBL) |
+| Franklin BENJI on Stellar ($475M, [DefiLlama](https://defillama.com/rwa/asset/BENJI)) held by any smart contract | **0 contracts** | [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5) |
 | Spiko markets on Stellar lenders | XOXNO lists six, all disabled | [WhaleHub](https://whalehub.io/blog/spiko-stellar) |
 | Largest Stellar lender (Blend V2) | $132M, mostly XLM collateral, no allowlist hook | [gap analysis](docs/research/rwa-collateral-gap-analysis.md) |
 
@@ -174,7 +174,7 @@ All durations are configuration, so the demo compresses time without touching co
 | `day_secs` | global | 60 | 86,400 |
 | `term_secs` | per offer | 420 (7 demo days) | lender's choice, 7–30 days |
 | `apr_bps` | per offer | 500 | lender's choice; quoted as a spread over T-bills (3.87%) |
-| `haircut_bps` | per asset | 300 (tBENJI) | 300–500 for Tier 1 funds ([tiers](docs/collateral-research.md#3-collateral-tiers-for-the-asset-config-proposal)) |
+| `haircut_bps` | per asset | 300 (tBENJI) | USTBL/BENJI/USDY 300, EUTBL ≈500, CETES 800–1000 ([DECISIONS #26](DECISIONS.md)) |
 | `liquidation_discount_bps` | global | 200 | must stay below every haircut; the contract enforces it |
 | `margin_window_secs` | global | 120 (2 demo days) | 3 days, so a Friday call survives to Monday's NAV |
 | `grace_secs` | global | 60 (1 demo day) | 1 day |

@@ -1,0 +1,93 @@
+/* Caravel — generated from tokens.json */
+:root, [data-theme="light"] {
+  --bg: #fbf8f1;
+  --surface: #ffffff;
+  --surface-sunken: #f4eee2;
+  --line: #e6dccb;
+  --line-strong: #c2ae93;
+  --line-control: #9c8a70;
+  --ink: #2b211d;
+  --ink-muted: #6e6157;
+  --ink-subtle: #7a6d60;
+  --primary: #547076;
+  --primary-hover: #46606a;
+  --primary-soft: #e3eaec;
+  --on-primary: #ffffff;
+  --brand: #793327;
+  --brand-soft: #f3e3df;
+  --gold: #d6b43e;
+  --gold-soft: #f6edc9;
+  --gold-ink: #7a6418;
+  --healthy: #46683f;
+  --healthy-soft: #e3ecdf;
+  --margin: #7a5d0f;
+  --margin-soft: #f6edc9;
+  --defaulted: #793327;
+  --defaulted-soft: #f3e3df;
+  --repaid: #46606a;
+  --repaid-soft: #e3eaec;
+  --wada-russet: #793327;
+  --wada-ecru: #c2ae93;
+  --wada-ocher: #d6b43e;
+  --wada-medici: #547076;
+  --shadow-card: 0 1px 2px rgba(43,33,29,0.06), 0 4px 12px rgba(43,33,29,0.05);
+}
+[data-theme="dark"] {
+  --bg: #16120f;
+  --surface: #1f1915;
+  --surface-sunken: #2a221c;
+  --line: #3a2f27;
+  --line-strong: #6b5d4c;
+  --line-control: #857562;
+  --ink: #efe7da;
+  --ink-muted: #b4a797;
+  --ink-subtle: #9a8b7b;
+  --primary: #8fabb2;
+  --primary-hover: #a6bec4;
+  --primary-soft: #23302f;
+  --on-primary: #10181b;
+  --brand: #d98a78;
+  --brand-soft: #3a211c;
+  --gold: #e4c766;
+  --gold-soft: #3a3115;
+  --gold-ink: #ecd68a;
+  --healthy: #8db57f;
+  --healthy-soft: #1f2b1c;
+  --margin: #e4c766;
+  --margin-soft: #3a3115;
+  --defaulted: #e3907d;
+  --defaulted-soft: #3a211c;
+  --repaid: #8fabb2;
+  --repaid-soft: #23302f;
+  --wada-russet: #793327;
+  --wada-ecru: #c2ae93;
+  --wada-ocher: #d6b43e;
+  --wada-medici: #547076;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.4);
+}
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius: 0px;
+  --frame-rule: 1px;
+  --frame-offset: 4px;
+  --font-display: "EB Garamond", Garamond, Georgia, "Times New Roman", serif;
+  --font-sans: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+}
+.display-xl { font-family: var(--font-display); font-size: 48px; line-height: 52px; font-weight: 500; letter-spacing: -0.01em; }
+.display { font-family: var(--font-display); font-size: 34px; line-height: 40px; font-weight: 500; }
+.title { font-family: var(--font-display); font-size: 26px; line-height: 32px; font-weight: 500; }
+.heading { font-family: var(--font-sans); font-size: 18px; line-height: 24px; font-weight: 600; }
+.body { font-family: var(--font-sans); font-size: 15px; line-height: 22px; font-weight: 400; }
+.label { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 500; }
+.small { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }
+.caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; }
+.figure-xl { font-family: var(--font-mono); font-size: 32px; line-height: 36px; font-weight: 500; }
+.figure { font-family: var(--font-mono); font-size: 15px; line-height: 22px; font-weight: 500; }
+.code { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 400; }

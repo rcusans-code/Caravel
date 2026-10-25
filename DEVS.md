@@ -17,6 +17,13 @@ Deadline: submit **Mon 11:30**, feature freeze **Mon 08:00**.
 
 ---
 
+## Update Sun 16:35: Spiko, compliance, weekends
+
+- **Pitch:** Spiko is the largest RWA issuer on Stellar (≈$1.78B: eurSAFO $1.47B, EUTBL $272M, USTBL $36M; BENJI $475M; DefiLlama, 25 Oct). It sits next to BENJI at the center of the deck and the landing. Deck: 11 slides, [docs/pitch-deck.md](docs/pitch-deck.md); Teo drafts, Den owns the narrative and the final read. All numbers from [docs/numbers.md](docs/numbers.md), dated.
+- **Misha:** per-asset NAV staleness (DECISIONS #25): `AssetConfig.max_nav_age_secs`, 96h prod / 180 s demo, then redeploy (issue #18 covers the redeploy).
+- **Den:** compliance-agnostic test (DECISIONS #24) with a Spiko-style permissioned SEP-41 token that has no `approve`; decide with Misha whether `liquidate` stays blocked on stale NAV.
+- **Bohdan Che:** landing and app copy updated for Spiko, compliance-agnostic and the weekend policy.
+
 ## Status at Sun 14:05, and what each of you does right now
 
 **Done on `main`**

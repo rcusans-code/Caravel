@@ -131,6 +131,7 @@ export const keypair = (role: string) => Keypair.fromSecret(env(`${role}_SECRET`
 
 // Contract error codes (contracts/repo/src/errors.rs).
 export const Err = {
+  NotImplemented: 1,
   RepoNotFound: 6,
   InvalidStatus: 7,
   StaleNav: 9,

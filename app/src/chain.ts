@@ -325,6 +325,22 @@ export async function repay(signer: Signer, repoId: bigint): Promise<TxOutcome<n
   return { hash: out.hash, value: null };
 }
 
+/** Adds collateral to a live repo. Clears a margin call once initial margin is restored (DECISIONS.md #20). */
+export async function topUp(signer: Signer, repoId: bigint, amount: bigint): Promise<TxOutcome<null>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.top_up({ repo_id: repoId, amount }));
+  unwrapResult(out.value);
+  return { hash: out.hash, value: null };
+}
+
+/** Anyone can call it (the keeper does). Sets the margin-call deadline on the first breach. */
+export async function checkMargin(signer: Signer, repoId: bigint): Promise<TxOutcome<Status>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.check_margin({ repo_id: repoId }));
+  const status = unwrapResult<{ tag: Status } | Status>(out.value);
+  return { hash: out.hash, value: typeof status === "string" ? status : status.tag };
+}
+
 export async function declareDefault(signer: Signer, repoId: bigint): Promise<TxOutcome<null>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
   const out = await submit(await c.default({ repo_id: repoId }));

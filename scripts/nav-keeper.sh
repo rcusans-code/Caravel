@@ -44,15 +44,19 @@ push() {
   else
     price=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["price"])' "$last")
   fi
-  if out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" "$STELLAR" contract invoke -q \
-             --id "$ORACLE_ID" -- set_price --asset "$ASSET" --price "$price" 2>&1); then
-    ts=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
-           --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>/dev/null)
-    log "set_price tBENJI=$price oracle=${ORACLE_ID:0:8}… now $ts"
-  else
-    log "set_price FAILED: $(tail -n 3 <<<"$out" | tr '\n' ' ')"
-    return 1
-  fi
+  local try ok=0
+  for try in 1 2 3; do
+    if out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" "$STELLAR" contract invoke -q \
+               --id "$ORACLE_ID" -- set_price --asset "$ASSET" --price "$price" 2>&1); then
+      ok=1; break
+    fi
+    log "set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"
+    (( try < 3 )) && sleep 5
+  done
+  (( ok )) || return 1
+  ts=$("$STELLAR" contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
+         --id "$ORACLE_ID" -- lastprice --asset "$ASSET" 2>/dev/null)
+  log "set_price tBENJI=$price oracle=${ORACLE_ID:0:8}… now $ts"
 }
 
 # Each push costs ~8 XLM on testnet today (~11.7k XLM/day at 60 s), so keep
@@ -82,7 +86,7 @@ top_up() {
 if (( ONCE )); then push; exit $?; fi
 log "nav-keeper every ${INTERVAL}s, env $ENV_FILE"
 while true; do
-  push || true
+  if push; then pause="$INTERVAL"; else pause=15; fi   # retry soon after a failed round
   top_up || true
-  sleep "$INTERVAL"
+  sleep "$pause"
 done

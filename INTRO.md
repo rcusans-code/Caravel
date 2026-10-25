@@ -10,7 +10,7 @@ Someone holds a token that represents US Treasury bills (a "tokenized fund"). Th
 Banks have done this for decades. It's called a **repo** (sale and repurchase). We're bringing it on-chain on **Stellar**.
 
 ## Why it matters
-- About **$4B** of these bond tokens already live on Stellar.
+- About **$2.4B** of these fund tokens already live on Stellar (DefiLlama, 25 Oct). The biggest issuers are Spiko (≈$1.78B) and Franklin Templeton (BENJI, $475M).
 - Almost none of it can be borrowed against. Lending pools that accept them hold about **$2M**.
 - Reason: existing crypto lending sells your deposit the moment its price dips, 24/7. Bond funds only publish a price once a day and markets close on weekends. The models don't fit.
 - Our fix: **fixed-term loans** that only check the price once a day. Like a bank, not like a crypto exchange.
