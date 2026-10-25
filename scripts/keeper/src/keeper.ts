@@ -366,6 +366,8 @@ async function tick(cfg: Cfg) {
         // A missed-call default re-checks the NAV (#20): stale or out of band waits for a good price.
         else if (out === "stale") note(next, r.id, "stale-default", `skip         repo ${r.id} default: StaleNav (NAV ${navAge}s old > ${asset.maxAge}s), retrying`);
         else if (out === "out-of-band") note(next, r.id, "band-default", `skip         repo ${r.id} default: NavOutOfBand (NAV outside the ${asset.label} sanity band, #31), retrying`);
+        // A missed margin call defaults only on a fresh, in-band NAV that confirms the breach (A4).
+        else if (e instanceof ContractError && e.code === Err.NoPrice) note(next, r.id, "pending", `default      repo ${r.id} missed margin call waits for a fresh NAV (NoPrice), retrying`);
         else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
         continue;
       }

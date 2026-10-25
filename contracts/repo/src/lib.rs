@@ -23,6 +23,8 @@ mod test_allowlist;
 #[cfg(test)]
 mod test_attack_a2;
 #[cfg(test)]
+mod test_attack_a4;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
@@ -622,7 +624,11 @@ impl CaravelRepo {
     ///
     /// A missed call first re-checks the breach at a fresh, in-band NAV
     /// (#20): no longer past the trigger, it returns to `Open` and emits
-    /// `MarginCleared`. A stale or out-of-band NAV defaults as before.
+    /// `MarginCleared`. Still past it, it defaults. With no price, a stale
+    /// NAV or one outside the sanity band it returns `NoPrice` / `StaleNav` /
+    /// `NavOutOfBand` and waits: a missed call defaults only on a fresh,
+    /// in-band NAV that confirms the breach. Maturity defaults never read the
+    /// NAV.
     ///
     /// An opted-in repo tries auto-repay first (#27) and settles as `Repaid`
     /// when the pull succeeds. Returns the resulting status.
@@ -645,7 +651,9 @@ impl CaravelRepo {
             return Err(Error::NotDefaultable);
         }
         // #20: a missed call on a loan a fresh NAV shows out of breach clears
-        // instead of defaulting. Maturity defaults never look at the NAV.
+        // instead of defaulting; a stale / missing / out-of-band NAV returns
+        // the oracle error and the default waits. Maturity defaults never
+        // look at the NAV.
         if !matured && missed && margin::recovered(&env, &config, &repo)? {
             repo.status = Status::Open;
             repo.margin_call_deadline = None;
