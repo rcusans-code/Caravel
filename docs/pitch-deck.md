@@ -14,15 +14,16 @@
 | 6 | **Demo** | 3 screens (take with DvP receipt, margin call + top up, liquidation) and the video link. | App screenshots, video URL |
 | 7 | **RWA-ready** | Compliance-agnostic core (Caravel needs only SEP-41 `transfer`; the issuer decides who may hold it), per-asset risk parameters, weekend NAV policy, eligible collateral table below. | DECISIONS #24–26 |
 | 8 | **Why Stellar** | The assets already live here; SAC; authorized trustlines; atomic DvP; SEP-40 oracles; sub-cent fees. | |
-| 9 | **Demand** | Binance × Franklin (BENJI as off-exchange collateral), BUIDL accepted on CEXs, Aave Horizon; Spiko itself offers its tokens as collateral for on-chain loans and invites partners. | Dates and links in numbers.md § Demand |
-| 10 | **Competition + model** | Table: Blend, Templar, Aave Horizon, CEX collateral programs vs Caravel (term, daily NAV, permissioned assets, atomic DvP). Revenue: fee on interest (DECISIONS #3). | |
+| 9 | **Demand** | Binance × Franklin (BENJI as off-exchange collateral), BUIDL accepted on CEXs, Aave Horizon; Spiko says its shares can be used as on-chain collateral and asks partners to get in touch. | Dates and links in numbers.md § Demand |
+| 10 | **Competition + model** | Positioning line: Ascend × M1X is a bilateral institutional repo on one sovereign token, rolled hourly; Caravel is the open order book (any USDC lender, multi-issuer permissioned fund collateral, daily-NAV margin, issuer-approved liquidation). Make no precedence claim. Table: Blend, Templar, Aave Horizon, CEX collateral programs, plus one row "XOXNO Spiko spoke (disabled) · Liqvid X on Alula (SCF #45): open-ended pool, oracle NAV, liquidated at HF<1", vs Caravel (term, daily NAV, permissioned assets, atomic DvP). Revenue: fee on interest (DECISIONS #3). | stellar.org press, 23 Oct 2026; SCF #45 record; XOXNO mainnet config (sources in numbers.md). No repo links on the slide |
 | 11 | **GTM, roadmap, team** | First deals OTC: one issuer (Spiko or Etherfuse) + one market maker as liquidator. Roadmap: real NAV oracle → liquidation auction → lender vault, plus the standard term-repo features (collateral substitution, partial unwind, roll, lender termination on an issuer event). Team of four. | |
 
 ## Slide 7: eligible collateral (7-day term)
 
 | Asset | Haircut | Why |
 |---|---|---|
-| USTBL, BENJI, USDY | 3% | US T-bill funds; NAV moves by hundredths of a percent a week |
+| USTBL, BENJI | 3% | US T-bill funds; NAV moves by hundredths of a percent a week |
+| USDY | 3% | Treasury-backed yield stablecoin; freely transferable (no issuer approval); priced by RedStone SEP-40 |
 | EUTBL | ~5% | EUR/USD risk against a USDC loan |
 | CETES | 8–10% | Mexican sovereign and MXN risk |
 | SAFO (swap-based fund) | after due diligence only | Returns come from a bank swap; counterparty risk to assess first |

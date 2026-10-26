@@ -233,7 +233,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="hdr-stat" aria-label="Testnet status" style="margin-right: auto; display: flex; align-items: center; gap: 0; border: 1px solid var(--line-strong); background: var(--surface); font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); white-space: nowrap;">
 <span style="display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-right: 1px solid var(--line);"><span aria-hidden="true" class="hdr-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #4f7a45;"></span>Live on testnet</span>
 <span style="padding: 7px 12px; border-right: 1px solid var(--line);">Fund NAV <b style="color: var(--ink); font-weight: 500;"><span data-live="nav">1.0004</span></b></span>
-<span style="padding: 7px 12px;">T-bill yield <b style="color: var(--ink); font-weight: 500;">3.87%</b></span>
+<span style="padding: 7px 12px;" title="USDXX 7-day SEC yield, 23 Oct 2026, used as a proxy for the US T-bill yield">US T-bill yield (USDXX proxy) <b style="color: var(--ink); font-weight: 500;">3.87%</b></span>
 </div>
 <nav aria-label="Main" class="navrow" style="display: flex; gap: 28px; font-size: 15px; font-weight: 500;">
 <a href="#insight" class="navlink">Why it matters</a>
@@ -375,7 +375,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 </div>
 <div class="wrap" style="padding-bottom: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 24px;">
 <div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$3.03B</span><span style="font-size: 15px; color: var(--ink-muted);">in tokenized real-world assets on Stellar. Only $133K of it works in DeFi.<sup><a href="#src-1">1</a></sup></span></div>
-<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$1.97B</span><span style="font-size: 15px; color: var(--ink-muted);">in Spiko's nine Treasury and money-market funds, the largest RWA issuer on Stellar. No lender here accepts them.<sup><a href="#src-3">3</a></sup></span></div>
+<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$1.97B</span><span style="font-size: 15px; color: var(--ink-muted);">in Spiko's nine Treasury and money-market funds, the largest RWA issuer on Stellar ($308M in T-bill funds eligible at launch; SAFO after due diligence). No lender here accepts them.<sup><a href="#src-3">3</a></sup></span></div>
 <div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1; color: var(--brand);">0</span><span style="font-size: 15px; color: var(--ink-muted);">lending contracts hold any of the $434.7M in Franklin Templeton's BENJI fund on Stellar<sup><a href="#src-2">2</a></sup></span></div>
 </div>
 <p class="wrap" style="margin: 0 auto; padding-top: 8px; padding-bottom: 16px; font-size: 12px; color: var(--ink-subtle); text-align: center;">As of 25 Oct 2026. Sources are listed at the foot of the page.</p>
@@ -388,7 +388,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div style="display: flex; flex-direction: column; gap: 22px;">
 <span class="cv-eyebrow">Our approach</span>
 <h2 id="insight-h" class="h2"><span class="w" style="--i: 0;">The</span> <span class="w" style="--i: 1;">assets</span> <span class="w" style="--i: 2;">are</span> <span class="w" style="--i: 3;">safe.</span> <span class="w" style="--i: 4;">Getting</span> <span class="w" style="--i: 5;">cash</span> <span class="w" style="--i: 6;">out</span> <span class="w" style="--i: 7;">is</span> <span class="w" style="--i: 8;">slow.</span></h2>
-<p class="lede">Every dollar token on Stellar is ultimately backed by short-dated US Treasuries. The risk is not the asset itself. It is access: issuers can freeze tokens, only approved holders can redeem, and redemptions settle on business days only.</p>
+<p class="lede">The largest dollar tokens on Stellar (USDC, PYUSD, USDY, BENJI) are backed mostly by short-dated US Treasuries. The risk is not the asset itself. It is access: issuers can freeze tokens, only approved holders can redeem, and redemptions settle on business days only.</p>
 <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 4px;">
 <div class="chain">
 <div class="box"><b style="font-family: var(--font-mono); font-size: 14px;">USDC</b></div>
@@ -411,7 +411,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 28px; align-self: stretch; align-items: stretch;">
 <div class="cv-card brass cmp" style="background: var(--surface-sunken);">
 <div class="cmp-head"><span class="cv-eyebrow">Today</span><h3 class="cmp-title" style="color: var(--ink-muted);">Floating-rate lending pools</h3></div>
-<ul class="cmp-list cmp-no"><li>Needs a live price every few seconds for an asset priced once a day</li><li>Can force a sale on an outdated or missing price</li><li>Seized fund shares can't be sold outside business hours</li><li>Floating rate, no end date</li></ul>
+<ul class="cmp-list cmp-no"><li>Built for assets that trade 24/7: liquidate any hour, at once, to anyone</li><li>No cure window before a sale</li><li>Seized fund shares can't be sold outside business hours</li><li>Floating rate, no end date</li></ul>
 <div class="cmp-waves" aria-hidden="true"></div>
 </div>
 <div class="cv-card cv-card--featured brass cmp">
@@ -504,7 +504,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <ol class="dvp-time" aria-label="Settlement timeline"><li><span>t0</span>Borrower signs</li><li><span>+1s</span>Submitted</li><li><span>+5s</span>Recorded on ledger</li><li><span>final</span>Both sides complete</li></ol>
 <div class="dvp-tx">
 <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;"><span style="font-size: 14px;">Collateral and cash move in one transaction. If either side fails, nothing moves.</span><span class="flash cv-hash"><span class="cv-hash__tag">TX</span>settled</span></div>
-<dl class="dvp-meta"><div><dt>Transfers</dt><dd>2 of 2 complete</dd></div><div><dt>Settlement</dt><dd>about 5 seconds</dd></div><div><dt>Network fee</dt><dd>under $0.01</dd></div><div><dt>Partial settlement</dt><dd>not possible</dd></div></dl>
+<dl class="dvp-meta"><div><dt>Transfers</dt><dd>2 of 2 complete</dd></div><div><dt>Settlement</dt><dd>about 5 seconds</dd></div><div><dt>Network fee</dt><dd>typically under $0.01</dd></div><div><dt>Partial settlement</dt><dd>not possible</dd></div></dl>
 </div>
 </div>
 <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -540,13 +540,13 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="row" style="display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Fund issuers</dt><dd style="margin: 0; color: var(--ink-muted);">Their fund becomes eligible collateral, and they keep full control over who may hold it.</dd></div>
 </dl>
 <div class="carry" aria-label="Example of how a borrower uses Caravel">
-<div class="carry-cell"><span class="carry-k">Keep earning</span><span class="carry-v">3.87%</span><span class="carry-d">Treasury fund yield you keep (USDXX, 7-day)<sup><a href="#src-4">4</a></sup></span></div>
+<div class="carry-cell"><span class="carry-k">Keep earning</span><span class="carry-v">3.87%</span><span class="carry-d">US T-bill yield (USDXX 7-day, proxy)<sup><a href="#src-4">4</a></sup></span></div>
 <div class="carry-op" aria-hidden="true">+</div>
-<div class="carry-cell"><span class="carry-k">Put the cash to work</span><span class="carry-v" style="color: var(--primary);">6.69%</span><span class="carry-d">USDC lending rate on Blend, 6 Oct<sup><a href="#src-5">5</a></sup></span></div>
+<div class="carry-cell"><span class="carry-k">Put the cash to work</span><span class="carry-v" style="color: var(--primary);">5.70%</span><span class="carry-d">USDC supply rate, Blend Fixed pool, 26 Oct; it floats<sup><a href="#src-5">5</a></sup></span></div>
 <div class="carry-op" aria-hidden="true">−</div>
 <div class="carry-cell"><span class="carry-k">Cost of the loan</span><span class="carry-v" style="color: var(--brand);">5.20%</span><span class="carry-d">Sample Caravel rate, fixed</span></div>
 </div>
-<p class="carry-note">The fund keeps earning, and the borrowed cash earns about 1.5% more than it costs. Rates are examples and change daily.</p>
+<p class="carry-note">The fund keeps earning, and the borrowed cash earns about 0.5% more than it costs, at today&#x27;s floating pool rate. Rates are examples and change daily.</p>
 </div>
 </div>
 </section>
@@ -561,8 +561,8 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Any issuer's rules</dt><dd style="margin: 0; color: var(--ink-muted);">Caravel only uses the standard token interface. Each issuer approves the escrow its own way: authorized trustlines for Franklin Templeton's BENJI, Spiko's own permission contracts for its funds.</dd></div>
 <div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Native tokens</dt><dd style="margin: 0; color: var(--ink-muted);">Circle's USDC and fund tokens are used directly, with no wrapping or bridging.</dd></div>
 <div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Delivery versus payment</dt><dd style="margin: 0; color: var(--ink-muted);">Collateral and cash change hands in a single transaction.</dd></div>
-<div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Standard price feeds</dt><dd style="margin: 0; color: var(--ink-muted);">One standard interface for fund prices. Switching providers is a setting, not a rebuild.</dd></div>
-<div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Fast, low-cost settlement</dt><dd style="margin: 0; color: var(--ink-muted);">Final in seconds for a fraction of a cent, so daily checks cost almost nothing.</dd></div>
+<div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Standard price feeds</dt><dd style="margin: 0; color: var(--ink-muted);">One standard interface for fund prices: any SEP-40 feed, chosen at deploy (RedStone already publishes BENJI NAV on Stellar; Chainlink, live since 14 Oct, is not SEP-40).</dd></div>
+<div class="row" style="display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);"><dt style="font-weight: 600;">Fast, low-cost settlement</dt><dd style="margin: 0; color: var(--ink-muted);">Final in seconds, typically for under a cent, so daily checks cost almost nothing.</dd></div>
 </dl>
 </div>
 </div>
@@ -582,7 +582,8 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="cv-table-wrap"><table class="cv-table tiers" style="font-size: 15px;">
 <thead><tr><th>Asset</th><th>Underlying assets</th><th>Main risk</th><th class="r">Haircut</th></tr></thead>
 <tbody>
-<tr><td data-label="Asset" style="font-weight: 600;">Spiko USTBL, Franklin BENJI, Ondo USDY</td><td data-label="Underlying" style="white-space: normal;">US T-bills, government money-market funds</td><td data-label="Main risk" style="white-space: normal;">Approved holders only; redeems on business days</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">3%</td></tr>
+<tr><td data-label="Asset" style="font-weight: 600;">Spiko USTBL, Franklin BENJI</td><td data-label="Underlying" style="white-space: normal;">US T-bills, government money-market funds</td><td data-label="Main risk" style="white-space: normal;">Approved holders only; redeems on business days</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">3%</td></tr>
+<tr><td data-label="Asset" style="font-weight: 600;">Ondo USDY</td><td data-label="Underlying" style="white-space: normal;">Treasury-backed yield stablecoin</td><td data-label="Main risk" style="white-space: normal;">Ondo&#x27;s redemption terms. Freely transferable (no issuer approval); priced by RedStone SEP-40</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">3%</td></tr>
 <tr><td data-label="Asset" style="font-weight: 600;">Spiko EUTBL</td><td data-label="Underlying" style="white-space: normal;">Euro-area T-bills</td><td data-label="Main risk" style="white-space: normal;">EUR/USD exchange-rate risk on a dollar loan</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">≈5%</td></tr>
 <tr><td data-label="Asset" style="font-weight: 600;">Etherfuse CETES</td><td data-label="Underlying" style="white-space: normal;">Mexican government bills</td><td data-label="Main risk" style="white-space: normal;">Sovereign and peso risk</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">8–10%</td></tr>
 <tr><td data-label="Asset" style="font-weight: 600;">Spiko SAFO and other swap-based funds</td><td data-label="Underlying" style="white-space: normal;">Returns from a bank swap</td><td data-label="Main risk" style="white-space: normal;">Swap counterparty</td><td data-label="Haircut" class="r cv-num" style="color: var(--brand);">After due diligence</td></tr>
@@ -629,20 +630,20 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <span class="cv-eyebrow">FAQ</span>
 <h2 id="faq-h" class="h2">Questions, answered simply.</h2>
 <p class="lede" style="font-size: 17px;">What Caravel is, how a loan works, and what protects each side.</p>
-<p style="margin: 8px 0 0; font-size: 15px; color: var(--ink-muted);">Still have a question? <a href="mailto:[CONTACT EMAIL]">Write to us</a>.</p>
+<p style="margin: 8px 0 0; font-size: 15px; color: var(--ink-muted);">Still have a question? <a href="mailto:rcusans@gmail.com">Write to us</a>.</p>
 </div>
 <div class="faq-list">
 <details class="faq-item"><summary><span>What is Caravel?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A lending service for tokenized Treasury funds on Stellar. Fund holders borrow US dollars (USDC) against their fund shares, at a fixed rate for a fixed term. Lenders earn that fixed rate.</p></details>
 <details class="faq-item"><summary><span>How does a loan work?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A lender posts an offer: amount, term and rate. A borrower accepts it and deposits fund shares worth a little more than the loan. The shares go into escrow and the cash goes to the borrower in the same transaction. At maturity, the borrower repays the agreed amount and gets the shares back.</p></details>
 <details class="faq-item"><summary><span>Do I have to sell or redeem my fund shares?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>No. Your shares stay in escrow during the loan and keep earning the fund's yield. You get cash today without redeeming and waiting for the next business day.</p></details>
-<details class="faq-item"><summary><span>What can I use as collateral?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>The demo uses tBENJI, a test version of Franklin Templeton's BENJI fund. We plan to start with the Treasury funds of Spiko and Franklin Templeton, the two largest issuers on Stellar, then add other assets with larger haircuts. See the collateral table above.</p></details>
+<details class="faq-item"><summary><span>What can I use as collateral?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>The demo uses tBENJI, a test version of Franklin Templeton's BENJI fund. We plan to start with the Treasury funds of Spiko and Franklin Templeton, two of the three largest issuers on Stellar, then add other assets with larger haircuts. See the collateral table above.</p></details>
 <details class="faq-item"><summary><span>What is a haircut?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A safety discount on the collateral. With a 3% haircut, $1,000 of fund shares supports a loan of up to $970. It protects the lender if the fund's price falls.</p></details>
 <details class="faq-item"><summary><span>What happens if the fund's price falls?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>The fund's price (NAV) is checked every day. If the collateral is no longer worth enough, the borrower gets a margin call and time to add collateral or repay. Nothing is sold automatically in that moment.</p></details>
 <details class="faq-item"><summary><span>What happens at weekends, when funds don't publish a price?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Each asset has its own price freshness window, about four days for funds that publish NAV on business days only. A Friday price still counts on Saturday and Sunday, so loans can open and margin can be checked as usual. Repaying and adding collateral never wait for a price.</p></details>
-<details class="faq-item"><summary><span>What if the borrower doesn't repay?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>After maturity and a short grace period, an issuer-approved buyer purchases the collateral at 1% below NAV. The lender is paid the amount due, and anything left over goes back to the borrower.</p></details>
+<details class="faq-item"><summary><span>What if the borrower doesn't repay?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>After maturity and a short grace period, an issuer-approved buyer purchases the collateral at 1% below NAV. The lender is paid first: in full while NAV stays within the haircut, otherwise all the proceeds, and a Shortfall is recorded on-chain. Anything left over goes back to the borrower.</p></details>
 <details class="faq-item"><summary><span>Why a fixed term instead of an open-ended loan?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Tokenized funds price once a day and redeem on business days. A fixed term with daily checks matches how these assets actually work, and both sides know the rate and the amount due from day one.</p></details>
-<details class="faq-item"><summary><span>Who can borrow and lend?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Fund tokens can only be held by wallets the issuer has approved, so borrowers are already approved holders. Lenders provide USDC and are repaid in USDC. On mainnet, issuers also approve the escrow and the buyers, plus a custody account for any lender who may take collateral in kind if the price feed fails.</p></details>
-<details class="faq-item"><summary><span>What does it cost?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Borrowers pay the fixed interest set in the offer. Caravel takes a protocol fee from that interest. Network fees on Stellar are under a cent per transaction.</p></details>
+<details class="faq-item"><summary><span>Who can borrow and lend?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>BENJI and Spiko fund tokens can only be held by wallets the issuer has approved, so their borrowers are already approved holders. Lenders provide USDC and are repaid in USDC. On mainnet, issuers also approve the escrow and the buyers, plus a custody account for any lender who may take collateral in kind if the price feed fails.</p></details>
+<details class="faq-item"><summary><span>What does it cost?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Borrowers pay the fixed interest set in the offer. Caravel takes a protocol fee from that interest. Network fees on Stellar are typically under a cent per transaction.</p></details>
 <details class="faq-item"><summary><span>Is Caravel live?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>It runs on Stellar testnet today and the contracts have not been audited yet. We are preparing a mainnet pilot with fund issuers. You can request access below.</p></details>
 </div>
 </div>
@@ -656,15 +657,14 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <span style="display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; border: 1px solid #6b5d4c;"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #8db57f;"></span>Testnet · contracts not yet audited</span>
 </div>
 <nav aria-label="Product"><h2 class="foot-h">Product</h2><ul class="foot-l"><li><a href="#launch">Testnet demo</a></li><li><a href="#how">How it works</a></li><li><a href="#collateral">Collateral</a></li><li><a href="#risk">Risk</a></li><li><a href="#faq">FAQ</a></li><li><a href="#launch">Mainnet pilot</a></li></ul></nav>
-<nav aria-label="Developers"><h2 class="foot-h">Developers</h2><ul class="foot-l"><li><a href="https://github.com/rcusans-code/Caravel">Source on GitHub</a></li><li><a href="#docs">Documentation</a></li><li><a href="#contracts">Contract addresses</a></li><li><a href="#security">Security &amp; disclosure</a></li><li><a href="#status">Oracle status</a></li></ul></nav>
-<nav aria-label="Legal"><h2 class="foot-h">Legal</h2><ul class="foot-l"><li><a href="#terms">Terms of Use</a></li><li><a href="#privacy">Privacy Policy</a></li><li><a href="#cookies">Cookie Policy</a></li><li><a href="#risk-disclosure">Risk Disclosure</a></li><li><a href="#eligibility">Eligibility &amp; restricted regions</a></li></ul></nav>
-<nav aria-label="Contact"><h2 class="foot-h">Contact</h2><ul class="foot-l"><li><a href="mailto:rcusans@gmail.com">rcusans@gmail.com</a></li><li><a href="#press">Press kit</a></li><li><a href="#x">X / Twitter</a></li><li><a href="#discord">Discord</a></li></ul></nav>
+<nav aria-label="Developers"><h2 class="foot-h">Developers</h2><ul class="foot-l"><li><a href="https://github.com/rcusans-code/Caravel">Source on GitHub</a></li><li><a href="https://github.com/rcusans-code/Caravel#readme">Documentation</a></li><li><a href="https://github.com/rcusans-code/Caravel#testnet-deployment">Contract addresses</a></li><li><a href="https://github.com/rcusans-code/Caravel#risks-and-limits">Risks and limits</a></li></ul></nav>
+<nav aria-label="Contact"><h2 class="foot-h">Contact</h2><ul class="foot-l"><li><a href="mailto:rcusans@gmail.com">rcusans@gmail.com</a></li></ul></nav>
 </div>
 <div class="wrap" style="padding-bottom: 32px;">
 <div style="border-top: 1px solid #4a3d33; padding-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 32px;">
 <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px; line-height: 1.6; color: #b4a797;">
 <p style="margin: 0;"><b style="color: #efe7da; font-weight: 600;">Important information.</b> Caravel is experimental software running on Stellar testnet. Nothing on this site is an offer to sell, or a solicitation of an offer to buy, any security or financial product, nor is it investment, legal or tax advice. Tokenized fund shares can only be held by wallets their issuer has approved. Smart contracts have not been audited. Lending and borrowing digital assets carries risk, including total loss. Rates, offers and balances shown are examples.</p>
-<p style="margin: 0;">Caravel is not affiliated with Franklin Templeton, Circle, Spiko or the Stellar Development Foundation. Names and marks belong to their owners and are used for identification only.</p>
+<p style="margin: 0;">Caravel is not affiliated with Franklin Templeton, Circle, Spiko, the Stellar Development Foundation, or any other company or protocol named on this site. Names and marks belong to their owners and are used for identification only.</p>
 </div>
 <div style="display: flex; flex-direction: column; gap: 8px;">
 <span class="foot-h" style="margin: 0;">Sources</span>
@@ -673,12 +673,12 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <li id="src-2">BENJI on Stellar, 25 Oct 2026: <a href="https://defillama.com/rwa/asset/BENJI">DefiLlama RWA</a>; contract holders: <a href="https://horizon.stellar.org/assets?asset_code=BENJI&amp;asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5">Stellar Horizon</a></li>
 <li id="src-3">Spiko on Stellar, 25 Oct 2026: DefiLlama RWA <a href="https://defillama.com/rwa/chain/stellar">issuer total</a>, <a href="https://defillama.com/rwa/asset/eurSAFO">eurSAFO</a>, <a href="https://defillama.com/rwa/asset/EUTBL">EUTBL</a>, <a href="https://defillama.com/rwa/asset/USTBL">USTBL</a>; lender markets: <a href="https://whalehub.io/blog/spiko-stellar">WhaleHub</a></li>
 <li id="src-4">USDXX 7-day SEC yield, 23 Oct 2026: <a href="https://www.blackrock.com/cash/en-us/products/329365/circle-reserve-fund">BlackRock, Circle Reserve Fund</a></li>
-<li id="src-5">Blend Fixed pool USDC supply rate, 6 Oct 2026 (DefiLlama): <a href="https://whalehub.io/blog/best-lending-protocols-stellar">WhaleHub, lending protocols on Stellar</a></li>
+<li id="src-5">Blend Fixed pool USDC supply APY, 26 Oct 2026 (30-day mean 6.71%): <a href="https://defillama.com/yields/pool/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf">DefiLlama yields</a>; new borrowing in that pool paused since 8 Oct: <a href="https://whalehub.io/blog/best-lending-protocols-stellar">WhaleHub</a></li>
 </ol>
 </div>
 </div>
 <div style="margin-top: 28px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 12px; color: #b4a797;">
-<span>© 2026 Caravel · [LEGAL ENTITY NAME], [REGISTERED ADDRESS]</span>
+<span>© 2026 Caravel team</span>
 <span>Built at HackMeridian 2026, Lisbon · <span style="font-family: var(--font-display); font-style: italic; color: #d98a78;">Per aspera ad Stellar</span></span>
 </div>
 </div>
