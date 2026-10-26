@@ -164,3 +164,12 @@ test("no candidate, a contract without the view (null), or without band_settle_s
   assert.equal(settleHealth(moved, cand, off).state, "hold");
   assert.doesNotMatch(navBlock("tBENJI", settleHealth(moved, cand, off), off)!, /new level/);
 });
+
+test("QA variant: a zero record since `since` is skipped, and a candidate dated ahead of the ledger never settles", () => {
+  // oracle.rs level_holds / settled skip records <= 0, as the window does.
+  const cand = { price: LEVEL, since: BigInt(SINCE) };
+  const zero = posted([ONE, SINCE - 60], [LEVEL, SINCE], [0n, NOW - 60], [LEVEL, NOW]);
+  assert.equal(settleHealth(zero, cand).state, "live");
+  // `since` after ledger now: saturating_sub gives 0 < band_settle_secs, so it holds.
+  assert.equal(settleHealth(moved, { price: LEVEL, since: BigInt(NOW + 10) }).state, "hold");
+});
