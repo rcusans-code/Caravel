@@ -32,7 +32,7 @@ Values are production values. Demo timers (`day_secs`, windows, NAV age 180 s) a
 | `max_open_debt` | per asset | BENJI/USTBL/USDY $2M, EUTBL $1M, CETES $0.5M, SAFO 0 | unchanged | No liquidator-depth data to move them; in line with XOXNO's caps (§7) |
 | `nav_floor` / `nav_ceiling` BENJI | per asset | 0.90 / 1.10 | unchanged | Catches a decimal-shift print on a stable-$1 fund (#31) |
 
-Not changed on testnet by this file: `deployments/testnet.json` shows the live contract (discount 200, triggers 250). `fee_bps` and `liquidation_discount_bps` are fixed at deploy, so the new discount reaches testnet with the next `scripts/deploy.sh` run, which also sets the new triggers. On the live contract, lowering the tBENJI trigger counts as a loosening, so it would go `propose_asset` → `execute_asset` after the timelock (#33); raising tSAFO's is a tightening and applies at once.
+On testnet since 26 Oct 2026: `fee_bps` and `liquidation_discount_bps` are fixed at deploy, so the new discount needed a fresh repo contract. `scripts/deploy.sh` deployed it (see `deployments/testnet.json`: discount 100, tBENJI 300/200, tSAFO 3,000/2,000, demo band 2,500, demo NAV age 180 s, caps unchanged); both assets were first listings there, so no `propose_asset` → `execute_asset` was needed. The "Current" column is the earlier testnet contract. EUTBL, CETES and USDY have no testnet listing; their rows are production values.
 
 ## 2. Method
 
