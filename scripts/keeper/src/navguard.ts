@@ -25,6 +25,12 @@ export interface NavGuardOpts {
   acks: ReadonlySet<bigint>;
   /** Clock skew tolerated before the current record counts as future-dated (default 30). */
   futureSkewSecs?: bigint;
+  /**
+   * Last price this keeper released (navstate.ts, survives a restart). When it
+   * has left the 20-record history (keeper down while a bad price was
+   * re-posted 20 times), it is the anchor, so the jump is still seen.
+   */
+  trusted?: bigint;
 }
 
 export type HoldReason =
@@ -52,8 +58,8 @@ export interface NavHold {
  * and the unacked prices (`bad`) held since. While it exists every price is
  * measured against `anchor`, so a bad price never becomes the anchor. It is
  * dropped on an ack or once no `bad` price is left in the history; `bad` is
- * pruned to the prices still in the history (at most 20). In memory: lost on
- * restart.
+ * pruned to the prices still in the history (at most 20). The keeper persists
+ * it with the trusted prices (navstate.ts), so a restart keeps it.
  */
 export type NavLatch = Map<string, { anchor: bigint; bad: Set<bigint> }>;
 
@@ -108,6 +114,9 @@ export function navHold(history: readonly PriceData[], now: bigint, opts: NavGua
     }
   }
   if (anchor === null && segs.length > 1) anchor = recs[recs.length - 1].price;
+  // No continuity: the last released price left the history while the keeper
+  // was down, so the history alone cannot show the jump (re-posts filled it).
+  if (opts.trusted !== undefined && !recs.some((r) => r.price === opts.trusted)) anchor = opts.trusted;
   if (l) anchor = l.anchor;
 
   let jumpBps = 0n;
