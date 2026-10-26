@@ -331,6 +331,15 @@ a:hover { color: var(--primary-hover); }
 .app-take .app-preview .cv-field__hint { flex-basis: 100%; }
 @media (max-width: 760px) { .app-take__act { padding-left: 0; } }
 
+/* Phone tap targets (QA-4): the "i" tips, id links and hash chips keep their size but get a hit area of at least 32 px. */
+@media (max-width: 760px) {
+  .app-tip__btn, .app-idlink, a.cv-hash { position: relative; }
+  .app-tip__btn::after, .app-idlink::after, a.cv-hash::after { content: ""; position: absolute; }
+  .app-tip__btn::after { inset: -7px; }
+  .app-idlink::after { inset: -7px -4px; }
+  a.cv-hash::after { inset: -5px 0; }
+}
+
 /* Status pills: compact, so the state reads as a tag, not a button. */
 .cv-pill { height: 20px; padding: 0 6px; gap: 5px; font-size: 11px; line-height: 14px; letter-spacing: .03em; }
 .cv-pill::before { width: 5px; height: 5px; }
