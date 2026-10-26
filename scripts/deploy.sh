@@ -5,6 +5,18 @@
 #   scripts/deploy.sh --fresh    # force new oracle + repo contracts
 #   NAV=0.97 scripts/deploy.sh   # also push a tBENJI price (default: 1.00, only if none set)
 #   SAFO_NAV=1.02 scripts/deploy.sh   # same for tSAFO
+#   scripts/deploy.sh --preflight     # run the .env guards only, no build, no tx
+#   scripts/deploy.sh --no-winddown   # keep a superseded repo contract open
+#   PREBUILT_WASM_DIR=dir scripts/deploy.sh  # deploy attested wasm (attest.yml), no build
+#
+# Guards (Raven R4): USDC_ASSET / TBENJI_ASSET are required and must derive
+# to USDC_SAC / TBENJI_SAC; a failed tBENJI authorization of the repo contract
+# stops the run. Provenance: contracts are built with SEP-46 meta
+# source_repo + commit_sha; reuse compares wasm hashes without that meta
+# (scripts/wasm-code-hash.py). Wind-down: when a new repo contract replaces
+# REPO_ID, the old one goes into testnet.json "superseded" and
+# scripts/winddown.sh pauses new repos on it and cancels the offers our keys
+# own (UA-05).
 #
 # Idempotent: an existing ORACLE_ID / REPO_ID from .env is kept when its
 # on-chain wasm matches the fresh build; otherwise a new contract is deployed.
@@ -34,11 +46,13 @@ ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 OUT_JSON="$ROOT/deployments/testnet.json"
 WASM_DIR="$ROOT/target/wasm32v1-none/release"
 
-FRESH=0
+FRESH=0 PREFLIGHT=0 WINDDOWN="${WINDDOWN:-1}"
 for arg in "$@"; do
   case "$arg" in
     --fresh) FRESH=1 ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    --preflight) PREFLIGHT=1 ;;
+    --no-winddown) WINDDOWN=0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
@@ -72,12 +86,14 @@ ORACLE_BASE='{"Other":"USD"}'
 T0=$(date +%s)
 log()  { printf '[%3ss] %s\n' "$(( $(date +%s) - T0 ))" "$*" >&2; }
 die()  { log "ERROR: $*"; exit 1; }
+# shellcheck source=lib/deploy-guards.sh
+source "$ROOT/scripts/lib/deploy-guards.sh"
 
 [[ -f "$ENV_FILE" ]] || die "missing $ENV_FILE"
 set -a; # shellcheck disable=SC1090
 source "$ENV_FILE"; set +a
 for v in ADMIN_ADDRESS ADMIN_SECRET ISSUER_ADDRESS ISSUER_SECRET LIQUIDATOR_ADDRESS \
-         BORROWER_ADDRESS LENDER_ADDRESS TBENJI_SAC USDC_SAC; do
+         BORROWER_ADDRESS LENDER_ADDRESS TBENJI_SAC USDC_SAC USDC_ASSET TBENJI_ASSET; do
   [[ -n "${!v:-}" ]] || die "$v not set in $ENV_FILE"
 done
 TREASURY_ADDRESS="${TREASURY_ADDRESS:-$ADMIN_ADDRESS}"
@@ -87,6 +103,12 @@ GUARDIAN_ADDRESS="${GUARDIAN_ADDRESS:-}"
 export STELLAR_NETWORK="${NETWORK:-testnet}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+OLD_REPO_ID="${REPO_ID:-}"   # wound down below if this run replaces it (UA-05)
+
+# --- 0. guards (Raven R4) -------------------------------------------------------
+check_sac USDC "$USDC_ASSET" "$USDC_SAC"
+check_sac TBENJI "$TBENJI_ASSET" "$TBENJI_SAC"
+if (( PREFLIGHT )); then log "preflight ok"; exit 0; fi
 
 # Secrets go to the CLI only, never to stdout. CLI logs are kept quiet and
 # shown only when a command fails.
@@ -107,13 +129,14 @@ set_env() { # set_env KEY VALUE: replace in place or append
   fi
 }
 
-# Reuse an existing contract iff its on-chain wasm equals the local build.
+# Reuse an existing contract iff its on-chain code equals the local build.
+# Compared without the contractmetav0 section: commit_sha differs per commit.
 same_wasm() { # same_wasm CONTRACT_ID LOCAL_WASM
   local id="$1" wasm="$2" tmp
   [[ -n "$id" ]] || return 1
   tmp="$(mktemp)"
   if stellar contract fetch -q --id "$id" -o "$tmp" 2>/dev/null \
-     && [[ "$(sha256sum < "$tmp")" == "$(sha256sum < "$wasm")" ]]; then
+     && [[ "$(code_hash "$tmp")" == "$(code_hash "$wasm")" ]]; then
     rm -f "$tmp"; return 0
   fi
   rm -f "$tmp"; return 1
@@ -144,8 +167,16 @@ ensure_admin_xlm() {
 
 
 # --- 1. build ------------------------------------------------------------------
-log "building contracts"
-(cd "$ROOT" && stellar contract build >/dev/null 2>&1) || die "stellar contract build failed (run it in $ROOT to see why)"
+if [[ -n "${PREBUILT_WASM_DIR:-}" ]]; then
+  # Attested artifacts from .github/workflows/attest.yml: deploying these exact
+  # bytes is what lets `stellar contract info build` verify the contract (SEP-55).
+  WASM_DIR="$PREBUILT_WASM_DIR"
+  log "using prebuilt wasm from $WASM_DIR (no build)"
+else
+  build_meta_args "$ROOT"
+  log "building contracts (${BUILD_META[*]})"
+  (cd "$ROOT" && stellar contract build "${BUILD_META[@]}" >/dev/null 2>&1) || die "stellar contract build failed (run it in $ROOT to see why)"
+fi
 ORACLE_WASM="$WASM_DIR/caravel_oracle.wasm"
 REPO_WASM="$WASM_DIR/caravel_repo.wasm"
 SPIKO_WASM="$WASM_DIR/caravel_spiko_mock.wasm"
@@ -300,14 +331,11 @@ sys.exit(0 if any(b.get("asset_code") == code and b.get("asset_issuer") == issue
 fi
 
 # --- 6. issuer authorizes holders on tBENJI (AUTH_REQUIRED, spikes/auth) -------
-for who in "$REPO_ID" "$BORROWER_ADDRESS" "$LIQUIDATOR_ADDRESS"; do
-  if [[ "$(view --id "$TBENJI_SAC" -- authorized --id "$who" 2>/dev/null || echo false)" == true ]]; then
-    log "tBENJI authorized: $who"
-  else
-    log "issuer set_authorized($who) on tBENJI"
-    as_issuer --id "$TBENJI_SAC" -- set_authorized --id "$who" --authorize true >/dev/null \
-      || log "WARN: set_authorized failed for $who (G-account without a tBENJI trustline?)"
-  fi
+# The repo contract is required (AS-06: a failure stops the deploy); the
+# G-accounts only WARN (no trustline yet).
+authorize_holder tBENJI "$TBENJI_SAC" "$REPO_ID" 1
+for who in "$BORROWER_ADDRESS" "$LIQUIDATOR_ADDRESS"; do
+  authorize_holder tBENJI "$TBENJI_SAC" "$who" 0
 done
 
 # --- 6b. Spiko-style allowlist on tSAFO ----------------------------------------
@@ -346,8 +374,18 @@ done
 [[ -n "${DEPLOYED_NEW:-}" || -z "${DEPLOYED_AT:-}" ]] && DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 set_env DEPLOYED_AT "$DEPLOYED_AT"
 mkdir -p "$(dirname "$OUT_JSON")"
-python3 - "$OUT_JSON" <<PY
-import json, sys
+# "superseded": earlier repo contracts, newest first, kept across runs; this
+# run's replaced REPO_ID joins it (UA-05: scripts/winddown.sh reads the list).
+SUPERSEDED_ADD=""
+[[ -n "$OLD_REPO_ID" && "$OLD_REPO_ID" != "$REPO_ID" ]] && SUPERSEDED_ADD="$OLD_REPO_ID"
+python3 - "$OUT_JSON" "$SUPERSEDED_ADD" "$REPO_ID" <<PY
+import json, os, sys
+prev = []
+if os.path.exists(sys.argv[1]):
+    try: prev = json.load(open(sys.argv[1])).get("superseded", [])
+    except Exception: prev = []
+superseded = [i for i in [sys.argv[2]] + prev if i and i != sys.argv[3]]
+superseded = list(dict.fromkeys(superseded))
 out = {
   "network": "$STELLAR_NETWORK",
   "rpcUrl": "${RPC_URL:-}",
@@ -375,6 +413,7 @@ out = {
   "tsafoAsset": json.loads('''$TSAFO_ASSET_JSON'''),
   "tsafo": {"symbol": "tSAFO", "decimals": $TSAFO_DECIMALS, "kind": "spiko-mock"},
   "oracle": {"base": json.loads('''$ORACLE_BASE'''), "decimals": $ORACLE_DECIMALS, "resolution": $ORACLE_RESOLUTION},
+  "superseded": superseded,
 }
 with open(sys.argv[1], "w") as f:
     json.dump(out, f, indent=2); f.write("\n")
@@ -395,6 +434,19 @@ if [[ -z "${SKIP_BINDINGS:-}" ]]; then
         || log "WARN: bindings for $name failed"
     fi
   done
+fi
+
+# --- 9. wind down the repo contract this run replaced (UA-05) ------------------
+# After the new one is live, never before: a failed deploy must not leave the
+# demo with no open book. Best effort: a failure here only WARNs.
+if [[ -n "$SUPERSEDED_ADD" ]]; then
+  if (( WINDDOWN )); then
+    log "winding down superseded repo $SUPERSEDED_ADD"
+    ENV_FILE="$ENV_FILE" "$ROOT/scripts/winddown.sh" "$SUPERSEDED_ADD" >&2 \
+      || log "WARN: winddown of $SUPERSEDED_ADD failed; re-run scripts/winddown.sh $SUPERSEDED_ADD"
+  else
+    log "--no-winddown: $SUPERSEDED_ADD stays open (scripts/winddown.sh $SUPERSEDED_ADD later)"
+  fi
 fi
 
 log "done in $(( $(date +%s) - T0 ))s"
