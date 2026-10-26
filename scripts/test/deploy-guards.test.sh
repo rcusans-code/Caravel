@@ -120,10 +120,10 @@ s = d.get("superseded", [])
 assert s and d["contracts"]["repo"] not in s and len(set(s)) == len(s)
 assert all(re.fullmatch(r"C[A-Z2-7]{55}", i) for i in s)
 PY
-grep -q 'scripts/winddown.sh" "$SUPERSEDED_ADD"' "$ROOT/scripts/deploy.sh" \
+grep -q 'scripts/winddown.sh" $SUPERSEDED_ADD' "$ROOT/scripts/deploy.sh" \
   && ok "UA-05 deploy.sh winds down the repo it replaces" || bad "UA-05 deploy.sh winds down the repo it replaces"
 
-for f in deploy.sh winddown.sh lib/deploy-guards.sh test/deploy-guards.test.sh; do
+for f in deploy.sh winddown.sh lib/deploy-guards.sh test/deploy-guards.test.sh test/deploy-resume.test.sh; do
   bash -n "$ROOT/scripts/$f" && ok "bash -n scripts/$f" || bad "bash -n scripts/$f"
 done
 

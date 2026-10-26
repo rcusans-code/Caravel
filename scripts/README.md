@@ -13,7 +13,8 @@ SKIP_BINDINGS=1 scripts/deploy.sh
 scripts/deploy.sh --preflight    # guards only: .env complete, *_ASSET derive to *_SAC; no build, no tx
 scripts/deploy.sh --no-winddown  # leave the repo contract this run replaces open
 PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh   # deploy attested wasm from attest.yml instead of building
-scripts/test/deploy-guards.test.sh              # offline tests for the guards below (21 checks)
+scripts/test/deploy-guards.test.sh              # offline tests for the guards below (22 checks)
+scripts/test/deploy-resume.test.sh              # offline: a run that dies after replacing REPO_ID, then a re-run (17 checks, fake CLI)
 scripts/deploy.sh --plan         # print every tx this run would send against the live state; send nothing, write nothing
 NETWORK=mainnet scripts/deploy.sh --plan        # mainnet profile, plan only (Mainnet runbook, below)
 scripts/test/mainnet-profile.test.sh            # key loader + mainnet refusals (25 checks; OFFLINE=1 skips the Horizon reads)
@@ -37,6 +38,7 @@ What it does, idempotently (each step reads chain state first and only sends a t
    Issuer `set_whitelisted(…, true)` on tSAFO for the repo contract, the liquidator, the borrower and lender wallets, plus any `TSAFO_HOLDERS` (space-separated). Without the repo contract and every liquidator on the list, takes and liquidations revert with the token's `NotWhitelisted` (#100). Then mints `TSAFO_BORROWER_MINT` (2,000) tSAFO to the borrower if it holds none, and `TSAFO_HOLDER_MINT` (200) to each `TSAFO_HOLDERS` address if it holds none.
 8. Writes `ORACLE_ID`, `REPO_ID`, `TSAFO_ID`, `DEPLOYED_AT` (and a new `GUARDIAN_*`) into `.env` and the public `deployments/testnet.json` (IDs, addresses incl. guardian, params) for the app. The keepers run on a copy of `.env`: re-run the `install -Dm600 .env …` line below after every deploy that changed an ID.
    A replaced `REPO_ID` is prepended to `superseded` in `deployments/testnet.json` (newest first, kept across runs).
+   Resume after a mid-run failure: the moment a new repo is deployed, the replaced id goes to `SUPERSEDED_PENDING` in `.env` (comma-separated, no spaces, so `.env` stays sourceable after several partial runs) and `DEPLOYED_AT` is written. A run that dies later (e.g. TxBadSeq on `set_asset`) leaves both, so the re-run, which reuses the new repo, still records the old one in `superseded`, keeps the new `deployedAt` and winds the old one down. The marker is cleared after the wind-down; a failed wind-down keeps it for the next run.
 9. Regenerates TS bindings in `packages/caravel-repo` and `packages/caravel-oracle` when a contract ID changes.
 10. Winds down the repo contract it replaced (`scripts/winddown.sh <old REPO_ID>`, below), after the new one is live; a failure there only WARNs. `--no-winddown` or `WINDDOWN=0` skips it.
 
