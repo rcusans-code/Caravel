@@ -16,7 +16,8 @@
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 // A state that blocks a payout (liquidator short of USDC, NAV stale or out of
 // band at liquidation, issuer pause, contract or liquidator off the token
-// allowlist) fails and sends an ALERT once it lasts > 2 ticks (alert.ts).
+// allowlist) fails and sends an ALERT once it lasts > 2 ticks (alert.ts); so
+// does an auto_repay / default / check_margin that fails 3 ticks in a row.
 import { readFileSync } from "node:fs";
 import { Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
@@ -327,7 +328,7 @@ async function tick(cfg: Cfg) {
           // NotDue: ledger time lags the wall clock by a few seconds.
           note(next, r.id, "pending", `auto-repay   repo ${r.id} not yet due on-chain (ledger clock lag), retrying`);
           continue;
-        } else fail(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
+        } else actionFailed(r.id, "auto_repay", e as Error, "lender unpaid until it repays or default runs");
       }
     }
 
@@ -369,7 +370,7 @@ async function tick(cfg: Cfg) {
         else if (out === "out-of-band") note(next, r.id, "band-default", `skip         repo ${r.id} default: NavOutOfBand (NAV outside the ${asset.label} sanity band, #31), retrying`);
         // A missed margin call defaults only on a fresh, in-band NAV that confirms the breach (A4).
         else if (e instanceof ContractError && e.code === Err.NoPrice) note(next, r.id, "pending", `default      repo ${r.id} missed margin call waits for a fresh NAV (NoPrice), retrying`);
-        else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
+        else actionFailed(r.id, "default", e as Error, "lender unpaid");
         continue;
       }
       await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null, guard }, next);
@@ -408,7 +409,7 @@ async function tick(cfg: Cfg) {
         // maturity default + liquidate still do.
         note(next, r.id, "no-margin", `skip         repo ${r.id} check_margin: NotImplemented on the deployed contract (redeploy from main); maturity default still runs`);
       } else {
-        fail(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
+        actionFailed(r.id, "check_margin", e as Error, "margin call not raised");
       }
     }
   }
@@ -422,6 +423,19 @@ let failures = 0;
 function fail(line: string) {
   failures++;
   log(line);
+}
+
+/**
+ * A repo action (auto_repay, default, check_margin) failed with a real error:
+ * log it like any failure, and track it as a stuck state so a failure that
+ * repeats every tick ALERTs after STUCK_TICKS ticks (a one-tick race, e.g. an
+ * InvalidStatus after someone else defaulted the repo, never does). The state
+ * is the constant "fail", never the message: the tx hash differs each tick.
+ * Daemon mode only: under --once the fail() line and the exit code report it.
+ */
+function actionFailed(id: bigint, action: string, err: Error, impact: string) {
+  fail(`${action.padEnd(12)} repo ${id} FAILED: ${err.message}`);
+  if (!ONCE) stuck(`repo:${id}:${action}`, "fail", `${action} repo ${id} failing every tick: ${err.message}; ${impact}`);
 }
 
 /** Record a repo's state; log the line only when the state changed since the last tick. */

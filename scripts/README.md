@@ -166,7 +166,7 @@ systemctl --user status caravel-keeper; journalctl --user -u caravel-keeper -f  
 
 The unit sets `SuccessExitStatus=143` because `tsx` relays `SIGTERM` on service stop and exits 143 (`128 + 15`), which systemd otherwise treats as abnormal exit-code failure.
 
-Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. Liquidator USDC runs down by the proceeds of each liquidation (it gets the collateral instead); keep it above the floor `npm run repos` prints (Liquidator checklist, above) with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
+Re-run the `cp` + `npm ci` lines and `systemctl --user restart caravel-keeper` after editing the keeper. CLIs run from the installed copy need its `.env` named: `cd ~/.local/lib/caravel/keeper && ENV_FILE=~/.local/lib/caravel/.env npm run repos` (without it they look for `~/.local/lib/.env` and stop with `REPO_ID not set in …`). Liquidator USDC runs down by the proceeds of each liquidation (it gets the collateral instead); keep it above the floor `npm run repos` prints (Liquidator checklist, above) with `scripts/buy-usdc.sh <amount> <LIQUIDATOR address>`.
 
 ## Alerts
 
@@ -175,11 +175,12 @@ Both keepers write an `ALERT …` line to their journal and run `ALERT_CMD "<mes
 | Source | Trigger | Repeats |
 |---|---|---|
 | keeper | a `Defaulted` repo cannot be liquidated for > 2 ticks: liquidator USDC < proceeds (`liq-usdc`), NAV stale (`liq-stale`) or out of band (`liq-band`) | every `ALERT_REPEAT_SECS` (1800) |
+| keeper | `auto_repay`, `default` or `check_margin` on a repo fails > 2 ticks in a row (any error the keeper does not treat as pending, short, stale, out of band or paused; e.g. `tx FAILED (txFailed/invokeHostFunctionResourceLimitExceeded)`). Every failing tick still logs its `FAILED` line and resends | every `ALERT_REPEAT_SECS` |
 | keeper | tSAFO `paused()` while the repo's `no_seize` is off; the repo contract or the liquidator off the tSAFO allowlist / tBENJI authorization (> 2 ticks) | every `ALERT_REPEAT_SECS` |
 | nav-keeper | an asset's `set_price` fails 2 rounds in a row | every 20 failed rounds |
 | systemd | either unit fails past its start limit (10 restarts in 600 s): `OnFailure=caravel-alert@%n.service` | once per failure |
 
-Under `--once` every stuck state alerts and exits 1 at once. `caravel-alert.sh` always logs to the journal (`journalctl --user -t caravel-alert`); it also sends to Telegram when `~/.config/caravel/alert.env` (chmod 600, never in the repo) sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Test it with `~/.local/lib/caravel/caravel-alert.sh "test"`.
+Under `--once` every stuck state alerts and exits 1 at once; a failed action exits 1 without an ALERT. `caravel-alert.sh` always logs to the journal (`journalctl --user -t caravel-alert`); it also sends to Telegram when `~/.config/caravel/alert.env` (chmod 600, never in the repo) sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Test it with `~/.local/lib/caravel/caravel-alert.sh "test"`.
 
 ## Issuer pause or de-allowlist: guardian runbook
 
