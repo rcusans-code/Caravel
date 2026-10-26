@@ -1,6 +1,6 @@
 // Access gates and copy that depend on chain parameters. Pure on purpose
 // (type-only imports): app/test/gates.test.ts runs it under plain node --test.
-import type { Balances } from "./chain";
+import type { AssetConfig, Balances, Nav } from "./chain";
 import type { Token } from "./config";
 
 /** Hackathon access line, appended to every issuer-permission block. */
@@ -37,6 +37,49 @@ export function staleNavText(ages: { code: string; secs: number | bigint }[]): s
   if (uniq.length === 1) return `NAV is older than ${fmtDuration(uniq[0])}. ${tail}`;
   const list = ages.map((a) => `${a.code} ${fmtDuration(a.secs)}`).join(", ");
   return `NAV is older than this asset's maximum age (${list}). ${tail}`;
+}
+
+// --- NAV state as the contract sees it ------------------------------------------
+
+/** One oracle record, as `prices(asset, n)` returns it (newest first). */
+export interface PricePoint {
+  price: bigint;
+  timestamp: bigint;
+}
+
+export type NavState = "none" | "stale" | "live";
+
+export interface NavHealth {
+  state: NavState;
+  /** Seconds since the NAV's timestamp; null without a price. */
+  age: number | null;
+}
+
+/** NAV state for one collateral asset at time `now` (seconds). */
+export function navHealth(
+  nav: Nav | null,
+  _history: PricePoint[] | null,
+  asset: Pick<AssetConfig, "max_nav_age_secs"> | null,
+  now: number,
+): NavHealth {
+  if (!nav) return { state: "none", age: null };
+  const age = now - Number(nav.timestamp);
+  return { state: asset && age > Number(asset.max_nav_age_secs) ? "stale" : "live", age };
+}
+
+/** The status-bar badge for a NAV state. */
+export function navBadge(h: NavHealth): { state: "on" | "stale" | "off"; word: string; meta: string } {
+  if (h.state === "none") return { state: "off", word: "No price", meta: "push one from Admin" };
+  if (h.state === "stale") return { state: "stale", word: "Delayed", meta: "new loans paused" };
+  return { state: "on", word: "Live", meta: "fresh NAV" };
+}
+
+/** Why Take is blocked by the NAV, or null. */
+export function takeNavBlock(code: string, h: NavHealth, asset: Pick<AssetConfig, "max_nav_age_secs">): string | null {
+  if (h.state === "none") return `The oracle has no ${code} price yet.`;
+  if (h.state === "stale")
+    return `The ${code} price is more than ${fmtDuration(asset.max_nav_age_secs)} old. Wait for the next update (or push one from Admin), then try again.`;
+  return null;
 }
 
 /** The auto-repay toggle hint on Take: what is approved, until when, and that grace still applies. */

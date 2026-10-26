@@ -34,7 +34,7 @@ import {
 import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
 import { onPhase } from "./txphase";
 import { trustlineUi } from "./trustline";
-import { ACCESS_LIMITED, autoRepayHint, collateralBlock, fmtDuration } from "./gates";
+import { ACCESS_LIMITED, autoRepayHint, collateralBlock, navBadge, navHealth, takeNavBlock, type NavHealth } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 
 type Tab = "offers" | "lend" | "positions" | "admin";
@@ -205,11 +205,8 @@ export default function App() {
 
   // NAV staleness is per asset (DECISIONS.md #25); getAssetConfig falls back to
   // config().max_nav_age_secs on contracts deployed before it.
-  const stale = (sac: string) => {
-    const n = navs[sac];
-    const a = assets[sac];
-    return !!(a && n && now - Number(n.timestamp) > Number(a.max_nav_age_secs));
-  };
+  const health = (sac: string) => navHealth(navs[sac] ?? null, null, assets[sac] ?? null, now);
+  const stale = (sac: string) => health(sac).state === "stale";
   const isAdmin = isAdminNow(signer, config);
   // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
   // trustline, tSAFO the issuer allowlist (scripts/onboard.sh sets both). Lending
@@ -227,6 +224,7 @@ export default function App() {
     assets,
     navs,
     openDebt,
+    health,
     stale,
     balances,
     busy,
@@ -295,7 +293,7 @@ export default function App() {
           {/* All NAV groups sit in one cluster (app-status__navs) so they stay together when the bar wraps. */}
           <div className="app-status__navs">
             {COLLATERAL.map((t) => (
-              <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} now={now} stale={stale(t.sac)} loaded={loaded} />
+              <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} health={health(t.sac)} loaded={loaded} />
             ))}
           </div>
         </section>
@@ -379,6 +377,8 @@ interface Ctx {
   navs: Record<string, Nav | null>;
   /** Debt of live repos per collateral token (#32); null = contract has no open_debt(). */
   openDebt: Record<string, bigint | null>;
+  /** NAV state for this collateral as the contract would see it. */
+  health: (sac: string) => NavHealth;
   /** NAV for this collateral is older than max_nav_age_secs. */
   stale: (sac: string) => boolean;
   balances: Balances | null;
@@ -647,17 +647,16 @@ const navDir = (a: string, b: string) => (BigInt(b) > BigInt(a) ? "up" : BigInt(
 function NavStatus({
   token,
   nav,
-  now,
-  stale,
+  health,
   loaded,
 }: {
   token: Token;
   nav: Nav | null;
-  now: number;
-  stale: boolean;
+  health: NavHealth;
   loaded: boolean;
 }) {
-  const age = nav ? now - Number(nav.timestamp) : null;
+  const age = health.age;
+  const badge = navBadge(health);
   const navRef = useFlash(nav ? String(nav.price) : null, navDir);
   return (
     <div className="app-status__group" aria-label={`${token.code} NAV`} aria-busy={loaded ? undefined : "true"}>
@@ -669,15 +668,7 @@ function NavStatus({
           <span className="app-status__nav app-flashable" data-testid={token.kind === "sac" ? "nav" : `nav-${token.code}`} ref={navRef}>
             {nav ? fmtNav(nav.price, nav.decimals) : "—"}
           </span>
-          {nav ? (
-            stale ? (
-              <Live state="stale" word="Delayed" meta="new loans paused" />
-            ) : (
-              <Live state="on" word="Live" meta="fresh NAV" />
-            )
-          ) : (
-            <Live state="off" word="No price" meta="push one from Admin" />
-          )}
+          <Live state={badge.state} word={badge.word} meta={badge.meta} />
           {age !== null && <span className="cv-field__hint">{fmtAge(age)}</span>}
         </>
       )}
@@ -825,7 +816,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   const token = assetBySac(offer.collateral_asset);
   const asset = ctx.assets[offer.collateral_asset];
   const nav = ctx.navs[offer.collateral_asset] ?? null;
-  const navStale = ctx.stale(offer.collateral_asset);
+  const navH = ctx.health(offer.collateral_asset);
   const [autoRepay, setAutoRepay] = useState(true);
   if (!config || !asset) return null;
   const int = calcInterest(offer.principal, offer.apr_bps, offer.term_secs, config.day_secs);
@@ -843,8 +834,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   else if (signer.kind !== "demo" && collateralBlock(balances, token)) block = collateralBlock(balances, token);
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
   else if (!asset.enabled) block = `${token.code} is disabled as collateral right now.`;
-  else if (!nav) block = `The oracle has no ${token.code} price yet.`;
-  else if (navStale) block = `The ${token.code} price is more than ${fmtDuration(asset.max_nav_age_secs)} old. Wait for the next update (or push one from Admin), then try again.`;
+  else if (takeNavBlock(token.code, navH, asset)) block = takeNavBlock(token.code, navH, asset);
   else if (cap !== null && used !== null && used + debt > cap)
     block =
       cap === 0n
