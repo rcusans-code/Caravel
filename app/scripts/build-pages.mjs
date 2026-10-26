@@ -10,6 +10,7 @@ import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { CTAS, rewriteCtas } from "./landing-ctas.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(appDir, "..");
@@ -26,17 +27,11 @@ rmSync(out, { recursive: true, force: true });
 cpSync(siteDir, out, { recursive: true, filter: (src) => path.basename(src) !== "README.md" });
 cpSync(appDist, path.join(out, "app"), { recursive: true });
 
-// Landing links that open the app. Matched by their text, so a re-export that moves them still works.
-const CTAS = ["Try the demo", "Borrow against fund shares", "Lend at a fixed rate", "Or try the testnet demo", "Testnet demo"];
+// Landing links that open the app (landing-ctas.mjs): "Lend at a fixed rate" -> /app/#lend, the rest -> /app/.
 const indexFile = path.join(out, "index.html");
-let html = readFileSync(indexFile, "utf8");
-const hits = Object.fromEntries(CTAS.map((t) => [t, 0]));
-html = html.replace(/<a href="#[^"]*"([^>]*)>([^<]+)<\/a>/g, (whole, attrs, text) => {
-  const label = text.trim();
-  if (!(label in hits)) return whole;
-  hits[label] += 1;
-  return `<a href="${APP_PATH}"${attrs}>${text}</a>`;
-});
+const rewritten = rewriteCtas(readFileSync(indexFile, "utf8"), APP_PATH);
+let html = rewritten.html;
+const hits = rewritten.hits;
 
 // Live deals: one IIFE bundle (book reader + stellar-sdk) next to the landing's assets.
 // The demo signer is never part of it: __DEMO_KEYS__ is fixed to null.
@@ -63,8 +58,8 @@ if (!html.includes("</body>")) throw new Error("build-pages: no </body> in site/
 html = html.replace("</body>", `<script src="${liveJs}" defer></script>\n</body>`);
 writeFileSync(indexFile, html);
 
-const missing = CTAS.filter((t) => hits[t] === 0);
+const missing = Object.keys(CTAS).filter((t) => hits[t] === 0);
 const total = Object.values(hits).reduce((a, b) => a + b, 0);
 if (total === 0) throw new Error("build-pages: no landing CTA links to the app; check the labels in CTAS against site/index.html");
 if (missing.length) console.warn(`build-pages: warning, CTA text not found in site/index.html: ${missing.join(", ")}`);
-console.log(`build-pages: ${path.relative(repoRoot, out)}/ = site/ at /, app/dist at ${APP_PATH}; ${total} landing links -> ${APP_PATH}; live deals ${liveJs}`);
+console.log(`build-pages: ${path.relative(repoRoot, out)}/ = site/ at /, app/dist at ${APP_PATH}; ${total} landing links -> ${APP_PATH} (${hits["Lend at a fixed rate"]} to ${APP_PATH}#lend); live deals ${liveJs}`);
