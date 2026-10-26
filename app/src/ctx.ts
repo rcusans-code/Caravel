@@ -1,5 +1,5 @@
 import { DEMO_ENABLED } from "./config";
-import type { AssetConfig, Balances, Nav, ProtocolConfig } from "./chain";
+import type { AssetConfig, Balances, InKindClaim, Nav, ProtocolConfig } from "./chain";
 import type { Leg, Stamp, TxState } from "./ui";
 import type { NavHealth, PricePoint } from "./gates";
 import type { Signer } from "./wallet";
@@ -32,4 +32,6 @@ export interface Ctx {
   run: <T>(key: string, title: string, fn: () => Promise<T>) => Promise<T | null>;
   setFlash: (f: Flash) => void;
   refreshAll: () => Promise<unknown>;
+  /** ClaimedInKind events by repo id (#38); null until read. */
+  inKind: Map<string, InKindClaim> | null;
 }

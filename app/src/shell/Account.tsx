@@ -1,10 +1,12 @@
-import { TSAFO, roleOf } from "../config";
+import { useState } from "react";
+import { StrKey } from "@stellar/stellar-sdk";
+import { COLLATERAL, TSAFO, roleOf, type Token } from "../config";
 import * as chain from "../chain";
 import type { Balances } from "../chain";
 import { fmtAmount } from "../format";
 import { Alert, Skel, TxHash, useFlash } from "../ui";
 import { trustlineUi } from "../trustline";
-import { ACCESS_LIMITED } from "../gates";
+import { ACCESS_LIMITED, collateralBlock } from "../gates";
 import type { Signer } from "../wallet";
 import type { Ctx } from "../ctx";
 
@@ -28,6 +30,7 @@ export function AccountAlerts({
   signer,
   balances,
   claimable,
+  parked,
   busy,
   run,
   refresh,
@@ -37,6 +40,8 @@ export function AccountAlerts({
   balances: Balances | null;
   /** Parked USDC payouts for this account (contract claimable()). */
   claimable: bigint;
+  /** Parked collateral per token id (contract claimable_collateral()). */
+  parked: Record<string, bigint>;
   busy: string | null;
   run: Ctx["run"];
   refresh: () => Promise<void>;
@@ -108,6 +113,18 @@ export function AccountAlerts({
           the contract kept it for you. Claim it once your account can receive USDC.
         </Alert>
       )}
+      {COLLATERAL.filter((t) => (parked[t.sac] ?? 0n) > 0n).map((t) => (
+        <ParkedCollateral
+          key={t.sac}
+          signer={signer}
+          token={t}
+          amount={parked[t.sac]}
+          balances={balances}
+          busy={busy}
+          run={run}
+          setFlash={setFlash}
+        />
+      ))}
       {balances && !balances.exists && (
         <Alert
           tone="margin"
@@ -156,6 +173,85 @@ export function AccountAlerts({
         </Alert>
       )}
     </>
+  );
+}
+
+/**
+ * Collateral an in-kind claim could not push to this account (#38): the token
+ * refused it (tSAFO allowlist, frozen tBENJI trustline). claim_collateral sends
+ * it here or to a custody account the issuer admits.
+ */
+function ParkedCollateral({
+  signer,
+  token,
+  amount,
+  balances,
+  busy,
+  run,
+  setFlash,
+}: {
+  signer: Signer;
+  token: Token;
+  amount: bigint;
+  balances: Balances | null;
+  busy: string | null;
+  run: Ctx["run"];
+  setFlash: Ctx["setFlash"];
+}) {
+  const [to, setTo] = useState("");
+  const key = `claim-col-${token.sac}`;
+  const dest = to.trim();
+  const destErr = dest && !StrKey.isValidEd25519PublicKey(dest) && !StrKey.isValidContract(dest) ? "Enter a G… account or C… contract address." : null;
+  // Sending to yourself while the issuer still refuses you would revert: say so before the wallet opens.
+  const selfBlocked = !dest && collateralBlock(balances, token);
+  const amt = fmtAmount(amount, 2, token.decimals);
+  const onClaim = () =>
+    run(key, `${token.code} not claimed`, async () => {
+      const r = await chain.claimCollateral(signer, token.sac, dest || signer.address);
+      setFlash({
+        tone: "info",
+        title: `${token.code} claimed`,
+        body: `${fmtAmount(r.value, 2, token.decimals)} ${token.code} sent to ${dest ? `${dest.slice(0, 4)}…${dest.slice(-4)}` : "your account"}.`,
+      });
+      return r;
+    });
+  return (
+    <Alert
+      tone="info"
+      title={`${amt} ${token.code} parked for you`}
+      action={
+        <button
+          type="button"
+          className="cv-btn cv-btn--primary cv-btn--sm"
+          data-action="claim-collateral"
+          disabled={!!busy || !!destErr}
+          aria-busy={busy === key ? "true" : undefined}
+          title={selfBlocked || ""}
+          onClick={onClaim}
+        >
+          {busy === key ? "Claiming…" : "Claim"}
+        </button>
+      }
+    >
+      An in-kind claim gave you this collateral, but {token.code} refused the transfer to your account
+      {token.kind === "spiko" ? " (not on the issuer allowlist)" : " (trustline frozen or not authorized)"}, so the contract holds it for
+      you. Claim it to your account once the issuer admits it, or send it to a custody account the issuer admits.
+      <label className={`cv-field app-custody${destErr ? " cv-field--error" : ""}`}>
+        <span className="cv-field__label">Custody address (optional)</span>
+        <span className="cv-field__control">
+          <input
+            id={`custody-${token.sac}`}
+            value={to}
+            onChange={(e) => setTo(e.currentTarget.value)}
+            placeholder="Empty = your account"
+            spellCheck={false}
+            autoComplete="off"
+            data-testid="custody-address"
+          />
+        </span>
+        {(destErr || selfBlocked) && <span className="cv-field__hint">{destErr ?? selfBlocked}</span>}
+      </label>
+    </Alert>
   );
 }
 

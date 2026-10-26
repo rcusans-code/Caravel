@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import lockup from "../../design/logos/caravel-lockup.svg";
 import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, ORACLE_ID, REPO_ID, assetBySac, type DemoRole } from "./config";
 import * as chain from "./chain";
-import type { AssetConfig, Balances, FeedReading, Nav, Offer, ProtocolConfig, Repo } from "./chain";
+import type { AssetConfig, Balances, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo } from "./chain";
 import { explain } from "./errors";
 import { Alert, TxHash, type TxState } from "./ui";
 import { onPhase } from "./txphase";
@@ -44,6 +44,10 @@ export default function App() {
   const [liquidatorOk, setLiquidatorOk] = useState(false);
   // USDC a settlement could not push to this account, waiting for claim().
   const [claimable, setClaimable] = useState(0n);
+  // Collateral an in-kind claim could not push to this account, per token id, waiting for claim_collateral().
+  const [parked, setParked] = useState<Record<string, bigint>>({});
+  // ClaimedInKind events by repo id (#38): null = not read yet (or the read failed), so closed cards say neither "sold" nor "in kind".
+  const [inKind, setInKind] = useState<Map<string, InKindClaim> | null>(null);
   const [loaded, setLoaded] = useState(false);
   // Tab in the URL hash (route.ts, issue #37): read on load, followed on back/forward and hand edits.
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash).route);
@@ -94,14 +98,16 @@ export default function App() {
   const refreshAccount = useCallback(async () => {
     if (!signer) return;
     try {
-      const [b, l, c] = await Promise.all([
+      const [b, l, c, p] = await Promise.all([
         chain.getBalances(signer.address),
         chain.isLiquidator(signer.address),
         chain.getClaimable(signer.address),
+        chain.getClaimableCollateral(signer.address),
       ]);
       setBalances(b);
       setLiquidatorOk(l);
       setClaimable(c);
+      setParked(p);
     } catch (e) {
       setFlash({ tone: "error", title: "Could not read balances", body: explain(e) });
     }
@@ -125,9 +131,23 @@ export default function App() {
     };
   }, [refreshMarket]);
 
+  // Sale or in-kind claim? Only the event says; re-read when a repo turns Liquidated (retry on a failed read).
+  const liquidatedKey = repos.filter((r) => r.status === "Liquidated").map((r) => String(r.id)).join(",");
+  const [inKindTry, setInKindTry] = useState(0);
+  useEffect(() => {
+    if (!liquidatedKey) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    chain.getInKindClaims().then(setInKind, (e) => {
+      console.warn("ClaimedInKind events not read", e);
+      retry = setTimeout(() => setInKindTry((n) => n + 1), 20_000);
+    });
+    return () => clearTimeout(retry);
+  }, [liquidatedKey, inKindTry]);
+
   useEffect(() => {
     setBalances(null);
     setClaimable(0n);
+    setParked({});
     refreshAccount();
     const t = setInterval(refreshAccount, 10_000);
     return () => clearInterval(t);
@@ -188,6 +208,7 @@ export default function App() {
     setSigner(null);
     setBalances(null);
     setClaimable(0n);
+    setParked({});
     setFlash(null);
   };
 
@@ -253,6 +274,7 @@ export default function App() {
     run,
     setFlash,
     refreshAll,
+    inKind,
   };
 
   return (
@@ -340,6 +362,7 @@ export default function App() {
             signer={signer}
             balances={balances}
             claimable={claimable}
+            parked={parked}
             busy={busy}
             run={run}
             refresh={refreshAccount}
