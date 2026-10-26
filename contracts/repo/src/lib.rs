@@ -32,6 +32,8 @@ mod test_attack_a4;
 #[cfg(test)]
 mod test_attack_a8;
 #[cfg(test)]
+mod test_feed_rewrite;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};

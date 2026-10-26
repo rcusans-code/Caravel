@@ -205,7 +205,7 @@ Then tell the issuer. When the token works again (unpaused, contract re-allowlis
 
 ## Bad NAV push: admin runbook
 
-A wrong `set_price` (fat finger, wrong decimals, future timestamp) is the real tail risk. Nothing bounds a push: the keeper raises margin calls on its next tick, then `default` and `liquidate` land about 121–140 s after the push, at the wrong price and irreversibly. A wrong price UP is as bad: a `take_offer` in that window locks in too little collateral. All the fixes below are admin calls, no redeploy. Act within 2 minutes, in this order (scenarios from the flash-crash tests: S2, S4b, S6, S7, O2).
+A wrong `set_price` (fat finger, wrong decimals) is the real tail risk. The repo's NAV band (DECISIONS #31) refuses a price more than `max_nav_move_bps` from any of the feed's last 20 records, and the oracle keeps one record per `resolution` slot of ledger time (testnet 60 s), so re-posting a bad price passes the band only after about 19 minutes (20 slots). A move inside the band (demo 2,500 bps), or a bad price left in place for those 19 minutes, still drives margin calls on the keeper's next tick, then `default` and `liquidate` about 121–140 s later, at the wrong price and irreversibly. A wrong price UP is as bad: a `take_offer` in that window locks in too little collateral. All the fixes below are admin calls, no redeploy. Act within 2 minutes, in this order (scenarios from the flash-crash tests: S2, S4b, S6, S7, O2).
 
 ```sh
 cd ~/src/caravel && set -a && . ./.env && set +a
@@ -221,10 +221,7 @@ The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), 
    `CFG=$("${A[@]}" --send=no --id $REPO_ID -- asset --asset $TBENJI_SAC)`
    `"${A[@]}" --id $REPO_ID -- set_asset --asset $TBENJI_SAC --config "${CFG/\"enabled\":true/\"enabled\":false}"`
 3. **Correct the price.** Read the bad record: `"${A[@]}" --send=no --id $ORACLE_ID -- lastprice --asset "$TBENJI"` prints `{"price":…,"timestamp":…}`. Price = NAV × 10^14.
-   - Timestamp ≤ now: `cd scripts/keeper && npm run set-nav -- 1.00`.
-   - Timestamp in the future (a `set_price_at` push): `set_price` records sort by timestamp, so a plain `set_price` lands before it and `lastprice` stays bad. That is also why `set-nav`, the app slider and `nav-keeper.sh` cannot fix it. Overwrite that exact record (an equal timestamp overwrites):
-     `"${A[@]}" --id $ORACLE_ID -- set_price_at --asset "$TBENJI" --price 100000000000000 --timestamp <bad timestamp>`
-     The corrected price then counts as fresh until that timestamp + 180 s.
+   `cd scripts/keeper && npm run set-nav -- 1.00`. Every record is stamped with ledger time (there is no `set_price_at`), so a future-dated price cannot exist. A correction inside the bad record's 60 s slot replaces it, and the window is clean at once. A later correction adds a record and the bad one stays in the band window for 20 slots (~19 min): takes, margin calls and liquidations return `NavOutOfBand` (error 18) until it rolls out, or until a widened band clears `propose_asset` / `execute_asset` (timelock, 120 s demo; narrow it again right after, narrowing is instant). Records cannot be overwritten any more: the power that let an admin erase a bad record also let a wrong key erase the good ones.
 
    Check with `npm run feeds`. `nav-keeper.sh` re-posts whatever `lastprice` returns: until the price is corrected it keeps re-stamping the bad one as fresh, and afterwards it keeps the good one.
 4. **Re-enable**, only after step 3 shows the right price. Enabling loosens risk, so `set_asset` fails with `Error(Contract, #20)` (`Loosens`, DECISIONS #33): queue the config read before step 2 with `"${A[@]}" --id $REPO_ID -- propose_asset --asset $TBENJI_SAC --config "$CFG"`, then after `timelock_secs` (120 s demo) run `execute_asset --asset $TBENJI_SAC`. Then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
@@ -233,7 +230,7 @@ What this does not undo:
 - A margin call raised at the bad price stays open until its deadline. Once the price is corrected, `default` after the deadline clears it instead of defaulting (#20), so an absent borrower no longer loses the 2% discount (S2b). If the price is still wrong at the deadline (or stale), the default goes ahead: -20.02 USDC on a 970 USDC repo.
 - A take that landed at an inflated price leaves the lender short: -872.74 of 970.84 at a 10× push (S6). Only step 2 before the take prevents it.
 
-Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1, 2 (disable) and the `set_price_at` overwrite all simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026.
+Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1 and 2 (disable) simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026. The one-record-per-slot oracle (no `set_price_at`) is covered by `contracts/repo/src/test_feed_rewrite.rs`.
 
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 

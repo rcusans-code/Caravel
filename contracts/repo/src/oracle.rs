@@ -102,6 +102,13 @@ pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, 
 /// in the window is within the band of it, i.e. after the window has rolled
 /// over, or at once if the admin widens the band with `set_asset`.
 ///
+/// The window is in records, so it is a time window only if the feed spaces
+/// them: the mock oracle (`contracts/oracle`) stamps every record with
+/// ledger time, one per `resolution` slot, never rewritten, so 20 records
+/// span more than 18 × resolution (testnet 60 s: > 18 min) and a feeder key
+/// cannot flush them faster (nav-review side feed-rewrite). Reflector keeps
+/// one record per resolution period too.
+///
 /// With a single record (no history) only `nav_floor` / `nav_ceiling` apply.
 /// Records `<= 0` are skipped (no price, not a reference). Reads storage
 /// only; writes nothing.
@@ -533,7 +540,9 @@ mod test {
                 Address::generate(&s.env),
                 caravel_oracle::Asset::Other(Symbol::new(&s.env, "USD")),
                 MOCK_DECIMALS,
-                300u32,
+                // Testnet resolution: one record per 60 s slot, so each
+                // nav-keeper post below gets its own record.
+                60u32,
             ),
         );
         let feed = caravel_oracle::MockOracleClient::new(&s.env, &oracle);
