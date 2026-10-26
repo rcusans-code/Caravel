@@ -88,6 +88,11 @@ body {
 .app-section__toggle { align-self: flex-start; }
 /* Closed repos (Repaid, Liquidated): shown only behind "Show closed", visually stepped back. */
 .app-card--closed { opacity: 0.7; }
+/* #repo/<id> deep link (route.ts): the linked card is outlined. */
+.app-card--linked { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Offer / repo numbers link to #offer/<id> / #repo/<id>; they read as plain text until hovered. */
+.app-idlink { color: inherit; text-decoration: none; }
+.app-idlink:hover, .app-idlink:focus-visible { text-decoration: underline; }
 
 .app-take { max-width: none; }
 /* Full-width take panel: offer terms on the left, collateral and the action on the right. */

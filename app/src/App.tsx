@@ -38,8 +38,8 @@ import { onPhase } from "./txphase";
 import { trustlineUi } from "./trustline";
 import { ACCESS_LIMITED, autoRepayHint, collateralBlock, fmtDuration } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
+import { demoTab, parseHash, shownTab, toHash, type Route, type Tab } from "./route";
 
-type Tab = "offers" | "lend" | "positions" | "admin";
 type Flash = { tone: "info" | "error" | "margin"; title: string; body: string } | null;
 type Receipt = { left: Leg; right: Leg; sentence: string; hash: string; stamp?: Stamp } | null;
 
@@ -74,7 +74,10 @@ export default function App() {
   // USDC a settlement could not push to this account, waiting for claim().
   const [claimable, setClaimable] = useState(0n);
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState<Tab>("offers");
+  // Tab in the URL hash (route.ts, issue #37): read on load, followed on back/forward and hand edits.
+  const [route, setRoute] = useState<Route>(() => parseHash(location.hash).route);
+  // restoreSession() has answered, so a reload on #admin is not bounced before the admin wallet is back.
+  const [restored, setRestored] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(nowSecs());
@@ -151,7 +154,33 @@ export default function App() {
   // --- session ------------------------------------------------------------------
   // Page reload: pick the last wallet or demo account back up without a popup.
   useEffect(() => {
-    restoreSession().then((s) => s && setSigner((cur) => cur ?? s));
+    restoreSession()
+      .then((s) => s && setSigner((cur) => cur ?? s))
+      .finally(() => setRestored(true));
+  }, []);
+
+  // --- route (URL hash) ---------------------------------------------------------
+  // Tab clicks push a history entry, so back returns to the previous tab; automatic
+  // moves (fallbacks, closing after a take) replace the current one.
+  const navigate = useCallback((r: Route, replace = false) => {
+    const h = toHash(r);
+    if (location.hash !== h) history[replace ? "replaceState" : "pushState"](null, "", h);
+    setRoute(r);
+  }, []);
+  useEffect(() => {
+    const follow = () => {
+      const { route: r, known } = parseHash(location.hash);
+      if (!known) history.replaceState(null, "", toHash(r)); // unknown hash -> #offers
+      setRoute(r);
+    };
+    follow();
+    // pushState entries fire popstate on back/forward; a typed or <a href="#…"> hash fires hashchange.
+    window.addEventListener("hashchange", follow);
+    window.addEventListener("popstate", follow);
+    return () => {
+      window.removeEventListener("hashchange", follow);
+      window.removeEventListener("popstate", follow);
+    };
   }, []);
 
   const onConnect = async () => {
@@ -170,7 +199,7 @@ export default function App() {
   const onDemo = (role: DemoRole) => {
     setFlash(null);
     setSigner(demoSigner(role));
-    setTab(role === "lender" ? "lend" : role === "admin" ? "admin" : role === "borrower" ? "offers" : "positions");
+    navigate({ tab: demoTab(role) });
   };
   const onDisconnect = async () => {
     await disconnectWallet(); // also forgets the demo role, so reload stays logged out
@@ -205,9 +234,11 @@ export default function App() {
     }
   };
 
+  // #admin for a non-admin falls back to #offers once the session and config are known
+  // (until then shownTab already renders Offers).
   useEffect(() => {
-    if (tab === "admin" && !isAdminNow(signer, config)) setTab("offers");
-  }, [tab, signer, config]);
+    if (route.tab === "admin" && restored && config && !isAdminNow(signer, config)) navigate({ tab: "offers" }, true);
+  }, [route.tab, restored, signer, config, navigate]);
 
   // NAV staleness is per asset (DECISIONS.md #25); getAssetConfig falls back to
   // config().max_nav_age_secs on contracts deployed before it.
@@ -217,6 +248,7 @@ export default function App() {
     return !!(a && n && now - Number(n.timestamp) > Number(a.max_nav_age_secs));
   };
   const isAdmin = isAdminNow(signer, config);
+  const tab = shownTab(route, isAdmin);
   // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
   // trustline, tSAFO the issuer allowlist (scripts/onboard.sh sets both). Lending
   // needs neither. Keeper-style writes (check margin, default) need a wallet the
@@ -348,7 +380,7 @@ export default function App() {
               role="tab"
               aria-selected={tab === t}
               className="app-tab label"
-              onClick={() => setTab(t)}
+              onClick={() => navigate({ tab: t })}
               data-tab={t}
             >
               {label}
@@ -356,9 +388,19 @@ export default function App() {
           ))}
         </nav>
 
-        {tab === "offers" && <OffersView ctx={ctx} offers={offers} loaded={loaded} />}
+        {tab === "offers" && (
+          <OffersView
+            ctx={ctx}
+            offers={offers}
+            loaded={loaded}
+            selected={route.tab === "offers" ? route.offer ?? null : null}
+            onSelect={(id, replace) => navigate(id === null ? { tab: "offers" } : { tab: "offers", offer: id }, replace)}
+          />
+        )}
         {tab === "lend" && <LendView ctx={ctx} offers={offers} />}
-        {tab === "positions" && <PositionsView ctx={ctx} repos={repos} liquidatorOk={liquidatorOk} loaded={loaded} />}
+        {tab === "positions" && (
+          <PositionsView ctx={ctx} repos={repos} liquidatorOk={liquidatorOk} loaded={loaded} linked={route.tab === "positions" ? route.repo ?? null : null} />
+        )}
         {tab === "admin" && isAdmin && <AdminView ctx={ctx} isAdmin={isAdmin} />}
       </main>
 
@@ -726,8 +768,20 @@ function LiveFeedStatus({ live, now }: { live: FeedReading | null | Error | unde
 
 // --- Offers board + take ---------------------------------------------------------
 
-function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded: boolean }) {
-  const [selected, setSelected] = useState<bigint | null>(null);
+function OffersView({
+  ctx,
+  offers,
+  loaded,
+  selected,
+  onSelect,
+}: {
+  ctx: Ctx;
+  offers: Offer[];
+  loaded: boolean;
+  /** Offer whose take panel is open, from #offer/<id>. */
+  selected: bigint | null;
+  onSelect: (id: bigint | null, replace?: boolean) => void;
+}) {
   const [receipt, setReceipt] = useState<Receipt>(null);
   const [filter, setFilter] = useState<string>("all");
   const { config, assets, openDebt } = ctx;
@@ -782,7 +836,12 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
       {receipt && <DvpReceipt {...receipt} />}
 
       {offer && config && assets[offer.collateral_asset] && (
-        <TakePanel ctx={ctx} offer={offer} onClose={() => setSelected(null)} onDone={(r) => { setReceipt(r); setSelected(null); }} />
+        <TakePanel ctx={ctx} offer={offer} onClose={() => onSelect(null)} onDone={(r) => { setReceipt(r); onSelect(null, true); }} />
+      )}
+      {selected !== null && !offer && loaded && !receipt && (
+        <Alert tone="info" title={`Offer #${String(selected).padStart(3, "0")} is not open`}>
+          It was taken or cancelled, or never existed. The open offers are listed below.
+        </Alert>
       )}
 
       <div className="cv-table-wrap">
@@ -824,7 +883,11 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
             )}
             {shown.map((o) => (
               <tr key={String(o.id)} data-offer={String(o.id)}>
-                <td className="cv-num">#{String(o.id).padStart(3, "0")}</td>
+                <td className="cv-num">
+                  <a href={`#offer/${o.id}`} className="app-idlink" title="Link to this offer">
+                    #{String(o.id).padStart(3, "0")}
+                  </a>
+                </td>
                 <td className="r cv-num">{fmtAmount(o.principal)}</td>
                 <td className="r cv-num" style={{ color: "var(--brand)" }}>
                   {fmtPct(o.apr_bps)}
@@ -844,7 +907,7 @@ function OffersView({ ctx, offers, loaded }: { ctx: Ctx; offers: Offer[]; loaded
                     className="cv-btn cv-btn--secondary cv-btn--sm"
                     onClick={() => {
                       setReceipt(null);
-                      setSelected(o.id);
+                      onSelect(o.id);
                     }}
                   >
                     Take
@@ -1181,12 +1244,39 @@ function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
 
 // --- Positions ---------------------------------------------------------------------
 
-function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: Repo[]; liquidatorOk: boolean; loaded: boolean }) {
+function PositionsView({
+  ctx,
+  repos,
+  liquidatorOk,
+  loaded,
+  linked,
+}: {
+  ctx: Ctx;
+  repos: Repo[];
+  liquidatorOk: boolean;
+  loaded: boolean;
+  /** Repo to scroll to, from #repo/<id>. */
+  linked: bigint | null;
+}) {
   const { signer, config } = ctx;
   const [receipt, setReceipt] = useState<Receipt>(null);
   const [notice, setNotice] = useState<{ text: string; hash: string } | null>(null);
   const [showClosed, setShowClosed] = useState(false);
   const mine = signer ? repos.filter((r) => r.borrower === signer.address || r.lender === signer.address) : [];
+  // #repo/<id>: show it even if closed, then scroll to it once (not again on every 10 s refresh).
+  const linkedRepo = linked === null ? undefined : mine.find((r) => r.id === linked);
+  const linkedClosed = !!linkedRepo && isClosed(linkedRepo);
+  const [scrolledTo, setScrolledTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (linkedClosed) setShowClosed(true);
+  }, [linkedClosed]);
+  useEffect(() => {
+    if (linked === null || scrolledTo === String(linked) || !config) return;
+    const el = document.querySelector(`[data-repo="${linked}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setScrolledTo(String(linked));
+  });
   const live = (r: Repo) => r.status === "Open" || r.status === "MarginCall";
   // Closed = settled with nothing left to do (Repaid, Liquidated). Defaulted stays: the lender is still waiting on liquidation.
   const closedCount = mine.filter(isClosed).length;
@@ -1229,6 +1319,11 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
           </div>
         </div>
       )}
+      {signer && loaded && linked !== null && !linkedRepo && (
+        <Alert tone="info" title={`Repo #${String(linked).padStart(3, "0")} is not one of yours`}>
+          The linked repo is not borrowed or lent by the connected account.
+        </Alert>
+      )}
       {signer && loaded && mine.length === 0 && <p className="app-empty">No repos for this account yet.</p>}
       {signer && loaded && mine.length > 0 && shown.length === 0 && <p className="app-empty">No open repos. Closed repos are hidden.</p>}
       <div className="app-cards">
@@ -1239,6 +1334,7 @@ function PositionsView({ ctx, repos, liquidatorOk, loaded }: { ctx: Ctx; repos: 
               ctx={ctx}
               repo={r}
               primary={r.id === firstRepayable}
+              linked={r.id === linked}
               onRepaid={(rec) => {
                 setNotice(null);
                 setReceipt(rec);
@@ -1362,7 +1458,20 @@ function isClosed(r: Repo) {
   return r.status === "Repaid" || r.status === "Liquidated";
 }
 
-function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; primary: boolean; onRepaid: (r: Receipt) => void }) {
+function PositionCard({
+  ctx,
+  repo,
+  primary,
+  linked,
+  onRepaid,
+}: {
+  ctx: Ctx;
+  repo: Repo;
+  primary: boolean;
+  /** Opened via #repo/<id>: outlined. */
+  linked: boolean;
+  onRepaid: (r: Receipt) => void;
+}) {
   const { signer, config, balances, busy, now } = ctx;
   const token = assetBySac(repo.collateral_asset);
   // Repay, top-up and auto-repay move this repo's collateral: gate on its issuer only.
@@ -1458,10 +1567,16 @@ function PositionCard({ ctx, repo, primary, onRepaid }: { ctx: Ctx; repo: Repo; 
   };
 
   return (
-    <article className={`cv-card${isClosed(repo) ? " app-card--closed" : ""}`} data-repo={String(repo.id)}>
+    <article
+      className={`cv-card${isClosed(repo) ? " app-card--closed" : ""}${linked ? " app-card--linked" : ""}`}
+      data-repo={String(repo.id)}
+    >
       <div className="cv-card__head">
         <span className="cv-eyebrow">
-          Repo #{String(repo.id).padStart(3, "0")} · {side}
+          <a href={`#repo/${repo.id}`} className="app-idlink" title="Link to this repo">
+            Repo #{String(repo.id).padStart(3, "0")}
+          </a>{" "}
+          · {side}
         </span>
         <StatusPill status={repo.status} />
       </div>
