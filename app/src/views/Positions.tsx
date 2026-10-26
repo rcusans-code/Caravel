@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
-import { BPS, collateralDecimals, collateralValue, coverPct, fmtAmount, fmtCountdown, fmtNav, fmtPct, parseAmount, requiredCollateral } from "../format";
+import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtPct, parseAmount, requiredCollateral } from "../format";
 import { Alert, DvpReceipt, Field, Skel, StatusPill, Tip, TxHash, TxProgress, useFlash } from "../ui";
 import { NAV_OUTAGE_DAYS, collateralBlock, fmtDuration, inKindWindow, navBlock, topUpHoldText, usdcBlock } from "../gates";
 import { CONNECT, type Ctx, type Receipt } from "../ctx";
@@ -256,7 +256,8 @@ function PositionCard({
   const debt = repo.principal + repo.interest;
   // Cover vs the asset's margin-call line (DECISIONS.md #14, #26); a pre-#26
   // contract triggers on the liquidation discount.
-  const triggerBps = ctx.assets[repo.collateral_asset]?.margin_trigger_bps ?? config?.liquidation_discount_bps ?? null;
+  const assetTriggerBps = ctx.assets[repo.collateral_asset]?.margin_trigger_bps ?? config?.liquidation_discount_bps ?? null;
+  const triggerBps = assetTriggerBps === null ? null : effectiveTriggerBps(assetTriggerBps, repo.haircut_bps);
   const cover = useMemo(() => {
     if (!nav || triggerBps === null) return null;
     return coverPct(collateralValue(repo.collateral_amount, nav.price, dec), debt, triggerBps);

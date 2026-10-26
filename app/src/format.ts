@@ -97,4 +97,16 @@ export function coverPct(value: bigint, debt: bigint, triggerBps: bigint): numbe
   return Number((value * (BPS - triggerBps) * 10_000n) / (debt * BPS)) / 100;
 }
 
+/**
+ * The trigger a live repo is checked at (margin.rs `effective_trigger`, Raven
+ * UA-01): the asset's current trigger, clamped below the repo's own
+ * snapshotted haircut, so a later haircut + trigger raise never shows a
+ * healthy repo as past its line.
+ */
+export function effectiveTriggerBps(assetTriggerBps: bigint, repoHaircutBps: bigint | number): bigint {
+  const haircut = BigInt(repoHaircutBps);
+  const cap = haircut > 0n ? haircut - 1n : 0n;
+  return assetTriggerBps < cap ? assetTriggerBps : cap;
+}
+
 export const protocolFee = (interestAmt: bigint, feeBps: bigint) => (interestAmt * feeBps) / BPS;

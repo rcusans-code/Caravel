@@ -41,6 +41,8 @@ mod test_feed_rewrite;
 #[cfg(test)]
 mod test_nav_outage;
 #[cfg(test)]
+mod test_raven_guards;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
@@ -56,8 +58,14 @@ pub struct CaravelRepo;
 
 #[contractimpl]
 impl CaravelRepo {
+    /// Stores `config` once. `InvalidConfig` unless `validate_config` holds,
+    /// the feed quotes in USD (`base() == Other("USD")`, Raven STD-01) and
+    /// `usdc.decimals() == 7`, the scale all value math assumes (CS-07).
     pub fn __constructor(env: Env, config: Config) -> Result<(), Error> {
         validate_config(&config)?;
+        if !oracle::config_feeds_ok(&env, &config) {
+            return Err(Error::InvalidConfig);
+        }
         storage::write_config(&env, &config);
         storage::extend_instance(&env);
         Ok(())
@@ -234,7 +242,7 @@ impl CaravelRepo {
     pub fn set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
-        validate_asset(&protocol, &config)?;
+        validate_asset(&env, &protocol, &config)?;
         if let Some(old) = storage::read_asset(&env, &asset) {
             if !asset_tightens(&old, &config) {
                 return Err(Error::Loosens);
@@ -267,7 +275,7 @@ impl CaravelRepo {
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.guardian.require_auth();
-        validate_asset(&protocol, &config)?;
+        validate_asset(&env, &protocol, &config)?;
         let old = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
         if !asset_tightens(&old, &config) {
             return Err(Error::Loosens);
@@ -294,7 +302,7 @@ impl CaravelRepo {
     pub fn propose_asset(env: Env, asset: Address, config: AssetConfig) -> Result<u64, Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
-        validate_asset(&protocol, &config)?;
+        validate_asset(&env, &protocol, &config)?;
         let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
         drop_pending_asset(&env, &asset, &protocol.admin);
@@ -331,7 +339,7 @@ impl CaravelRepo {
         protocol.admin.require_auth();
         let pending = storage::read_pending_asset(&env, &asset).ok_or(Error::NoProposal)?;
         check_window(&env, &protocol, pending.eta)?;
-        validate_asset(&protocol, &pending.config)?;
+        validate_asset(&env, &protocol, &pending.config)?;
         storage::extend_instance(&env);
         storage::remove_pending_asset(&env, &asset);
         events::ProposalExecuted {
@@ -520,12 +528,18 @@ impl CaravelRepo {
     ) -> Result<u64, Error> {
         borrower.require_auth();
         let offer = storage::read_offer(&env, offer_id).ok_or(Error::OfferNotFound)?;
+        let config = storage::read_config(&env);
+        // Raven AS-03: a lender the USDC issuer has frozen cannot cancel its
+        // offer, so its escrow must not be lent out either; the offer reads
+        // as gone until the issuer re-authorizes the lender.
+        if !payout::usdc_authorized(&env, &config.usdc, &offer.lender) {
+            return Err(Error::OfferNotFound);
+        }
         let asset = match storage::read_asset(&env, &offer.collateral_asset) {
             Some(asset) if asset.enabled => asset,
             _ => return Err(Error::AssetNotSupported),
         };
         new_repos_allowed(&env, &offer.collateral_asset)?;
-        let config = storage::read_config(&env);
         let (nav, nav_decimals) =
             oracle::fresh_collateral_nav(&env, &config, &offer.collateral_asset, &asset)?;
 
@@ -723,7 +737,8 @@ impl CaravelRepo {
             return Err(Error::NotDue);
         }
         let config = storage::read_config(&env);
-        if !autorepay::try_settle(&env, &mut repo, &config)? {
+        // A refund here reverts with the error, so no allowance is spent.
+        if autorepay::try_settle(&env, &mut repo, &config)? != autorepay::Settle::Settled {
             return Err(Error::AutoRepayFailed);
         }
         Ok(())
@@ -784,8 +799,16 @@ impl CaravelRepo {
             events::MarginCleared { repo_id }.publish(&env);
             return Ok(repo.status);
         }
-        if repo.auto_repay && autorepay::try_settle(&env, &mut repo, &config)? {
-            return Ok(Status::Repaid);
+        if repo.auto_repay {
+            match autorepay::try_settle(&env, &mut repo, &config)? {
+                autorepay::Settle::Settled => return Ok(Status::Repaid),
+                // Raven CS-01: the refunded pull spent this repo's share of
+                // the shared allowance; with the flag still on, a hand
+                // `repay` from Defaulted would take it off a second time and
+                // strip the borrower's other opted-in repos of their cover.
+                autorepay::Settle::Refunded => repo.auto_repay = false,
+                autorepay::Settle::PullFailed => {}
+            }
         }
         seize_allowed(&env, &repo.collateral_asset)?;
 
@@ -966,9 +989,15 @@ fn seize_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
 
 // --- risk-parameter changes (#33) ---------------------------------------------
 
-fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> {
+fn validate_asset(env: &Env, protocol: &Config, config: &AssetConfig) -> Result<(), Error> {
+    // Raven STD-02: a SEP-40 record is up to one `resolution` old when
+    // fresh, so a shorter NAV age reads the feed as stale part of every
+    // period. A feed whose `resolution()` fails is rejected too.
+    let resolution_ok = oracle::feed_resolution(env, protocol)
+        .is_some_and(|resolution| config.max_nav_age_secs >= u64::from(resolution));
     // #26: discount ≤ trigger < haircut < 100%.
-    if config.margin_trigger_bps < protocol.liquidation_discount_bps
+    if !resolution_ok
+        || config.margin_trigger_bps < protocol.liquidation_discount_bps
         || config.haircut_bps <= config.margin_trigger_bps
         || config.haircut_bps as i128 >= math::BPS
         || config.max_nav_age_secs == 0
@@ -1124,6 +1153,9 @@ fn validate_config(config: &Config) -> Result<(), Error> {
         || config.liquidation_discount_bps >= bps
         || config.day_secs == 0
         || config.timelock_secs < MIN_TIMELOCK_SECS
+        // Raven OZ-05: the guardian is the second key (KPR-05); one key
+        // holding both roles leaves no one to veto or tighten independently.
+        || config.guardian == config.admin
     {
         return Err(Error::InvalidConfig);
     }
