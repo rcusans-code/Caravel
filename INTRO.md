@@ -7,7 +7,9 @@ A pawnshop for government bonds, on the blockchain, with a fixed return date.
 
 Someone holds a token that represents US Treasury bills (a "tokenized fund"). They need cash (dollars) for a week but don't want to sell the bonds, because the bonds earn interest. Caravel lets them lock the bonds as a deposit, get dollars instantly, and get the bonds back when they repay.
 
-Banks have done this for decades. It's called a **repo** (sale and repurchase). We're bringing it on-chain on **Stellar**.
+Banks have done this for decades. It's called a **repo** (sale and repurchase). We're building an open market for it on **Stellar**.
+
+Repo itself already exists on Stellar: Ascend × M1X ran a bilateral institutional repo on one sovereign-bond token, rolled hourly (stellar.org press, 23 Oct 2026). Caravel is the open order book: any USDC lender, collateral from several issuers' permissioned funds, margin on daily NAV, and liquidation only to issuer-approved buyers.
 
 ## Why it matters
 - About **$3.03B** of these fund tokens already live on Stellar (DefiLlama, 25 Oct 2026). Spiko is the biggest issuer; Franklin Templeton's BENJI is the other anchor. Breakdown: [docs/numbers.md](docs/numbers.md).
@@ -31,7 +33,7 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 | Issuer (e.g. Franklin Templeton) | More people using their token | Approves who may hold it |
 
 ## Words you'll hear
-- **USDC**: a token worth exactly $1.
+- **USDC**: a dollar token Circle redeems 1:1.
 - **RWA**: real-world asset as a token (here: a Treasury-bill fund).
 - **NAV**: the fund's official price per token, published once a day.
 - **Haircut**: safety margin. 3% haircut = deposit $1,000, borrow at most $970.
@@ -39,7 +41,7 @@ Banks have done this for decades. It's called a **repo** (sale and repurchase). 
 - **Margin call**: "your deposit fell in value, top it up."
 - **Liquidation**: selling the deposit because the borrower didn't pay.
 - **DvP**: delivery versus payment. Deposit and money swap in one atomic step.
-- **Stellar**: the blockchain we use. Fast, fees under a cent.
+- **Stellar**: the blockchain we use. Fast, fees typically under a cent.
 - **Soroban**: Stellar's smart contracts, written in Rust.
 - **SAC**: Stellar Asset Contract. Lets our contract move Stellar's built-in tokens (USDC, bond tokens) directly.
 - **Trustline / AUTH_REQUIRED**: on Stellar you must opt in to hold a token, and the issuer can require approval. That's how compliance works without us building KYC.

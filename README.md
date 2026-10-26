@@ -7,7 +7,7 @@ Fixed-term, fixed-rate USDC loans against tokenized money-market funds, priced o
 
 > DeFi tries to liquidate Treasuries at 3 a.m. on a Sunday. TradFi never does that. It does repo.
 
-Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis path · Stellar Unlocked + Stellar Composed.
+Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis category · Stellar Unlocked + Stellar Composed.
 
 Live: [landing](https://caravel-repo.pages.dev/) · [app on testnet](https://caravel-repo.pages.dev/app/) · Five-minute intro: [INTRO.md](INTRO.md) · Design rulings: [DECISIONS.md](DECISIONS.md) · Mechanics spec: [docs/mechanics.md](docs/mechanics.md) · Collateral research: [docs/collateral-research.md](docs/collateral-research.md) · Design system: [design/](design/README.md) · App: [app/](app/README.md) · Scripts and keeper: [scripts/](scripts/README.md)
 
@@ -23,6 +23,7 @@ Stellar holds billions in tokenized fund shares that no on-chain lender can hold
 | Franklin BENJI on Stellar ($434.7M, [DefiLlama](https://defillama.com/rwa/asset/BENJI)) held by any smart contract | **0 contracts** | [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5) |
 | Spiko markets on Stellar lenders | XOXNO lists six, all disabled | [WhaleHub](https://whalehub.io/blog/spiko-stellar) |
 | Largest Stellar lender (Blend V2) | $132M, mostly XLM collateral, no allowlist hook | [gap analysis](docs/research/rwa-collateral-gap-analysis.md) |
+| Closest Stellar peers | XOXNO Spiko spoke (disabled) · Liqvid X on Alula (SCF #45): open-ended pool, oracle NAV, liquidated at HF<1 | [WhaleHub](https://whalehub.io/blog/spiko-stellar) · [SCF #45](https://communityfund.stellar.org/submissions/recLauVL3boo779AG) |
 
 DefiLlama figures as of 25 Oct 2026. The per-asset breakdown and superseded figures are in [docs/numbers.md](docs/numbers.md).
 
@@ -35,6 +36,8 @@ The asset is safe; the exit is slow. A tokenized Treasury fund share has a price
 24/7 DeFi lending fails on all three counts. Between NAV prints there is no new price to react to. A seized share can't be redeemed until the next business day. A permissionless liquidation bot can't even receive the token, because the issuer's AUTH_REQUIRED flag stops it.
 
 Money markets already have a model for this asset: the **repo**. Caravel puts it on-chain. Debt is fixed up front, margin is checked against daily NAV, the borrower gets a window to post more collateral before default, and a default goes to issuer-approved liquidators at NAV minus a fixed discount.
+
+Repo itself already has a precedent on Stellar: Ascend × M1X ran a bilateral institutional repo on one sovereign-bond token (USDM1), rolled hourly ([stellar.org press, 23 Oct 2026](docs/numbers.md#precedent-and-peers-checked-26-oct)). Caravel is the open order book for the same trade: any USDC lender, collateral from several issuers' permissioned funds, margin on daily NAV, and liquidation only to issuer-approved buyers.
 
 One design fact carries most of the compliance weight: **lenders never hold fund shares.** They put in USDC and get USDC back. Only the contract, borrowers and liquidators need the issuer's approval, the same split [Aave Horizon](https://aave.com/docs/aave-v3/horizon) uses.
 
@@ -53,11 +56,11 @@ In the demo, **1 day = 60 seconds**, so the 7-day repo matures in 7 minutes. Tha
 
 ## FAQ
 
-- **Why borrow at 5% against a fund yielding 3.87%?** For a passive holder the carry is negative, about 1.13% a year against redeeming, and known up front. The borrower is a treasury bridging a cash gap without redeeming, or a desk whose USDC earns more than the loan costs ([Risks: Carry](#risks-and-limits)).
+- **Why borrow at 5% against a fund yielding 3.87% (USDXX 7-day, a US T-bill proxy)?** For a passive holder the carry is negative, about 1.13% a year against redeeming, and known up front. The borrower is a treasury bridging a cash gap without redeeming, or a desk whose USDC earns more than the loan costs ([Risks: Carry](#risks-and-limits)).
 - **Who liquidates?** Issuer-approved accounts the admin whitelists. On testnet that is one team wallet, driven by the keeper; at launch, a market maker that can redeem with the issuer. Nothing obliges one to buy, so a Defaulted repo can wait.
 - **What if the issuer freezes or pauses the token?** Repay, top-up and liquidation of that asset stop until it lifts, and the haircut does not cover that. The guardian can switch on `no_seize` at once, so no borrower is defaulted for the issuer's action meanwhile.
 - **Who gets the fund's dividends?** Real BENJI pays its yield in new tokens to the holder of record, which during a repo is the contract. Passing it back to the borrower is on the roadmap; the demo tokens pay none.
-- **Is the price feed live?** No. The contract reads a mock SEP-40 feed so the demo can move the NAV on camera; `npm run feeds` reads a live Reflector feed through the same interface, and switching is a config change. The USDC is real Circle testnet USDC.
+- **Is the price feed live?** No. The contract reads a mock SEP-40 feed so the demo can move the NAV on camera; `npm run feeds` reads a live Reflector feed through the same interface. The feed is any SEP-40 feed, chosen at deploy (RedStone already publishes BENJI NAV on Stellar; Chainlink, live since 14 Oct, is not SEP-40); a deployed contract keeps its feed, so changing it means a new deployment. The USDC is real Circle testnet USDC.
 
 ## Architecture
 
@@ -88,7 +91,7 @@ flowchart LR
 
 - **Repo contract** ([contracts/repo](contracts/repo/src/lib.rs)): holds offers, escrow and collateral; runs every flow. All arithmetic lives in one module, [math.rs](contracts/repo/src/math.rs), with its own tests. NAV is read only through [oracle.rs](contracts/repo/src/oracle.rs), which enforces the staleness rule and the NAV sanity band.
 - **Token contracts (SAC):** USDC and tBENJI are classic Stellar assets. The contract moves them through their Stellar Asset Contracts, so balances stay visible in any Stellar wallet.
-- **Price feed:** a mock of the SEP-40 interface Reflector uses (same `Asset` and `PriceData` shapes, 14 decimals). Pointing the contract at a live SEP-40 feed is a config change, not a code change.
+- **Price feed:** a mock of the SEP-40 interface Reflector uses (same `Asset` and `PriceData` shapes, 14 decimals). Any SEP-40 feed, chosen at deploy (RedStone already publishes BENJI NAV on Stellar; Chainlink, live since 14 Oct, is not SEP-40): a deploy parameter, not a code change, but a deployed contract cannot switch feeds.
 - **Keeper** ([scripts/keeper](scripts/keeper/src/keeper.ts)): an off-chain script that calls `check_margin` on open repos, `auto_repay` or `default` once a deadline passes, and then `liquidate` on every Defaulted repo. The first three are permissionless, so anyone can run them. `liquidate` is signed with the whitelisted, issuer-approved liquidator key; on testnet the keeper is the only liquidator.
 - **Web app:** lender, borrower, liquidator and admin views on testnet, built on generated TypeScript bindings.
 - **Issuer:** authorizes the repo contract, each borrower and each liquidator on tBENJI. This is the compliance layer; Caravel does no KYC of its own.
@@ -221,7 +224,7 @@ Production values are intent, not decisions; they follow [docs/mechanics.md §7]
 - **Stellar Asset Contracts.** The repo contract moves classic USDC and tBENJI through their SACs. No wrapped tokens.
 - **Custom permissioned tokens.** Collateral #2, tSAFO, is a Spiko-style Soroban token (`contracts/spiko-mock`): no trustlines, an issuer allowlist checked on every transfer, no `approve` / `transfer_from`, and an issuer pause. The repo contract moves it through the same token interface, and the borrower's signed `take_offer` covers the transfer, so no allowance is needed.
 - **Atomic DvP through Soroban authorization.** The borrower signs one `take_offer` call; the nested tBENJI transfer is part of the same signed authorization, at the exact collateral amount. Both legs settle in one transaction or not at all.
-- **SEP-40 price feeds.** The contract speaks the SEP-40 interface Reflector uses, so a mock feed and a live one are interchangeable by config.
+- **SEP-40 price feeds.** The contract speaks the SEP-40 interface Reflector uses, so it runs on any SEP-40 feed, chosen at deploy: the mock for the demo, a live feed in production.
 - **Real Circle testnet USDC**, not a mock token.
 - **Contract events** for every flow, so the app and the keeper index history without extra storage.
 - **Storage TTL management.** Config and asset settings live in instance storage; offers, repos and the liquidator list in persistent storage, with the TTL extended on every touch so a live repo is never archived mid-term.
@@ -291,7 +294,7 @@ Deployed 2026-10-25T22:59:48Z. The app and the keeper read the same ids from [de
 - **Shortfall.** The margin call fires at a 0.5% NAV fall at maximum LTV (NAV 0.9949, 2.5% trigger), where a liquidation still raises 0.51% more than the debt; the lender is only touched past a 1% fall (NAV 0.9898). If NAV keeps falling during the margin window and the borrower doesn't top up, the lender takes the loss. At NAV 0.97 the lender gets 980.94 of the 1,000.86 owed, and a `Shortfall` event records the 19.92 gap. There is no insurance fund yet. For a stable-$1 money-market fund a 1% fall means the fund broke the buck, which is the event the margin check guards against.
 - **Issuer dependence.** The design rests on the fund issuer authorizing the contract as a holder of record. No contract holds BENJI today; our testnet runs on a team-issued tBENJI. A freeze, clawback or de-authorization by the issuer stops repay and liquidation, and the haircut doesn't cover that.
 - **Spiko issuer controls (tSAFO / SAFO).** Every transfer checks Spiko's allowlist, so Spiko must allowlist the Caravel contract **and every liquidator**, not only borrowers; a liquidator Caravel whitelisted but Spiko did not cannot liquidate. Spiko can pause the token, which freezes repay, top-up and liquidation until it unpauses (tested: nothing is lost, every call works after). Removing a borrower from the allowlist blocks their repay; the repo then defaults and an allowlisted liquidator takes the collateral. Spiko can also upgrade the token contract. SAFO's assets are equities and bonds whose return is swapped with banks for €STR, not T-bills, hence the 30% testnet haircut; for launch SAFO stays disabled until due diligence (DECISIONS #26). Its NAV is daily and no SEP-40 feed covers it yet; the testnet tSAFO is priced by our mock oracle. Testnet only: nothing here touches mainnet.
-- **Carry.** A holder pays 5% to borrow against a fund yielding 3.87%, so versus redeeming the net cost is about 1.13% a year (~$22 per $100k per week), known up front. Caravel's first target borrower is a treasury bridging a cash gap without redeeming (crypto-native treasuries first); the second is a trader or market maker whose USDC earns more than the loan costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (6.69% on Blend), in exchange for a fixed term, a fixed rate and T-bill collateral.
+- **Carry.** A holder pays 5% to borrow against a fund yielding about 3.87% (USDXX 7-day, a T-bill proxy), so versus redeeming the net cost is about 1.13% a year (~$22 per $100k per week), known up front. Caravel's first target borrower is a treasury bridging a cash gap without redeeming (crypto-native treasuries first); the second is a trader or market maker whose USDC earns more than the loan costs. The lender earns 4.50% net: more than T-bills, less than a variable-rate USDC pool (Blend's Fixed pool paid 5.70% on 26 Oct per DefiLlama, and has blocked new borrowing since 8 Oct), in exchange for a fixed term, a fixed rate and T-bill collateral.
 - **Dividends.** Real BENJI pays its yield as new tokens to the holder of record, which during a repo is the contract. Passing them back to the borrower is on the roadmap; the demo token pays none.
 - **Liquidators.** Liquidators must be issuer-approved, and nothing obliges one to buy, so a defaulted repo can wait. A liquidation sells all the collateral, so defaulting at NAV 1.00 costs the borrower about 21.60 USDC per 1,000 against 0.96 of interest for repaying. A Defaulted repo stays repayable at the same debt until a liquidation lands, so the borrower is never stuck waiting on a liquidator; whichever transaction lands first wins.
 - **One admin key.** The admin sets the asset list and the liquidator whitelist, and the feed is only as good as whoever writes it. A wrong but fresh price plus a friendly liquidator could cost the lender principal; the NAV band blocks a print far from recent ones, but not a wrong price that moves slowly or has filled the 20-record window. Risk settings are split (DECISIONS #33): a guardian can only tighten them, instantly, and any loosening (enable an asset, lower a haircut, raise a cap or NAV age, widen the NAV band, clear a pause) waits out `timelock_secs` in public, where admin or guardian can cancel it. Still one key, with no delay: the liquidator whitelist, the oracle's prices and listing a new asset (no offer can exist on it yet). Guardian and timelock are fixed at deploy.
