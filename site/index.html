@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Caravel: fixed-rate loans against tokenized Treasuries</title>
 <link rel="stylesheet" href="ds/tokens.css">
 <link rel="stylesheet" href="ds/components/bundle.css">
@@ -238,6 +239,70 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 @media (max-width:900px){.navmenu{display:block;margin-left:auto}.navmenu ~ .head-cta{margin-left:0}}
 @media (max-width:640px){.hdr-row{gap:12px !important}.navmenu nav{left:16px;right:16px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.ticker-run,.hero-sea,.hero-ripples .rp,.dvp-swap .flow{animation:none !important}.hero-field{display:none}.hero-img,.harbor-img,.prog,.step,.leg-a,.leg-b,.flash,.w,.link-in,.spot path,.spot circle,.spot line{animation:none !important;stroke-dashoffset:0 !important}.uline{animation:none;stroke-dashoffset:0}.lift,.navlink{transition:none}.lift:hover{transform:none}}
+</style>
+<style id="phone-pass">
+/* Phone pass (≤640 px). Kept in its own block so a canvas re-export can carry it over in one piece (see README). */
+.dvp-v{display:none}
+@media (max-width:640px){
+/* Hero sample card: the three terms sit on one line each, labels readable. */
+.hero-card .cv-terms{grid-template-columns:repeat(3,auto);justify-content:space-between;column-gap:12px}
+.hero-card .cv-terms dt{font-size:13px}
+.hero-card .cv-terms dd{font-size:15px;white-space:nowrap}
+/* Delivery versus payment: Borrower card, swap band, escrow card, stacked; the desktop drawing is hidden. */
+.dvp2{padding:16px}
+.dvp-nodes{grid-template-columns:minmax(0,1fr) !important;gap:0 !important}
+.dvp-swap{display:none}
+.dvp-v{display:flex;flex-direction:column;gap:8px;margin:10px 0;padding:12px 14px 14px;border:1px dashed var(--line-strong);background:var(--surface)}
+.dvp-v-cap{display:flex;align-items:center;gap:8px;font:500 12px/1.2 var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.dvp-v-cap img{flex:none;width:32px;height:32px}
+.dvp-v-legs{display:flex;flex-direction:column;gap:12px}
+.dvp-v-leg{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:46px;padding-left:42px}
+.dvp-v-leg::before{content:"";position:absolute;left:15px;top:3px;bottom:3px;border-left:2px dashed currentColor}
+.dvp-v-leg::after{content:"";position:absolute;left:10px;border-left:6px solid transparent;border-right:6px solid transparent}
+.dvp-v-leg--down{color:var(--brand)}
+.dvp-v-leg--down::before{bottom:10px}
+.dvp-v-leg--down::after{bottom:2px;border-top:9px solid currentColor}
+.dvp-v-leg--up{color:var(--primary)}
+.dvp-v-leg--up::before{top:10px}
+.dvp-v-leg--up::after{top:2px;border-bottom:9px solid currentColor}
+.dvp-v-chip{display:inline-flex;align-items:center;gap:6px;min-width:144px;box-sizing:border-box;height:30px;padding:0 10px 0 4px;border:1px solid currentColor;font:500 14px/1 var(--font-mono);white-space:nowrap}
+.dvp-v-leg--down .dvp-v-chip{background:var(--brand-soft)}
+.dvp-v-leg--up .dvp-v-chip{background:var(--primary-soft)}
+.dvp-v-chip img{width:22px;height:22px}
+.dvp-v-k{font:500 13px/1.2 var(--font-mono);color:var(--ink-muted)}
+.dvp-v-foot{padding-top:2px;font:italic 500 16px/1.3 var(--font-display);color:var(--ink-muted);text-align:center}
+/* Settlement timeline: one vertical list, in order. */
+.dvp-time{grid-template-columns:minmax(0,1fr);row-gap:0;margin-left:4px;border-top:0;border-left:1px solid var(--line-strong)}
+.dvp-time li{display:flex;align-items:baseline;gap:10px;padding:5px 0 5px 16px;font-size:13px}
+.dvp-time li::before{top:50%;left:-4px;margin-top:-4px}
+.dvp-time span{flex:none;width:40px;font-size:12px}
+.dvp-meta dt,.carry-k{font-size:12px}
+/* Collateral table: label over value, so the risk text gets the full card width. */
+.tiers td{display:block}
+.tiers td::before{display:block;padding:0 0 1px}
+.tiers td+td{margin-top:6px}
+/* Section rhythm: trim the desktop-sized empty bands. */
+.idle>.wrap:first-child{padding-top:56px !important}
+.deck-grid{padding-top:48px !important;padding-bottom:48px !important;gap:32px !important}
+#how>.wrap{padding-top:56px !important;padding-bottom:48px !important;gap:32px !important}
+#how>.wrap>div:last-child{gap:32px !important}
+#who>.wrap{padding-top:16px !important;gap:12px !important}
+.who-img,.who-img .side-img{min-height:300px !important}
+#stellar>.wrap{padding-top:40px !important;padding-bottom:40px !important}
+#stellar .panel{padding:24px 20px !important;box-shadow:4px 4px 0 -1px rgba(251,248,241,.95),4px 4px 0 0 var(--line-strong) !important}
+#collateral>.wrap{padding-top:48px !important;padding-bottom:48px !important}
+#risk>.wrap:first-child{padding-top:48px !important;padding-bottom:32px !important;gap:24px !important}
+#launch{gap:20px !important;padding-bottom:48px !important}
+#launch form{margin-top:0 !important}
+.faq-grid{padding-top:48px !important;padding-bottom:48px !important}
+/* Footer: brand block full width, so the testnet badge stays on one line; links in two columns. */
+.foot-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;gap:28px 24px !important;padding-top:48px !important}
+.foot-grid>div:first-child{grid-column:1/-1}
+.foot-badge{white-space:nowrap}
+.pilot-btn{flex:1 1 100%}
+}
+@media (max-width:374px){.hero-card .cv-terms dd{font-size:13px}}
+@media (max-width:340px){.dvp-v-k{display:none}.head-cta{padding:0 10px;font-size:12px}.navmenu summary{padding:0 10px}}
 </style>
 </head>
 <body>
@@ -478,11 +543,19 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 48px; align-items: center;">
 <div class="cv-dvp dvp2" style="display: flex; flex-direction: column; gap: 16px; align-items: stretch;">
 <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;"><span class="cv-eyebrow">Delivery versus payment</span><span style="font-family: var(--font-mono); font-size: 12px; color: var(--ink-subtle);">Both sides settle together</span></div>
-<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;">
+<div class="dvp-nodes" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;">
 <div class="dvp-node">
 <div style="display: flex; align-items: center; gap: 10px;"><img class="dvp-ic" src="assets/812fc77d3facc9b3c8e0685455108585.png" alt="" aria-hidden="true"><b style="font-size: 16px;">Borrower</b></div>
 <div class="dvp-row"><span>tBENJI</span><span class="cv-num">1,001.00 → <b style="color: var(--brand);">0</b></span></div>
 <div class="dvp-row"><span>USDC</span><span class="cv-num">0 → <b style="color: var(--primary);">970.00</b></span></div>
+</div>
+<div class="dvp-v" role="img" aria-label="Atomic swap: 1,001 tBENJI moves from the borrower to escrow while 970 USDC moves from escrow to the borrower, inside one Stellar transaction">
+<div class="dvp-v-cap"><img src="assets/4362e68fc3e6a80a57ae69d938b96f93.png" alt=""><span>One Stellar transaction</span></div>
+<div class="dvp-v-legs">
+<div class="dvp-v-leg dvp-v-leg--down"><span class="dvp-v-chip"><img src="assets/4c484d34decb4ba865784df22a4689c2.png" alt="">1,001 tBENJI</span><span class="dvp-v-k">collateral</span></div>
+<div class="dvp-v-leg dvp-v-leg--up"><span class="dvp-v-chip"><img src="assets/f90ee3148f6c028bd6038770f6e42ebd.png" alt="">970 USDC</span><span class="dvp-v-k">cash</span></div>
+</div>
+<div class="dvp-v-foot">both sides settle, or neither does</div>
 </div>
 <div class="dvp-node">
 <div style="display: flex; align-items: center; gap: 10px;"><img class="dvp-ic" src="assets/c99abc346111e87e7bf1c8fbc9a27dc7.png" alt="" aria-hidden="true"><b style="font-size: 16px;">Caravel escrow</b></div>
@@ -634,7 +707,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <label for="email3" style="font-size: 14px; font-weight: 500; color: #efe7da;">Work email</label>
 <div style="display: flex; flex-wrap: wrap; gap: 12px;">
 <input id="email3" type="email" placeholder="name@fund.com" style="flex: 1 1 220px; min-width: 0; height: 48px; padding: 0 14px; border: 1px solid #857562; background: #16120f; color: #efe7da; font: 400 15px var(--font-sans);">
-<button type="button" class="cv-btn" style="height: 48px; padding: 0 22px; background: #fbf8f1; color: #2b211d; border-color: #fbf8f1; box-shadow: 4px 4px 0 -1px #16120f, 4px 4px 0 0 #fbf8f1;">Request pilot access</button>
+<button type="button" class="cv-btn pilot-btn" style="height: 48px; padding: 0 22px; background: #fbf8f1; color: #2b211d; border-color: #fbf8f1; box-shadow: 4px 4px 0 -1px #16120f, 4px 4px 0 0 #fbf8f1;">Request pilot access</button>
 </div>
 <a href="#top" style="color: #a6bec4; font-size: 14px;">Or try the testnet demo</a>
 </form>
@@ -667,11 +740,11 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 </section>
 
 <footer class="site-foot" aria-label="Site footer" style="background: var(--ink); color: #d6ccbe; border-top: 4px double #b8913f;">
-<div class="wrap" style="padding-top: 64px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(150px, 1fr)); gap: 40px;">
+<div class="wrap foot-grid" style="padding-top: 64px; padding-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(150px, 1fr)); gap: 40px;">
 <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0;">
 <img src="assets/626df8e05b68b37cc37013ab02455d50.svg" alt="Caravel" style="height: 44px; width: auto; align-self: flex-start; filter: brightness(0) invert(0.92) sepia(0.2);">
 <p style="margin: 0; font-size: 15px; line-height: 1.6; max-width: 36ch;">Fixed-rate, fixed-term USD loans secured by tokenized Treasury funds, settled on Stellar.</p>
-<span style="display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; border: 1px solid #6b5d4c;"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #8db57f;"></span>Testnet · contracts not yet audited</span>
+<span class="foot-badge" style="display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; border: 1px solid #6b5d4c;"><span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #8db57f;"></span>Testnet · contracts not yet audited</span>
 </div>
 <nav aria-label="Product"><h2 class="foot-h">Product</h2><ul class="foot-l"><li><a href="#launch">Testnet demo</a></li><li><a href="#how">How it works</a></li><li><a href="#collateral">Collateral</a></li><li><a href="#risk">Risk</a></li><li><a href="#faq">FAQ</a></li><li><a href="#launch">Mainnet pilot</a></li></ul></nav>
 <nav aria-label="Developers"><h2 class="foot-h">Developers</h2><ul class="foot-l"><li><a href="https://github.com/rcusans-code/Caravel">Source on GitHub</a></li><li><a href="https://github.com/rcusans-code/Caravel#readme">Documentation</a></li><li><a href="https://github.com/rcusans-code/Caravel#testnet-deployment">Contract addresses</a></li><li><a href="https://github.com/rcusans-code/Caravel#risks-and-limits">Risks and limits</a></li></ul></nav>
