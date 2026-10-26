@@ -38,6 +38,7 @@ export const networks = {
   }
 } as const
 
+
 /**
  * SEP-40 asset identifier. Same name and shape as Reflector's and as
  * `caravel_repo::Asset`, so the XDR is identical.
@@ -46,8 +47,14 @@ export type Asset = {tag: "Stellar", values: readonly [string]} | {tag: "Other",
 
 export const Errors = {
   1: {message:"InvalidPrice"},
-  2: {message:"InvalidConfig"}
+  2: {message:"InvalidConfig"},
+  /**
+   * `accept_admin` with no handover pending (Raven R6, UA-06).
+   */
+  3: {message:"NoPendingAdmin"}
 }
+
+
 
 
 /**
@@ -58,6 +65,7 @@ export interface PriceData {
   price: i128;
   timestamp: u64;
 }
+
 
 export interface Client {
   /**
@@ -104,6 +112,10 @@ export interface Client {
 
   /**
    * Construct and simulate a set_admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Step 1 of 2 (Raven R6, UA-06): the current admin names `new_admin`,
+   * which takes over only when it calls `accept_admin`, so a mistyped
+   * address cannot lose the feed. Replaces any pending name; naming the
+   * current admin cancels the handover. Emits `AdminProposed`.
    */
   set_admin: ({new_admin}: {new_admin: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
@@ -123,6 +135,19 @@ export interface Client {
    * `resolution` slot of ledger time.
    */
   resolution: (options?: MethodOptions) => Promise<AssembledTransaction<u32>>
+
+  /**
+   * Construct and simulate a accept_admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Step 2 of 2: the pending admin (it signs) becomes the admin. Emits
+   * `AdminSet`. `NoPendingAdmin` if `set_admin` named nobody.
+   */
+  accept_admin: (options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+
+  /**
+   * Construct and simulate a pending_admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * The admin named by `set_admin` and not yet accepted, if any.
+   */
+  pending_admin: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
 
 }
 export class Client extends ContractClient {
@@ -145,8 +170,11 @@ export class Client extends ContractClient {
   constructor(public readonly options: ContractClientOptions) {
     super(
       new ContractSpec([ "AAAAAgAAAHJTRVAtNDAgYXNzZXQgaWRlbnRpZmllci4gU2FtZSBuYW1lIGFuZCBzaGFwZSBhcyBSZWZsZWN0b3IncyBhbmQgYXMKYGNhcmF2ZWxfcmVwbzo6QXNzZXRgLCBzbyB0aGUgWERSIGlzIGlkZW50aWNhbC4AAAAAAAAAAAAFQXNzZXQAAAAAAAACAAAAAQAAAAAAAAAHU3RlbGxhcgAAAAABAAAAEwAAAAEAAAAAAAAABU90aGVyAAAAAAAAAQAAABE=",
-        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAAAgAAAAAAAAAMSW52YWxpZFByaWNlAAAAAQAAAAAAAAANSW52YWxpZENvbmZpZwAAAAAAAAI=",
+        "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAAAwAAAAAAAAAMSW52YWxpZFByaWNlAAAAAQAAAAAAAAANSW52YWxpZENvbmZpZwAAAAAAAAIAAAA6YGFjY2VwdF9hZG1pbmAgd2l0aCBubyBoYW5kb3ZlciBwZW5kaW5nIChSYXZlbiBSNiwgVUEtMDYpLgAAAAAADk5vUGVuZGluZ0FkbWluAAAAAAAD",
+        "AAAABQAAADFUaGUgYWRtaW4gcm9sZSBtb3ZlZCB0byBgYWRtaW5gIChgYWNjZXB0X2FkbWluYCkuAAAAAAAAAAAAAAhBZG1pblNldAAAAAEAAAAJYWRtaW5fc2V0AAAAAAAAAgAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAQAAAAAAAAAIcHJldmlvdXMAAAATAAAAAAAAAAI=",
+        "AAAABQAAAIxBIHByaWNlIHJlY29yZCB3YXMgd3JpdHRlbiAoUmF2ZW4gUjYpOiBldmVyeSBgc2V0X3ByaWNlYCwgc28gaW5kZXhlcnMKYW5kIHRoZSByZXBvJ3MgbW9uaXRvcnMgc2VlIGVhY2ggcHVzaCwgaW5jbHVkaW5nIGluLXNsb3QgcmVwbGFjZW1lbnRzLgAAAAAAAAAIUHJpY2VTZXQAAAABAAAACXByaWNlX3NldAAAAAAAAAMAAAAAAAAABWFzc2V0AAAAAAAH0AAAAAVBc3NldAAAAAAAAAEAAAAAAAAABXByaWNlAAAAAAAACwAAAAAAAAAAAAAACXRpbWVzdGFtcAAAAAAAAAYAAAAAAAAAAg==",
         "AAAAAQAAAFRTRVAtNDAgcHJpY2UgcmVjb3JkLiBgcHJpY2VgIGlzIHNjYWxlZCBieSBgZGVjaW1hbHMoKWA7IGB0aW1lc3RhbXBgIGlzCnVuaXggc2Vjb25kcy4AAAAAAAAACVByaWNlRGF0YQAAAAAAAAIAAAAAAAAABXByaWNlAAAAAAAACwAAAAAAAAAJdGltZXN0YW1wAAAAAAAABg==",
+        "AAAABQAAAGdUaGUgY3VycmVudCBhZG1pbiBuYW1lZCBgcGVuZGluZ2AgYXMgaXRzIHN1Y2Nlc3NvciAoYHNldF9hZG1pbmApOyBpdAp0YWtlcyBvdmVyIG9ubHkgb24gYGFjY2VwdF9hZG1pbmAuAAAAAAAAAAANQWRtaW5Qcm9wb3NlZAAAAAAAAAEAAAAOYWRtaW5fcHJvcG9zZWQAAAAAAAEAAAAAAAAAB3BlbmRpbmcAAAAAEwAAAAEAAAAC",
         "AAAAAAAAADZBc3NldCB0aGF0IHByaWNlcyBhcmUgcXVvdGVkIGluIChlLmcuIGBPdGhlcigiVVNEIilgKS4AAAAAAARiYXNlAAAAAAAAAAEAAAfQAAAABUFzc2V0AAAA",
         "AAAAAAAAAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAABM=",
         "AAAAAAAAAHhQcmljZSBpbiBlZmZlY3QgYXQgYHRpbWVzdGFtcGA6IHRoZSBuZXdlc3QgcmVjb3JkIHdpdGgKYHJlY29yZC50aW1lc3RhbXAgPD0gdGltZXN0YW1wYC4gYE5vbmVgIGlmIG5vIHJlY29yZCBpcyB0aGF0IG9sZC4AAAAFcHJpY2UAAAAAAAACAAAAAAAAAAVhc3NldAAAAAAAB9AAAAAFQXNzZXQAAAAAAAAAAAAACXRpbWVzdGFtcAAAAAAAAAYAAAABAAAD6AAAB9AAAAAJUHJpY2VEYXRhAAAA",
@@ -154,10 +182,12 @@ export class Client extends ContractClient {
         "AAAAAAAAAHhVcCB0byBgcmVjb3Jkc2AgbW9zdCByZWNlbnQgcHJpY2VzLCBuZXdlc3QgZmlyc3QgKFJlZmxlY3RvciBvcmRlcikuCmBOb25lYCBpZiB0aGUgYXNzZXQgaGFzIG5vIHByaWNlcyBvciBgcmVjb3JkcyA9PSAwYC4AAAAGcHJpY2VzAAAAAAACAAAAAAAAAAVhc3NldAAAAAAAB9AAAAAFQXNzZXQAAAAAAAAAAAAAB3JlY29yZHMAAAAABAAAAAEAAAPoAAAD6gAAB9AAAAAJUHJpY2VEYXRhAAAA",
         "AAAAAAAAAAAAAAAIZGVjaW1hbHMAAAAAAAAAAQAAAAQ=",
         "AAAAAAAAADtNb3N0IHJlY2VudCBwcmljZSwgb3IgYE5vbmVgIGlmIHRoZSBhc3NldCB3YXMgbmV2ZXIgcHJpY2VkLgAAAAAJbGFzdHByaWNlAAAAAAAAAQAAAAAAAAAFYXNzZXQAAAAAAAfQAAAABUFzc2V0AAAAAAAAAQAAA+gAAAfQAAAACVByaWNlRGF0YQAAAA==",
-        "AAAAAAAAAAAAAAAJc2V0X2FkbWluAAAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAA=",
+        "AAAAAAAAAQRTdGVwIDEgb2YgMiAoUmF2ZW4gUjYsIFVBLTA2KTogdGhlIGN1cnJlbnQgYWRtaW4gbmFtZXMgYG5ld19hZG1pbmAsCndoaWNoIHRha2VzIG92ZXIgb25seSB3aGVuIGl0IGNhbGxzIGBhY2NlcHRfYWRtaW5gLCBzbyBhIG1pc3R5cGVkCmFkZHJlc3MgY2Fubm90IGxvc2UgdGhlIGZlZWQuIFJlcGxhY2VzIGFueSBwZW5kaW5nIG5hbWU7IG5hbWluZyB0aGUKY3VycmVudCBhZG1pbiBjYW5jZWxzIHRoZSBoYW5kb3Zlci4gRW1pdHMgYEFkbWluUHJvcG9zZWRgLgAAAAlzZXRfYWRtaW4AAAAAAAABAAAAAAAAAAluZXdfYWRtaW4AAAAAAAATAAAAAA==",
         "AAAAAAAAATBSZWNvcmQgYHByaWNlYCBmb3IgYGFzc2V0YCBhdCB0aGUgY3VycmVudCBsZWRnZXIgdGltZS4gV2l0aGluIHRoZQpuZXdlc3QgcmVjb3JkJ3MgYHJlc29sdXRpb25gIHNsb3QgaXQgcmVwbGFjZXMgdGhhdCByZWNvcmQgKHByaWNlIGFuZAp0aW1lc3RhbXApOyBpbiBhIGxhdGVyIHNsb3QgaXQgYXBwZW5kcyBhIHJlY29yZC4gT2xkZXIgcmVjb3JkcyBhcmUKbmV2ZXIgdG91Y2hlZCwgc28gcmUtcG9zdGluZyBjYW5ub3QgZmx1c2ggdGhlIGhpc3RvcnkgZmFzdGVyIHRoYW4gb25lCnJlY29yZCBwZXIgYHJlc29sdXRpb25gIHNlY29uZHMuAAAACXNldF9wcmljZQAAAAAAAAIAAAAAAAAABWFzc2V0AAAAAAAH0AAAAAVBc3NldAAAAAAAAAAAAAAFcHJpY2UAAAAAAAALAAAAAQAAA+kAAAACAAAAAw==",
         "AAAAAAAAAGZVcGRhdGUgaW50ZXJ2YWwgaW4gc2Vjb25kczogdGhlIGhpc3Rvcnkga2VlcHMgYXQgbW9zdCBvbmUgcmVjb3JkIHBlcgpgcmVzb2x1dGlvbmAgc2xvdCBvZiBsZWRnZXIgdGltZS4AAAAAAApyZXNvbHV0aW9uAAAAAAAAAAAAAQAAAAQ=",
-        "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAQAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAEYmFzZQAAB9AAAAAFQXNzZXQAAAAAAAAAAAAACGRlY2ltYWxzAAAABAAAAAAAAAAKcmVzb2x1dGlvbgAAAAAABAAAAAA=" ]),
+        "AAAAAAAAAHxTdGVwIDIgb2YgMjogdGhlIHBlbmRpbmcgYWRtaW4gKGl0IHNpZ25zKSBiZWNvbWVzIHRoZSBhZG1pbi4gRW1pdHMKYEFkbWluU2V0YC4gYE5vUGVuZGluZ0FkbWluYCBpZiBgc2V0X2FkbWluYCBuYW1lZCBub2JvZHkuAAAADGFjY2VwdF9hZG1pbgAAAAAAAAABAAAD6QAAAAIAAAAD",
+        "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAQAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAEYmFzZQAAB9AAAAAFQXNzZXQAAAAAAAAAAAAACGRlY2ltYWxzAAAABAAAAAAAAAAKcmVzb2x1dGlvbgAAAAAABAAAAAA=",
+        "AAAAAAAAADxUaGUgYWRtaW4gbmFtZWQgYnkgYHNldF9hZG1pbmAgYW5kIG5vdCB5ZXQgYWNjZXB0ZWQsIGlmIGFueS4AAAANcGVuZGluZ19hZG1pbgAAAAAAAAAAAAABAAAD6AAAABM=" ]),
       options
     )
   }
@@ -171,6 +201,8 @@ export class Client extends ContractClient {
         lastprice: this.txFromJSON<Option<PriceData>>,
         set_admin: this.txFromJSON<null>,
         set_price: this.txFromJSON<Result<void>>,
-        resolution: this.txFromJSON<u32>
+        resolution: this.txFromJSON<u32>,
+        accept_admin: this.txFromJSON<Result<void>>,
+        pending_admin: this.txFromJSON<Option<string>>
   }
 }

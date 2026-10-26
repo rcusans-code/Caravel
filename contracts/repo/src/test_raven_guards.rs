@@ -24,8 +24,8 @@ use soroban_sdk::{
 use crate::{
     oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
     test::{
-        demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, SETTLE_SECS, TERM_SECS,
-        TRIGGER_BPS, UNIT, WIDE_BAND_BPS,
+        demo_config, whitelist, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, SETTLE_SECS,
+        TERM_SECS, TRIGGER_BPS, UNIT, WIDE_BAND_BPS,
     },
     Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Config, Error, Status,
 };
@@ -96,7 +96,7 @@ fn world<'a>() -> W<'a> {
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
     let tbenji_admin = StellarAssetClient::new(&env, &tbenji);
     tbenji_admin.mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    whitelist(&env, &repo, &liquidator);
     W {
         usdc: TokenClient::new(&env, &usdc),
         usdc_admin,
@@ -271,7 +271,7 @@ fn oz01b_admin_tightening_cannot_force_a_sale() {
     let id = w.take(false);
     w.repo
         .set_asset(&w.tbenji, &asset_cfg(&w.tbenji, 9_000, 8_999));
-    w.repo.set_liquidator(&admin, &true);
+    whitelist(&w.env, &w.repo, &admin);
     w.nav(NOW + 1);
     assert_eq!(w.repo.check_margin(&id), Status::Open);
     w.nav(NOW + 1 + WINDOW_SECS + 1);

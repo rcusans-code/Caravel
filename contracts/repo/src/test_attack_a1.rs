@@ -96,7 +96,7 @@ fn world<'a>() -> W<'a> {
     usdc_admin.mint(&lender, &LENDER_START);
     usdc_admin.mint(&borrower, &(100 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
 
     W {
@@ -432,7 +432,7 @@ fn spiko_world<'a>() -> S<'a> {
     let lender = Address::generate(&env);
     let borrower = Address::generate(&env);
     let liquidator = Address::generate(&env);
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     for who in [&repo.address, &borrower, &liquidator] {
         safo.set_whitelisted(who, &true);
     }

@@ -170,7 +170,7 @@ fn world<'a>(p: Profile, mode: Mode) -> W<'a> {
     usdc_admin.mint(&borrower, &(100 * UNIT));
     usdc_admin.mint(&liquidator, &(5_000 * UNIT));
     StellarAssetClient::new(&env, &token).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
 
     let mut w = W {
         usdc: TokenClient::new(&env, &usdc),

@@ -31,6 +31,7 @@ export const Err = {
   NothingToClaim: 24,
   NoNavOutage: 25, // claim_in_kind before the NAV-outage window opens (nav-outage)
   ProposalExpired: 26, // execute_* after the proposal's window closed (#41)
+  VetoSpent: 27, // guardian cancel of a change it already vetoed once (Raven R6)
 } as const;
 
 const ERR_NAME = new Map<number, string>(Object.entries(Err).map(([name, code]) => [code, name]));

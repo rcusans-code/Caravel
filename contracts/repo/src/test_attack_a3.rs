@@ -100,7 +100,7 @@ fn world<'a>(trigger: u32) -> W<'a> {
     usdc_admin.mint(&borrower, &(100 * UNIT));
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
 
     W {
         usdc: TokenClient::new(&env, &usdc),
