@@ -29,6 +29,7 @@ export const Err = {
   NoProposal: 22,
   NotAdminOrGuardian: 23,
   NothingToClaim: 24,
+  NoNavOutage: 25, // claim_in_kind before the NAV-outage window opens (nav-outage)
 } as const;
 
 const ERR_NAME = new Map<number, string>(Object.entries(Err).map(([name, code]) => [code, name]));
