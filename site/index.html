@@ -510,12 +510,12 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div style="display: flex; flex-direction: column; gap: 14px;">
 <h3 style="margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 32px; line-height: 1.12;">If the borrower doesn't repay, the lender is paid first.</h3>
 <p style="margin: 0; font-size: 16px; color: var(--ink-muted);">In full while NAV stays within the haircut; if NAV falls further before the sale, the lender takes all the proceeds and a Shortfall is recorded on-chain.</p>
-<p style="margin: 0; font-size: 16px; color: var(--ink-muted);">Example: a 970 USDC loan for 7 days at 5.20%. The amount due, <span class="cv-num" style="color: var(--ink);">970.97</span>, is fixed on day one. With a 3% haircut, the borrower posts <span class="cv-num" style="color: var(--ink);">1,001</span> fund shares (tBENJI). If the loan isn't repaid, an approved buyer purchases the collateral at 2% below NAV, for <span class="cv-num" style="color: var(--ink);">980.98</span>. The lender receives 970.97, less the protocol fee on interest, and about 10 USDC goes back to the borrower.</p>
+<p style="margin: 0; font-size: 16px; color: var(--ink-muted);">Example: a 970 USDC loan for 7 days at 5.20%. The amount due, <span class="cv-num" style="color: var(--ink);">970.97</span>, is fixed on day one. With a 3% haircut, the borrower posts <span class="cv-num" style="color: var(--ink);">1,001</span> fund shares (tBENJI). If the loan isn't repaid, an approved buyer purchases the collateral at 1% below NAV, for <span class="cv-num" style="color: var(--ink);">990.99</span>. The lender receives 970.97, less the protocol fee on interest, and about 20 USDC goes back to the borrower.</p>
 <table class="cv-table" style="font-size: 14px; max-width: 460px;"><tbody>
 <tr><td>Amount due, fixed at start</td><td class="r cv-num">970.97</td></tr>
-<tr><td>Collateral sold (NAV −2%)</td><td class="r cv-num">980.98</td></tr>
+<tr><td>Collateral sold (NAV −1%)</td><td class="r cv-num">990.99</td></tr>
 <tr><td>Paid to lender</td><td class="r cv-num" style="color: var(--primary);">970.97</td></tr>
-<tr><td>Returned to borrower</td><td class="r cv-num">10.01</td></tr>
+<tr><td>Returned to borrower</td><td class="r cv-num">20.02</td></tr>
 </tbody></table>
 </div>
 </div>
@@ -600,7 +600,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <h2 id="risk-h" class="h2" style="color: #fbf8f1;"><span class="w" style="--i: 0;">The</span> <span class="w" style="--i: 1;">risks,</span> <span class="w" style="--i: 2;">in</span> <span class="w" style="--i: 3;">plain</span> <span class="w" style="--i: 4;">terms.</span></h2>
 </div>
 <ul style="margin: 0; padding: 0; list-style: none; display: grid; gap: 18px; font-size: 16px; color: #d6ccbe;">
-<li style="border: 1px solid #6b5d4c; padding: 18px 20px; background: rgba(31,25,21,0.7); box-shadow: 4px 4px 0 -1px #1f1915, 4px 4px 0 0 #6b5d4c;"><b style="color: #fbf8f1; font-weight: 600;">A narrow safety margin.</b> A 3% haircut minus the 2% buyer discount leaves about 1% of cushion. If the fund's NAV falls further before the collateral is sold, the lender absorbs the shortfall, and it is recorded publicly. A reserve funded by fees is planned.</li>
+<li style="border: 1px solid #6b5d4c; padding: 18px 20px; background: rgba(31,25,21,0.7); box-shadow: 4px 4px 0 -1px #1f1915, 4px 4px 0 0 #6b5d4c;"><b style="color: #fbf8f1; font-weight: 600;">A narrow safety margin.</b> A 3% haircut minus the 1% buyer discount leaves about 2% of cushion. If the fund's NAV falls further before the collateral is sold, the lender absorbs the shortfall, and it is recorded publicly. A reserve funded by fees is planned.</li>
 <li style="border: 1px solid #6b5d4c; padding: 18px 20px; background: rgba(31,25,21,0.7); box-shadow: 4px 4px 0 -1px #1f1915, 4px 4px 0 0 #6b5d4c;"><b style="color: #fbf8f1; font-weight: 600;">Outdated prices pause risky actions, never repayment.</b> Each asset has its own freshness window, about four days for funds that don't price at weekends, so a Friday price still counts on Sunday. Past it, new loans, margin calls and collateral sales pause. Repaying and adding collateral always work.</li>
 <li style="border: 1px solid #6b5d4c; padding: 18px 20px; background: rgba(31,25,21,0.7); box-shadow: 4px 4px 0 -1px #1f1915, 4px 4px 0 0 #6b5d4c;"><b style="color: #fbf8f1; font-weight: 600;">Issuers keep control.</b> On mainnet, each issuer must approve the escrow and every buyer, and some issuers can pause or change their tokens.</li>
 <li style="border: 1px solid #6b5d4c; padding: 18px 20px; background: rgba(31,25,21,0.7); box-shadow: 4px 4px 0 -1px #1f1915, 4px 4px 0 0 #6b5d4c;"><b style="color: #fbf8f1; font-weight: 600;">Built for active capital.</b> The loan rate is higher than the fund's own yield, so it suits firms that can earn more with the cash elsewhere.</li>
@@ -639,7 +639,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <details class="faq-item"><summary><span>What is a haircut?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A safety discount on the collateral. With a 3% haircut, $1,000 of fund shares supports a loan of up to $970. It protects the lender if the fund's price falls.</p></details>
 <details class="faq-item"><summary><span>What happens if the fund's price falls?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>The fund's price (NAV) is checked every day. If the collateral is no longer worth enough, the borrower gets a margin call and time to add collateral or repay. Nothing is sold automatically in that moment.</p></details>
 <details class="faq-item"><summary><span>What happens at weekends, when funds don't publish a price?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Each asset has its own price freshness window, about four days for funds that publish NAV on business days only. A Friday price still counts on Saturday and Sunday, so loans can open and margin can be checked as usual. Repaying and adding collateral never wait for a price.</p></details>
-<details class="faq-item"><summary><span>What if the borrower doesn't repay?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>After maturity and a short grace period, an issuer-approved buyer purchases the collateral at 2% below NAV. The lender is paid the amount due, and anything left over goes back to the borrower.</p></details>
+<details class="faq-item"><summary><span>What if the borrower doesn't repay?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>After maturity and a short grace period, an issuer-approved buyer purchases the collateral at 1% below NAV. The lender is paid the amount due, and anything left over goes back to the borrower.</p></details>
 <details class="faq-item"><summary><span>Why a fixed term instead of an open-ended loan?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Tokenized funds price once a day and redeem on business days. A fixed term with daily checks matches how these assets actually work, and both sides know the rate and the amount due from day one.</p></details>
 <details class="faq-item"><summary><span>Who can borrow and lend?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Fund tokens can only be held by wallets the issuer has approved, so borrowers are already approved holders. Lenders provide USDC and are always repaid in USDC. On mainnet, issuers also approve the escrow and the buyers.</p></details>
 <details class="faq-item"><summary><span>What does it cost?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>Borrowers pay the fixed interest set in the offer. Caravel takes a protocol fee from that interest. Network fees on Stellar are under a cent per transaction.</p></details>
@@ -695,7 +695,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
   function set(k, v) { document.querySelectorAll('[data-live="' + k + '"]').forEach(function (el) { el.textContent = v; }); }
   function tick() {
     var nav = navs[Math.floor(t / 8) % navs.length];
-    var cover = (1001 * nav * 0.98) / debt * 100;
+    var cover = (1001 * nav * 0.99) / debt * 100;
     var fill = Math.max(4, Math.min(96, 50 + (cover - 100) * 12));
     var left = Math.max(0, start - t);
     set("nav", nav.toFixed(4));
