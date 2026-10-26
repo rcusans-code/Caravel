@@ -27,7 +27,7 @@ Done on main and live on testnet:
 | An issuer can authorize a contract as a holder of an AUTH_REQUIRED asset (BENJI model) | `spikes/auth/README.md` |
 | Mock feed history cannot be backdated or rewritten | `contracts/oracle/src/lib.rs:10-15`; `DECISIONS.md:46` (#40) |
 | Production risk numbers chosen from NAV and FX history and competitor terms | `DECISIONS.md:41` (#35); `docs/config-tuning.md` |
-| 309 contract tests pass (18 oracle, 280 repo, 11 Spiko-style token) | `cargo test --workspace` on this commit, the same count as README |
+| 311 contract tests pass (18 oracle, 282 repo, 11 Spiko-style token) | `cargo test --workspace` on this commit, the same count as README |
 | Live testnet deployment on real Circle testnet USDC | `README.md:280-288`; `deployments/testnet.json` |
 
 ## External work
