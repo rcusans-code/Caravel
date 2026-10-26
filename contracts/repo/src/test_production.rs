@@ -46,7 +46,7 @@ fn instance_ttl_after_view(env: &Env, config: Config) -> u32 {
 /// Holds in every build: the production values themselves.
 #[test]
 fn production_profile_values() {
-    assert!(PRODUCTION_MIN_TIMELOCK_SECS >= DAY_SECS);
+    const { assert!(PRODUCTION_MIN_TIMELOCK_SECS >= DAY_SECS) };
     assert_eq!(PROD_INSTANCE_BUMP, 30 * DAY_LEDGERS);
 }
 
