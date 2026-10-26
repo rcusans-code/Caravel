@@ -12,13 +12,11 @@ import type { Ctx } from "../ctx";
 
 export function AccountChip({ signer, onDisconnect }: { signer: Signer; onDisconnect: () => void }) {
   const role = roleOf(signer.address);
+  // The wallet name tags the address chip (one unit, so it never wraps away from it).
+  const label = `${signer.kind === "demo" ? `Demo ${signer.label}` : signer.label}${signer.kind === "wallet" && role ? ` · ${role}` : ""}`;
   return (
     <div className="cv-row app-account">
-      <span className="small app-muted">
-        {signer.kind === "demo" ? `Demo ${signer.label}` : signer.label}
-        {signer.kind === "wallet" && role ? ` · ${role}` : ""}
-      </span>
-      <TxHash kind="ACCOUNT" value={signer.address} />
+      <TxHash kind="ACCOUNT" tag={label} value={signer.address} />
       <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={onDisconnect}>
         Disconnect
       </button>
@@ -268,9 +266,10 @@ function ParkedCollateral({
   );
 }
 
+/** The connected wallet's balances, in the header left of the account chip. */
 export function BalanceFigures({ balances }: { balances: Balances | null }) {
   return (
-    <div className="app-status__group" aria-label="Balances">
+    <div className="app-bal" aria-label="Balances">
       <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : null} />
       <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : null} />
       <Figure
@@ -291,18 +290,19 @@ export function BalanceFigures({ balances }: { balances: Balances | null }) {
 
 function Figure({ label, value, hint }: { label: string; value: string | null; hint?: string }) {
   // null = first load: show a skeleton; afterwards flash the figure when it changes.
+  // A blocked asset (issuer approval) keeps its figure, marked; the reason is on hover and in the page alert.
   const ref = useFlash(value);
   return (
-    <span className="app-status__fig" aria-busy={value === null ? "true" : undefined} title={hint}>
-      <span>{label}</span>
+    <span className={`app-bal__fig${hint ? " is-warn" : ""}`} aria-busy={value === null ? "true" : undefined} title={hint}>
+      <span className="app-bal__label">{label}</span>
       {value === null ? (
-        <Skel w={70} h={14} />
+        <Skel w={64} h={13} />
       ) : (
         <b className="app-flashable" data-balance={label} ref={ref}>
           {value}
         </b>
       )}
-      {hint && <span className="cv-field__hint">{hint}</span>}
+      {hint && <span className="app-bal__warn" aria-label={hint}>!</span>}
     </span>
   );
 }

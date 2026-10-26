@@ -206,7 +206,8 @@ export function navBadge(h: NavHealth): { state: "on" | "stale" | "off"; word: s
   if (h.state === "stale") return { state: "stale", word: "Delayed", meta: "new loans paused" };
   if (h.state === "hold") return { state: "stale", word: "Price on hold", meta: "outside the NAV band" };
   if (h.state === "future") return { state: "stale", word: "Price on hold", meta: "dated ahead of the ledger" };
-  return { state: "on", word: "Live", meta: "fresh NAV" };
+  // "Live" already says fresh; the footer adds the age ("Live · 48 s ago").
+  return { state: "on", word: "Live", meta: "" };
 }
 
 /** u64::MAX turns the settle path off (AssetConfig.band_settle_secs). */

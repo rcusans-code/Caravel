@@ -4,7 +4,7 @@ import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, ORACLE_ID, REPO_ID, assetBySac, t
 import * as chain from "./chain";
 import type { AssetConfig, Balances, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo } from "./chain";
 import { explain } from "./errors";
-import { Alert, TxHash, type TxState } from "./ui";
+import { Alert, TxHash, hasTxSlot, type TxState } from "./ui";
 import { onPhase } from "./txphase";
 import { txHashOf } from "./txerror";
 import { collateralBlock, ledgerNow, navHealth, navHoldText, type BandCandidate, type PricePoint } from "./gates";
@@ -24,6 +24,7 @@ const isAdminNow = (signer: Signer | null, config: ProtocolConfig | null) =>
   !!(signer && config && signer.address === config.admin);
 /** Marketing landing page (site/), served at the root of the same Pages site; the app lives under /app/. */
 const LANDING_URL = "/";
+const SOURCE_URL = "https://github.com/rcusans-code/Caravel";
 
 export default function App() {
   const [signer, setSigner] = useState<Signer | null>(null);
@@ -52,6 +53,8 @@ export default function App() {
   // ClaimedInKind events by repo id (#38): null = not read yet (or the read failed), so closed cards say neither "sold" nor "in kind".
   const [inKind, setInKind] = useState<Map<string, InKindClaim> | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // The last market read failed (cleared by the next good one): views offer Retry instead of endless skeletons.
+  const [readError, setReadError] = useState(false);
   // Tab in the URL hash (route.ts, issue #37): read on load, followed on back/forward and hand edits.
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash).route);
   // restoreSession() has answered, so a reload on #admin is not bounced before the admin wallet is back.
@@ -100,8 +103,11 @@ export default function App() {
       setOffers(book.offers);
       setRepos(book.repos);
       setLoaded(true);
+      setReadError(false);
+      setFlash((f) => (f?.read ? null : f));
     } catch (e) {
-      setFlash({ tone: "error", title: "Could not read testnet", body: explain(e) });
+      setReadError(true);
+      setFlash({ tone: "error", title: "Could not read testnet", body: `${explain(e)} Retrying every 10 s.`, read: true });
     }
   }, []);
 
@@ -131,7 +137,7 @@ export default function App() {
         setConfig(c);
         setAssets(Object.fromEntries(COLLATERAL.map((t, i) => [t.sac, a[i]])));
       })
-      .catch((e) => setFlash({ tone: "error", title: "Could not read the repo contract", body: explain(e) }));
+      .catch((e) => setFlash({ tone: "error", title: "Could not read the repurchase agreement contract", body: explain(e) }));
     refreshMarket();
     const t = setInterval(refreshMarket, 10_000);
     const c = setInterval(() => setTick(nowSecs()), 1_000);
@@ -237,13 +243,19 @@ export default function App() {
       return out;
     } catch (e) {
       console.error(e);
-      setTx((t) => (t && t.key === key ? { ...t, failed: true } : t));
-      setTimeout(() => setTx((t) => (t && t.key === key && t.failed ? null : t)), 6000);
       const navAges = COLLATERAL.flatMap((t) => {
         const a = assets[t.sac];
         return a ? [{ code: t.code, secs: a.max_nav_age_secs }] : [];
       });
-      setFlash({ tone: "error", title, body: explain(e, navAges), hash: txHashOf(e) ?? submitted.current });
+      const error = { title, body: explain(e, navAges), hash: txHashOf(e) ?? submitted.current };
+      if (hasTxSlot(key)) {
+        // The button's own slot shows the failed step and the reason, until dismissed or the next write.
+        setTx((t) => ({ ...(t && t.key === key ? t : { key, step: 0 }), failed: true, error }));
+      } else {
+        setTx((t) => (t && t.key === key ? { ...t, failed: true } : t));
+        setTimeout(() => setTx((t) => (t && t.key === key && t.failed && !t.error ? null : t)), 6000);
+        setFlash({ tone: "error", ...error });
+      }
       return null;
     } finally {
       setBusy(null);
@@ -290,19 +302,41 @@ export default function App() {
     now,
     run,
     setFlash,
+    dismissTx: () => setTx(null),
     refreshAll,
     inKind,
+    readError: readError && !loaded,
+    retry: () => void refreshMarket(),
   };
+
+  const demoSwitch = DEMO_ENABLED && (
+    <div className="app-header__demo" role="group" aria-label="Demo account (testnet burner)">
+      <span className="app-header__demo-label">Demo as</span>
+      {DEMO_ROLES.map((r) => (
+        <button
+          key={r}
+          type="button"
+          className={`cv-btn cv-btn--secondary cv-btn--sm${signer?.role === r ? " is-active" : ""}`}
+          aria-pressed={signer?.role === r}
+          onClick={() => onDemo(r)}
+          data-role={r}
+        >
+          {r[0].toUpperCase() + r.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="app">
+      {/* Header: brand and network left; balances, notices and the account right. Phones stack the account and balances below. */}
       <header className="app-header">
-        <div className="app-wrap app-header__inner">
+        <div className={`app-wrap app-header__inner${signer ? " is-signed" : ""}${DEMO_ENABLED ? " has-demo" : ""}`}>
           <a href={LANDING_URL} className="app-brand" aria-label="Caravel home: landing page">
             <img src={lockup} alt="Caravel" height={44} />
           </a>
           <span className="caption app-net">Stellar testnet</span>
-          <div className="app-header__end">
+          {signer && <BalanceFigures balances={balances} />}
           {config && assets[COLLATERAL[0].sac] && <DemoInfo config={config} asset={assets[COLLATERAL[0].sac]!} />}
           <div className="app-header__account">
             {signer ? (
@@ -318,53 +352,11 @@ export default function App() {
               </button>
             )}
           </div>
-          </div>
+          {demoSwitch}
         </div>
       </header>
 
       <main className="app-wrap app-main">
-        <section
-          className={`cv-card app-status${DEMO_ENABLED ? "" : " app-status--public"}`}
-          aria-label={DEMO_ENABLED ? "Demo account, balances and NAV" : "Balances and NAV"}
-        >
-          {DEMO_ENABLED && (
-            <div className="app-status__group" role="group" aria-label="Demo account (testnet burner)">
-              <span className="app-status__label">Demo as</span>
-              {DEMO_ROLES.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={`cv-btn cv-btn--secondary cv-btn--sm${signer?.role === r ? " is-active" : ""}`}
-                  aria-pressed={signer?.role === r}
-                  onClick={() => onDemo(r)}
-                  data-role={r}
-                >
-                  {r[0].toUpperCase() + r.slice(1)}
-                </button>
-              ))}
-            </div>
-          )}
-          {signer ? (
-            <BalanceFigures balances={balances} />
-          ) : (
-            !DEMO_ENABLED && <span className="app-status__group small app-muted">Connect a wallet to see your balances.</span>
-          )}
-          {/* All NAV groups sit in one cluster (app-status__navs) so they stay together when the bar wraps. */}
-          <div className="app-status__navs">
-            {COLLATERAL.map((t) => (
-              <NavStatus
-                key={t.sac}
-                token={t}
-                nav={navs[t.sac] ?? null}
-                health={health(t.sac)}
-                hold={navHoldText(t.code, health(t.sac), assets[t.sac] ?? null)}
-                loaded={loaded}
-              />
-            ))}
-            <LiveFeedStatus live={live} now={now} />
-          </div>
-        </section>
-
         {COLLATERAL.map((t) => {
           const text = loaded ? navHoldText(t.code, health(t.sac), assets[t.sac] ?? null) : null;
           return text ? (
@@ -392,9 +384,16 @@ export default function App() {
             tone={flash.tone}
             title={flash.title}
             action={
-              <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={() => setFlash(null)}>
-                Dismiss
-              </button>
+              <span className="cv-row app-flash__actions">
+                {flash.read && (
+                  <button type="button" className="cv-btn cv-btn--secondary cv-btn--sm" onClick={() => void refreshMarket()}>
+                    Retry
+                  </button>
+                )}
+                <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={() => setFlash(null)}>
+                  Dismiss
+                </button>
+              </span>
             }
           >
             {flash.body}
@@ -446,11 +445,36 @@ export default function App() {
         {tab === "admin" && isAdmin && <AdminView ctx={ctx} isAdmin={isAdmin} />}
       </main>
 
-      <footer className="app-wrap app-footer small">
-        <span>
-          Repo <TxHash kind="CONTRACT" value={REPO_ID} /> Oracle <TxHash kind="CONTRACT" value={ORACLE_ID} />
-        </span>
-        <span className="app-motto">Per aspera ad Stellar</span>
+      {/* Footer: market state (NAV per collateral, the reference feed), then the contracts, source and motto. */}
+      <footer className="app-footer small">
+        <div className="app-wrap">
+          <div className="app-footer__inner">
+            <div className="app-footer__state" aria-label="Prices">
+              {COLLATERAL.map((t) => (
+                <NavStatus
+                  key={t.sac}
+                  token={t}
+                  nav={navs[t.sac] ?? null}
+                  health={health(t.sac)}
+                  hold={navHoldText(t.code, health(t.sac), assets[t.sac] ?? null)}
+                  loaded={loaded}
+                  failed={readError && !loaded}
+                />
+              ))}
+              <LiveFeedStatus live={live} now={now} />
+            </div>
+            <div className="app-footer__meta">
+              <span className="app-footer__links">
+                <TxHash kind="CONTRACT" tag="Repurchase agreement contract" value={REPO_ID} />
+                <TxHash kind="CONTRACT" tag="Oracle" value={ORACLE_ID} />
+                <a href={SOURCE_URL} target="_blank" rel="noopener" className="app-footer__src">
+                  Source code
+                </a>
+              </span>
+              <span className="app-motto">Per aspera ad Stellar</span>
+            </div>
+          </div>
+        </div>
       </footer>
     </div>
   );

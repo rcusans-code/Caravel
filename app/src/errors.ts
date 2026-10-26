@@ -100,6 +100,6 @@ export function explain(err: unknown, navAges: { code: string; secs: number | bi
   if (/Account not found|account not found|MissingValue.*account/i.test(msg))
     return "The account does not exist on testnet. Fund it with friendbot first.";
   if (/Failed to fetch|NetworkError|ECONN|timeout/i.test(msg))
-    return "Testnet RPC did not answer. Check your connection and try again.";
+    return "Testnet RPC did not answer. Check your connection.";
   return msg.split("\n")[0].slice(0, 280) || "The transaction failed.";
 }

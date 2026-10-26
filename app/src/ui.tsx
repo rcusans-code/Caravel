@@ -7,10 +7,11 @@ import { short } from "./format";
 type HashKind = "TX" | "CONTRACT" | "ACCOUNT";
 const explorerPath: Record<HashKind, string> = { TX: "tx", CONTRACT: "contract", ACCOUNT: "account" };
 
-export function TxHash({ kind, value, link = true }: { kind: HashKind; value: string; link?: boolean }) {
+/** `tag` replaces the kind word in the chip ("Oracle" instead of "CONTRACT"), so a label never sits beside a second one. */
+export function TxHash({ kind, value, link = true, tag }: { kind: HashKind; value: string; link?: boolean; tag?: string }) {
   const body = (
     <>
-      <span className="cv-hash__tag">{kind}</span>
+      <span className="cv-hash__tag">{tag ?? kind}</span>
       {short(value)}
     </>
   );
@@ -34,15 +35,32 @@ export function TxHash({ kind, value, link = true }: { kind: HashKind; value: st
   );
 }
 
-const pill: Record<Status, [string, string]> = {
+/** What the pill says: the contract status, or for a live agreement past maturity the time-derived state. */
+export type DisplayState = Status | "Matured" | "Overdue";
+
+const pill: Record<DisplayState, [string, string]> = {
   Open: ["open", "Open"],
   MarginCall: ["margin", "Margin call"],
+  Matured: ["featured", "Matured"],
+  Overdue: ["margin", "Overdue"],
   Repaid: ["repaid", "Repaid"],
   Defaulted: ["defaulted", "Defaulted"],
   Liquidated: ["defaulted", "Liquidated"],
 };
 
-export function StatusPill({ status }: { status: Status }) {
+/**
+ * An Open agreement stays Open on-chain until a keeper or the lender acts: past maturity it reads
+ * "Matured" (grace running) and past maturity + grace "Overdue" (strict, as the contract), so the
+ * pill never says Open beside "Grace over". A margin call keeps its own word.
+ */
+export function displayState(r: { status: Status; maturity_ts: bigint }, graceSecs: bigint, now: number): DisplayState {
+  if (r.status !== "Open") return r.status;
+  if (now > Number(r.maturity_ts + graceSecs)) return "Overdue";
+  if (now >= Number(r.maturity_ts)) return "Matured";
+  return "Open";
+}
+
+export function StatusPill({ status }: { status: DisplayState }) {
   const [cls, word] = pill[status];
   return <span className={`cv-pill cv-pill--${cls}`}>{word}</span>;
 }
@@ -158,12 +176,63 @@ export function Live({ state, word, meta }: { state: "on" | "stale" | "off"; wor
 
 /** Transaction steps, in order. Index = TxState.step. */
 export const TX_STEPS = ["Prepare", "Sign", "Submit", "Settled"] as const;
+export interface TxError {
+  title: string;
+  body: string;
+  hash?: string | null;
+}
 export interface TxState {
   key: string;
   step: number;
   failed: boolean;
   /** Set as soon as the network accepts the tx (Raven DW-02), before it is confirmed. */
   hash?: string;
+  /** Why the write failed, shown under its own button (TxSlot) until dismissed or the next write. */
+  error?: TxError;
+}
+
+// Action keys that have a TxSlot on screen right now: their errors render there, not in the page flash.
+const slots = new Map<string, number>();
+export const hasTxSlot = (key: string) => (slots.get(key) ?? 0) > 0;
+
+/**
+ * Progress and, on failure, the error of the write with one of `keys`, right under the button that
+ * started it. While mounted it claims those keys, so App's runner skips the page-top flash for them.
+ */
+export function TxSlot({ tx, keys, demo, dismiss }: { tx: TxState | null; keys: string[]; demo: boolean; dismiss: () => void }) {
+  const id = keys.join("|");
+  useEffect(() => {
+    const ks = id.split("|");
+    for (const k of ks) slots.set(k, (slots.get(k) ?? 0) + 1);
+    return () => {
+      for (const k of ks) slots.set(k, (slots.get(k) ?? 1) - 1);
+    };
+  }, [id]);
+  if (!tx || !keys.includes(tx.key)) return null;
+  return (
+    <>
+      <TxProgress tx={tx} demo={demo} />
+      {tx.error && (
+        <Alert
+          tone="error"
+          title={tx.error.title}
+          action={
+            <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={dismiss}>
+              Dismiss
+            </button>
+          }
+        >
+          {tx.error.body}
+          {tx.error.hash && (
+            <>
+              {" "}
+              <TxHash kind="TX" value={tx.error.hash} />
+            </>
+          )}
+        </Alert>
+      )}
+    </>
+  );
 }
 
 /** TxProgress: Prepare → Sign → Submit → Settled, with the active step carrying the tide. */
