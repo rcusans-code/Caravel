@@ -316,7 +316,7 @@ a:hover { color: var(--primary-hover); }
 .app-tip__pop { display: none; position: absolute; left: -8px; top: calc(100% + 8px); z-index: 30; width: min(280px, calc(100vw - 48px)); padding: 10px 12px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--line-strong); color: var(--ink); font: 400 13px/18px var(--font-sans); text-transform: none; letter-spacing: 0; white-space: normal; text-align: left; }
 .app-tip:hover .app-tip__pop, .app-tip:focus-within .app-tip__pop { display: block; }
 /* Take panel: tighter. */
-.app-take__body { gap: var(--space-4); align-items: center; }
+.app-take__body { gap: var(--space-4); align-items: start; }
 .app-take__terms { gap: var(--space-2); }
 .app-take__head { display: flex; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; }
 /* Hero numbers: the offer fills its column. */
