@@ -722,3 +722,73 @@ fn real_oracle_daily_resolution_settles_in_a_day() {
     assert_eq!(check(dropped + DAY - 1), Err(Error::NavOutOfBand));
     assert_eq!(check(dropped + DAY).map(|(p, _)| p), Ok(ONE * 98 / 100));
 }
+
+// --- corridor jump (QA t_28264b5d) --------------------------------------------
+
+/// `level × (1 + 145 bps)`: inside the 150 bps band of a 1.00 level.
+const CORRIDOR_HIGH: i128 = ONE * 10_145 / 10_000;
+/// `level × (1 − 144 bps)`: inside the band of 1.00, ~2.85% below the high.
+const CORRIDOR_LOW: i128 = ONE * 9_856 / 10_000;
+
+/// A level that has stood far longer than the settle time (the steady state:
+/// the keeper notes every tick and drift stays inside the band of the old
+/// level), a full window at one edge of the corridor, then one push to the
+/// other edge. Both pushes are inside the band of the level, but the jump is
+/// about twice the band against every record: it must not pass in the same
+/// ledger (or the next tick) in either mode.
+fn corridor_world<'a>(p: Profile, mode: Mode, edge: i128) -> W<'a> {
+    let mut w = world(p, mode);
+    for _ in 0..NAV_BAND_RECORDS {
+        w.post(edge);
+    }
+    if mode == Mode::After {
+        let level = w.repo.band_candidate(&w.token).unwrap();
+        assert_eq!(level.price, ONE);
+        assert!(w.now() - level.since >= p.settle);
+    }
+    w
+}
+
+#[test]
+fn corridor_jump_is_not_accepted_instantly() {
+    for p in [DAILY, DEMO] {
+        for mode in [Mode::Before, Mode::After] {
+            let mut w = corridor_world(p, mode, CORRIDOR_HIGH);
+            let repo_id = w.take();
+            assert_eq!(w.margin(repo_id), Ok(Status::Open));
+            w.post(CORRIDOR_LOW);
+            assert_eq!(
+                w.margin(repo_id),
+                Err(Error::NavOutOfBand),
+                "{} {:?}: -2.85% push accepted at once",
+                p.name,
+                mode
+            );
+            // Next tick, same price: 18 records at the high still in view.
+            w.post(CORRIDOR_LOW);
+            assert_eq!(w.margin(repo_id), Err(Error::NavOutOfBand));
+        }
+    }
+}
+
+/// Upward variant: a full window at the low edge, one push to the high edge;
+/// `take_offer` must refuse it (it would over-value the collateral).
+#[test]
+fn corridor_jump_up_is_refused_by_take_offer() {
+    for p in [DAILY, DEMO] {
+        for mode in [Mode::Before, Mode::After] {
+            let mut w = corridor_world(p, mode, CORRIDOR_LOW);
+            w.post(CORRIDOR_HIGH);
+            let id = w
+                .repo
+                .create_offer(&w.lender, &w.token, &PRINCIPAL, &APR_BPS, &w.p.term);
+            assert_eq!(
+                w.repo.try_take_offer(&w.borrower, &id, &false),
+                Err(Ok(Error::NavOutOfBand)),
+                "{} {:?}: +2.93% push accepted at once",
+                p.name,
+                mode
+            );
+        }
+    }
+}

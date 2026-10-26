@@ -115,7 +115,9 @@ pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, 
 /// `asset.band_settle_secs` of ledger time, a latest NAV within the band of
 /// the candidate passes, provided every record stamped at or after the
 /// candidate's `since` is within the band of it too (the level held
-/// throughout). Floor and ceiling still apply first.
+/// throughout) and the latest NAV is within the band of each of those
+/// records as well (no ~2× band jump across the level in one push).
+/// Floor and ceiling still apply first.
 ///
 /// With a single record (no history) only `nav_floor` / `nav_ceiling` apply.
 /// Records `<= 0` are skipped (no price, not a reference). Reads storage
@@ -171,7 +173,12 @@ fn level_holds(
 }
 
 /// The settle path of [`check_band`]: the repo's candidate for this asset
-/// has stood `band_settle_secs` and the level still holds.
+/// has stood `band_settle_secs`, the level still holds, and `price` is
+/// within the band of every positive record stamped at or after the
+/// candidate's `since` (the window rule, restricted to the records since
+/// the level started). Without the last check, a NAV that drifted to
+/// `level × (1 + band)` could be followed by one push to
+/// `level × (1 − band)`, about twice the band, accepted in the same ledger.
 fn settled(
     env: &Env,
     asset: &AssetConfig,
@@ -182,8 +189,20 @@ fn settled(
         return Ok(false);
     };
     let stood = env.ledger().timestamp().saturating_sub(candidate.since);
-    Ok(stood >= asset.band_settle_secs
-        && level_holds(&candidate, price, history, asset.max_nav_move_bps)?)
+    if stood < asset.band_settle_secs
+        || !level_holds(&candidate, price, history, asset.max_nav_move_bps)?
+    {
+        return Ok(false);
+    }
+    for record in history.iter() {
+        if record.timestamp >= candidate.since
+            && record.price > 0
+            && !within_bps(price, record.price, asset.max_nav_move_bps)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Starts or keeps the band settle clock for `asset` (side band-real-move).
