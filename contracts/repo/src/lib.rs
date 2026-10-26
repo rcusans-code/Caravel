@@ -288,14 +288,16 @@ impl CaravelRepo {
     // --- admin, timelocked (#33): every change that adds risk -------------
 
     /// Queues `config` for `asset`; `execute_asset` applies it from the
-    /// returned `eta` (now + `timelock_secs`). A new proposal replaces the
-    /// pending one and restarts the clock.
+    /// returned `eta` (now + `timelock_secs`) until `eta + timelock_secs`,
+    /// then it expires. A new proposal replaces the pending one (with a
+    /// `ProposalCancelled` for it) and restarts the clock.
     pub fn propose_asset(env: Env, asset: Address, config: AssetConfig) -> Result<u64, Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         validate_asset(&protocol, &config)?;
         let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
+        drop_pending_asset(&env, &asset, &protocol.admin);
         storage::write_pending_asset(
             &env,
             &asset,
@@ -321,14 +323,14 @@ impl CaravelRepo {
         Ok(eta)
     }
 
-    /// Applies the pending asset change once its `eta` has passed.
+    /// Applies the pending asset change from its `eta` until
+    /// `eta + timelock_secs` (`TimelockNotDone` before, `ProposalExpired`
+    /// after).
     pub fn execute_asset(env: Env, asset: Address) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         let pending = storage::read_pending_asset(&env, &asset).ok_or(Error::NoProposal)?;
-        if env.ledger().timestamp() < pending.eta {
-            return Err(Error::TimelockNotDone);
-        }
+        check_window(&env, &protocol, pending.eta)?;
         validate_asset(&protocol, &pending.config)?;
         storage::extend_instance(&env);
         storage::remove_pending_asset(&env, &asset);
@@ -353,7 +355,9 @@ impl CaravelRepo {
     }
 
     /// Queues pause switches for `asset` (typically clearing one);
-    /// `execute_pause` applies them from the returned `eta`.
+    /// `execute_pause` applies them from the returned `eta` until
+    /// `eta + timelock_secs`. Replacing a pending one works as in
+    /// `propose_asset`.
     pub fn propose_pause(env: Env, asset: Address, pause: Pause) -> Result<u64, Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
@@ -362,6 +366,7 @@ impl CaravelRepo {
         }
         let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
+        drop_pending_pause(&env, &asset, &protocol.admin);
         storage::write_pending_pause(
             &env,
             &asset,
@@ -380,13 +385,12 @@ impl CaravelRepo {
         Ok(eta)
     }
 
-    /// Applies the pending pause change once its `eta` has passed.
+    /// Applies the pending pause change in the same window as `execute_asset`.
     pub fn execute_pause(env: Env, asset: Address) -> Result<(), Error> {
-        storage::read_config(&env).admin.require_auth();
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
         let pending = storage::read_pending_pause(&env, &asset).ok_or(Error::NoProposal)?;
-        if env.ledger().timestamp() < pending.eta {
-            return Err(Error::TimelockNotDone);
-        }
+        check_window(&env, &protocol, pending.eta)?;
         storage::extend_instance(&env);
         storage::remove_pending_pause(&env, &asset);
         events::ProposalExecuted {
@@ -1083,6 +1087,21 @@ fn eta(env: &Env, protocol: &Config) -> Result<u64, Error> {
         .timestamp()
         .checked_add(protocol.timelock_secs)
         .ok_or(Error::MathOverflow)
+}
+
+/// A proposal executes from `eta` through `eta + timelock_secs` inclusive,
+/// so a queued loosening cannot sit unused and fire long after the change
+/// was announced (issue #41). Expiry is derived, not stored: `PendingAsset`
+/// / `PendingPause` and `Config` keep their shape.
+fn check_window(env: &Env, protocol: &Config, eta: u64) -> Result<(), Error> {
+    let now = env.ledger().timestamp();
+    if now < eta {
+        return Err(Error::TimelockNotDone);
+    }
+    if now > eta.saturating_add(protocol.timelock_secs) {
+        return Err(Error::ProposalExpired);
+    }
+    Ok(())
 }
 
 fn admin_or_guardian(env: &Env, caller: &Address) -> Result<(), Error> {
