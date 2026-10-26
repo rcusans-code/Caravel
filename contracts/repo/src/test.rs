@@ -746,6 +746,50 @@ fn offer_can_be_taken_only_once() {
 }
 
 #[test]
+fn take_offer_twice_is_rejected() {
+    // A taken offer is removed: neither the same borrower nor a second one
+    // can take it again, and the failed takes move no funds and open no repo.
+    let w = world();
+    let offer_id = w.offer();
+    let repo_id = w.repo.take_offer(&w.borrower, &offer_id, &false);
+    assert_eq!(repo_id, 1);
+
+    let other = Address::generate(&w.env);
+    StellarAssetClient::new(&w.env, &w.tbenji).mint(&other, &(2_000 * UNIT));
+
+    let snapshot = |w: &World, other: &Address| {
+        (
+            w.usdc.balance(&w.lender),
+            w.usdc.balance(&w.borrower),
+            w.usdc.balance(other),
+            w.usdc.balance(&w.repo.address),
+            w.tbenji_token.balance(&w.borrower),
+            w.tbenji_token.balance(other),
+            w.tbenji_token.balance(&w.repo.address),
+            w.repo.open_debt(&w.tbenji),
+        )
+    };
+    let before = snapshot(&w, &other);
+
+    assert_eq!(
+        w.repo.try_take_offer(&w.borrower, &offer_id, &false),
+        Err(Ok(Error::OfferNotFound))
+    );
+    assert_eq!(
+        w.repo.try_take_offer(&other, &offer_id, &false),
+        Err(Ok(Error::OfferNotFound))
+    );
+
+    assert_eq!(snapshot(&w, &other), before);
+    assert_eq!(before.3, 0);
+    assert_eq!(before.6, TAKE_COLLATERAL);
+    assert_eq!(before.7, DEBT);
+    // Still exactly one repo, unchanged, and it belongs to the first borrower.
+    assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
+    assert_eq!(w.repo.try_repo(&2), Err(Ok(Error::RepoNotFound)));
+}
+
+#[test]
 fn retiering_asset_does_not_touch_live_repo() {
     // DECISIONS.md #19
     let w = world();
