@@ -4,7 +4,7 @@ As of 26 Oct 2026, main at `e370b9a`. Every `file:line` below refers to that com
 
 Caravel runs end to end on Stellar testnet. The contract logic a mainnet beta needs is mostly built and tested. What is left splits in two:
 
-- **External work** (issuers, a price feed, an audit, legal, liquidators). This is the long pole: only outside parties can finish it, and none of it has started.
+- **External work** (issuers, a price feed, an audit, legal, liquidators). This is the long pole: only outside parties can finish it, and no issuer, auditor or legal adviser has been engaged yet.
 - **Code and ops work** (keys, the deploy profile, keepers, dividends, accounting). The team can do all of it. Several fixes are written and in review, but not on main yet.
 
 Status values: **done** = main proves it (cited); **partial** = the part main proves is cited, the rest is open; **in progress** = a fix is written and in review, not on main; **open** = not started. Owners: team, issuer, auditor, legal. Sizes: **small** = a script or config change, no contract change; **medium** = a contract or keeper change with tests and a redeploy; **large** = waits on an outside party.
@@ -27,7 +27,7 @@ Done on main and live on testnet:
 | An issuer can authorize a contract as a holder of an AUTH_REQUIRED asset (BENJI model) | `spikes/auth/README.md` |
 | Mock feed history cannot be backdated or rewritten | `contracts/oracle/src/lib.rs:10-15`; `DECISIONS.md:46` (#40) |
 | Production risk numbers chosen from NAV and FX history and competitor terms | `DECISIONS.md:41` (#35); `docs/config-tuning.md` |
-| 241 contract tests | `README.md:194` |
+| 281 contract tests pass (15 oracle, 256 repo, 10 Spiko-style token) | `cargo test --workspace` on this commit; the count in `README.md:194` (241) predates the latest tests |
 | Live testnet deployment on real Circle testnet USDC | `README.md:280-288`; `deployments/testnet.json` |
 
 ## External work
