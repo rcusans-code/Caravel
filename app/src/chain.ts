@@ -19,6 +19,7 @@ import {
   USDC,
 } from "./config";
 import { horizonToUnits } from "./format";
+import { padAssembled } from "./resources";
 import type { Signer } from "./wallet";
 import {
   SIGN_TIMEOUT_MS,
@@ -249,7 +250,9 @@ async function submit<R>(tx: contract.AssembledTransaction<R>): Promise<TxOutcom
   if (sim && rpc.Api.isSimulationError(sim as rpc.Api.SimulateTransactionResponse)) {
     throw new Error((sim as rpc.Api.SimulateTransactionErrorResponse).error);
   }
-  const sent = await tx.signAndSend();
+  // Declare padded resources, not the simulated ones: simulation under-counts
+  // a try_ sub-call that writes and rolls back (resources.ts).
+  const sent = await padAssembled(tx).signAndSend();
   const hash = sent.getTransactionResponse?.txHash ?? sent.sendTransactionResponse?.hash ?? "";
   return { hash, value: sent.result };
 }
