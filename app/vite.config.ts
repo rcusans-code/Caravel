@@ -40,6 +40,12 @@ export default defineConfig(({ command, mode, isPreview }) => {
         admin: rootEnv.ADMIN_SECRET,
       }
     : null;
+  // Live SEP-40 feed shown next to the mock NAV, reference only (public ids).
+  // Same LIVE_ORACLE_ID / LIVE_ORACLE_ASSET the keeper's `npm run feeds` reads
+  // from the repo-root .env; a shell variable overrides it for one build.
+  const liveOracle = process.env.LIVE_ORACLE_ID ?? rootEnv.LIVE_ORACLE_ID ?? "";
+  const liveAsset = process.env.LIVE_ORACLE_ASSET ?? rootEnv.LIVE_ORACLE_ASSET ?? "";
+  const liveFeed = liveOracle && liveAsset ? { oracle: liveOracle, asset: liveAsset } : null;
 
   return {
     // The public site serves the landing (site/) at / and the app under /app/ (see scripts/build-pages.mjs).
@@ -48,6 +54,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
     plugins: [bindingsUseAppSdk(), react()],
     define: {
       __DEMO_KEYS__: JSON.stringify(demoKeys),
+      __LIVE_FEED__: JSON.stringify(liveFeed),
       global: "globalThis",
     },
     server: {

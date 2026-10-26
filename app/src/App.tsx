@@ -6,6 +6,7 @@ import {
   DEMO_ENABLED,
   TSAFO,
   DEMO_ROLES,
+  LIVE_FEED,
   ORACLE_ID,
   REPO_ID,
   assetBySac,
@@ -14,7 +15,7 @@ import {
   type Token,
 } from "./config";
 import * as chain from "./chain";
-import type { AssetConfig, Balances, Nav, Offer, ProtocolConfig, Repo, Status } from "./chain";
+import type { AssetConfig, Balances, FeedReading, Nav, Offer, ProtocolConfig, Repo, Status } from "./chain";
 import { explain } from "./errors";
 import {
   BPS,
@@ -32,6 +33,7 @@ import {
   requiredCollateral,
 } from "./format";
 import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, useFlash, type Leg, type Stamp, type TxState } from "./ui";
+import { assetLabel } from "./sep40";
 import { onPhase } from "./txphase";
 import { trustlineUi } from "./trustline";
 import { ACCESS_LIMITED, autoRepayHint, collateralBlock, fmtDuration } from "./gates";
@@ -61,6 +63,8 @@ export default function App() {
   // Per collateral token (config.ts COLLATERAL), keyed by token contract id.
   const [assets, setAssets] = useState<Record<string, AssetConfig | null>>({});
   const [navs, setNavs] = useState<Record<string, Nav | null>>({});
+  // Live SEP-40 reference feed: undefined = loading, null = feed has no price, Error = read failed.
+  const [live, setLive] = useState<FeedReading | null | Error | undefined>(undefined);
   // Debt of live repos per collateral token, counted against max_open_debt (#32).
   const [openDebt, setOpenDebt] = useState<Record<string, bigint | null>>({});
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -84,6 +88,8 @@ export default function App() {
 
   // --- data ---------------------------------------------------------------------
   const refreshMarket = useCallback(async () => {
+    // Read apart from the book: a failing reference feed must not flag testnet as down.
+    chain.getLiveFeed().then(setLive, (e) => setLive(e instanceof Error ? e : new Error(String(e))));
     try {
       const [n, book, d] = await Promise.all([
         Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))),
@@ -297,6 +303,7 @@ export default function App() {
             {COLLATERAL.map((t) => (
               <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} now={now} stale={stale(t.sac)} loaded={loaded} />
             ))}
+            <LiveFeedStatus live={live} now={now} />
           </div>
         </section>
 
@@ -681,6 +688,38 @@ function NavStatus({
           {age !== null && <span className="cv-field__hint">{fmtAge(age)}</span>}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The live SEP-40 feed (config LIVE_FEED), next to the mock NAV for comparison.
+ * The contract prices collateral off the mock only. On a failed read it says so;
+ * it never shows a blank or a stand-in number.
+ */
+function LiveFeedStatus({ live, now }: { live: FeedReading | null | Error | undefined; now: number }) {
+  const reading = live && !(live instanceof Error) ? live : null;
+  const navRef = useFlash(reading ? String(reading.price) : null, navDir);
+  const asset = LIVE_FEED ? assetLabel(LIVE_FEED.asset) : "";
+  return (
+    <div className="app-status__group" aria-label="Live feed, reference only, not used by the contract" aria-busy={live === undefined ? "true" : undefined}>
+      <span className="app-status__label">Live feed{asset && ` ${asset}`}</span>
+      {live === undefined ? (
+        <Skel w={90} h={14} />
+      ) : reading ? (
+        <>
+          <span className="app-status__nav app-flashable" data-testid="live-feed" ref={navRef}>
+            {fmtNav(reading.price, reading.decimals)}
+          </span>
+          <span className="cv-field__hint">{fmtAge(now - reading.timestamp)}</span>
+        </>
+      ) : (
+        <span title={live instanceof Error ? live.message : "The feed has no price for this asset"}>
+          <Live state="off" word="Live feed unavailable" />
+        </span>
+      )}
+      <span className="cv-field__hint">(reference only, not used by the contract)</span>
+      {LIVE_FEED && <TxHash kind="CONTRACT" value={LIVE_FEED.oracle} />}
     </div>
   );
 }

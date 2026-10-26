@@ -33,11 +33,13 @@ export function parseAmount(input: string, decimals = TOKEN_DECIMALS): bigint | 
 /** Horizon balance string ("12.3400000") to units. */
 export const horizonToUnits = (b: string) => parseAmount(b) ?? 0n;
 
+/** Feed price scaled by `decimals` → "1.0012" (`dp` places, half-up). Works for any feed scale, including decimals < dp. */
 export function fmtNav(price: bigint, decimals: number, dp = 4): string {
-  const scale = 10n ** BigInt(decimals - dp);
-  const r = (price + scale / 2n) / scale;
+  const neg = price < 0n;
+  const abs = neg ? -price : price;
+  const r = decimals >= dp ? (abs + 10n ** BigInt(decimals - dp) / 2n) / 10n ** BigInt(decimals - dp) : abs * 10n ** BigInt(dp - decimals);
   const s = r.toString().padStart(dp + 1, "0");
-  return s.slice(0, s.length - dp) + "." + s.slice(s.length - dp);
+  return (neg ? "-" : "") + s.slice(0, s.length - dp) + (dp ? "." + s.slice(s.length - dp) : "");
 }
 
 export const fmtPct = (bps: number | bigint, dp = 2) => (Number(bps) / 100).toFixed(dp) + "%";
