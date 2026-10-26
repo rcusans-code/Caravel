@@ -16,10 +16,13 @@ use soroban_sdk::{
 
 use crate::{
     inkind::NAV_OUTAGE_DAYS,
-    oracle::mock::{setup_mock_oracle, MockOracleClient, ONE},
+    oracle::{
+        mock::{setup_mock_oracle, MockOracleClient, ONE},
+        MAX_FUTURE_SKEW_SECS,
+    },
     test::{
-        demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, TRIGGER_BPS, UNIT,
-        WIDE_BAND_BPS,
+        demo_config, APR_BPS, DEMO_NAV_AGE, NOW, NO_CAP, PRINCIPAL, TERM_SECS, TIMELOCK,
+        TRIGGER_BPS, UNIT, WIDE_BAND_BPS,
     },
     Asset, AssetConfig, CaravelRepo, CaravelRepoClient, Error, Pause, Status,
 };
@@ -400,4 +403,115 @@ fn outage_reposting_feeder_hides_outage() {
     );
     w.repo.liquidate(&w.liquidator, &repo_id);
     assert_eq!(w.repo.repo(&repo_id).status, Status::Liquidated);
+}
+
+// --- feed with no usable timestamp (QA residual of t_ca1e5c8a) ---------------
+
+/// Fallback clock start for a repo taken at NOW: `maturity_ts + grace_secs`.
+const FALLBACK_START: u64 = NOW + TERM_SECS + GRACE_SECS;
+/// Last second the claim is still closed on the fallback clock:
+/// 1_480 + 180 + 7 × 60 = 2_080 (later than `OUTAGE_EDGE`, 1_600).
+const FALLBACK_EDGE: u64 = FALLBACK_START + DEMO_NAV_AGE + NAV_OUTAGE_DAYS * DAY_SECS;
+/// A real ledger time (~Jan 2027) stamped in milliseconds: the ledger never
+/// reaches it, so the record stays future-dated.
+const MS_STAMP: u64 = 1_800_000_000 * 1_000;
+
+impl W<'_> {
+    /// Closed at the fallback edge second (and so at `OUTAGE_EDGE + 1`,
+    /// where a usable NAV posted at NOW would already have opened it), open
+    /// one second later; the lender takes the whole collateral.
+    fn claim_opens_on_fallback_clock(&self, repo_id: u64) {
+        for ts in [OUTAGE_EDGE + 1, FALLBACK_EDGE] {
+            self.t(ts);
+            assert_eq!(
+                self.repo.try_claim_in_kind(&repo_id),
+                Err(Ok(Error::NoNavOutage))
+            );
+        }
+        // The sale stays blocked: `fresh_nav` rejects this feed.
+        assert_eq!(
+            self.repo.try_liquidate(&self.liquidator, &repo_id),
+            Err(Ok(Error::NoPrice))
+        );
+        self.t(FALLBACK_EDGE + 1);
+        assert_eq!(self.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
+        assert_eq!(self.repo.repo(&repo_id).status, Status::Liquidated);
+        assert_eq!(self.repo.open_debt(&self.tbenji), 0);
+        assert_eq!(self.tbenji_token.balance(&self.lender), TAKE_COLLATERAL);
+    }
+}
+
+/// QA repro: after the default the feeder posts one NAV stamped in
+/// milliseconds (a real time × 1000) and stops. The real oracle keeps history
+/// sorted, so that record stays `lastprice` for good and `liquidate` fails
+/// `NoPrice`. Before the fix the in-kind claim counted it as fresh and
+/// never opened (QA: 30 real days later still `NoNavOutage`); now the clock
+/// runs from maturity + grace.
+#[test]
+fn outage_future_dated_nav_opens_on_maturity_clock() {
+    let (w, repo_id) = w_defaulted();
+    w.set_nav(ONE, MS_STAMP);
+    w.claim_opens_on_fallback_clock(repo_id);
+}
+
+/// Same with 30 real days gone: the claim is open, not locked for ever.
+#[test]
+fn outage_future_dated_nav_claim_open_after_30_real_days() {
+    let (w, repo_id) = w_defaulted();
+    w.set_nav(ONE, MS_STAMP);
+    w.t(MATURED + 30 * 86_400);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::NoPrice))
+    );
+    assert_eq!(w.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
+    assert_eq!(w.repo.open_debt(&w.tbenji), 0);
+}
+
+/// Never-priced asset: after the default the admin re-points the asset to a
+/// feed key that has no price (timelocked, #33). `lastprice` is `None`, so
+/// there is no timestamp at all; the clock runs from maturity + grace.
+#[test]
+fn outage_never_priced_asset_opens_on_maturity_clock() {
+    let (w, repo_id) = w_defaulted();
+    let mut cfg = w.repo.asset(&w.tbenji);
+    cfg.oracle_asset = Asset::Stellar(Address::generate(&w.env));
+    w.repo.propose_asset(&w.tbenji, &cfg);
+    w.t(MATURED + TIMELOCK);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.repo.asset(&w.tbenji).oracle_asset, cfg.oracle_asset);
+    w.claim_opens_on_fallback_clock(repo_id);
+}
+
+/// A price `<= 0` is no price too (`oracle::nav` = `NoPrice`).
+#[test]
+fn outage_zero_price_opens_on_maturity_clock() {
+    let (w, repo_id) = w_defaulted();
+    w.set_nav(0, MATURED);
+    w.claim_opens_on_fallback_clock(repo_id);
+}
+
+/// The skew boundary matches `fresh_nav`: a NAV dated exactly
+/// `MAX_FUTURE_SKEW_SECS` ahead is usable (age 0, claim closed); one second
+/// further is not, and the maturity clock, already past, opens the claim.
+#[test]
+fn outage_future_skew_edge_matches_fresh_nav() {
+    let open_at = FALLBACK_EDGE + 1;
+
+    let (w, repo_id) = w_defaulted();
+    w.t(open_at);
+    w.set_nav(ONE, open_at + MAX_FUTURE_SKEW_SECS);
+    assert_eq!(
+        w.repo.try_claim_in_kind(&repo_id),
+        Err(Ok(Error::NoNavOutage))
+    );
+
+    let (w, repo_id) = w_defaulted();
+    w.t(open_at);
+    w.set_nav(ONE, open_at + MAX_FUTURE_SKEW_SECS + 1);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::NoPrice))
+    );
+    assert_eq!(w.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
 }

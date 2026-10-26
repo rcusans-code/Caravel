@@ -20,20 +20,38 @@ use crate::{
 /// production 96 h age, the fallback opens 11 days after the last print.
 pub const NAV_OUTAGE_DAYS: u64 = 7;
 
-/// `Ok(nav_timestamp)` once the asset's latest NAV is older than
-/// `max_nav_age_secs + NAV_OUTAGE_DAYS × day_secs`. A stale-but-not-yet
-/// long enough or fresh NAV is `NoNavOutage`. A feed with no price (or a
-/// price `<= 0`) is `NoPrice`: there is no timestamp to start the clock from.
-/// A future-dated price counts as fresh. Reads the price only, never the band.
-pub fn nav_outage(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<u64, Error> {
-    let (_, _, timestamp) = oracle::nav(env, cfg, asset)?;
-    let opens_after = timestamp
+/// `Ok(clock_start)` once `now > clock_start + max_nav_age_secs +
+/// NAV_OUTAGE_DAYS × day_secs`, else `NoNavOutage`. Reads the price only,
+/// never the band.
+///
+/// `clock_start` is the latest NAV's timestamp when the feed gives a usable
+/// one. When it does not, it is `fallback_start` (the caller passes the
+/// repo's `maturity_ts + grace_secs`): a feed with no price (or a price
+/// `<= 0`), or a price dated more than [`oracle::MAX_FUTURE_SKEW_SECS`]
+/// ahead, which `fresh_nav` rejects as `NoPrice` for ever (the real oracle
+/// keeps history sorted, so a future-dated record stays `lastprice`). A
+/// price up to the skew ahead counts as fresh, as in `fresh_nav`.
+pub fn nav_outage(
+    env: &Env,
+    cfg: &Config,
+    asset: &AssetConfig,
+    fallback_start: u64,
+) -> Result<u64, Error> {
+    let now = env.ledger().timestamp();
+    let clock_start = match oracle::nav(env, cfg, asset) {
+        Ok((_, _, timestamp)) if timestamp <= now.saturating_add(oracle::MAX_FUTURE_SKEW_SECS) => {
+            timestamp
+        }
+        Ok(_) | Err(Error::NoPrice) => fallback_start,
+        Err(e) => return Err(e),
+    };
+    let opens_after = clock_start
         .saturating_add(asset.max_nav_age_secs)
         .saturating_add(NAV_OUTAGE_DAYS.saturating_mul(cfg.day_secs));
-    if env.ledger().timestamp() <= opens_after {
+    if now <= opens_after {
         return Err(Error::NoNavOutage);
     }
-    Ok(timestamp)
+    Ok(clock_start)
 }
 
 /// Pushes `amount` of collateral `asset` the contract holds to `to`, or
