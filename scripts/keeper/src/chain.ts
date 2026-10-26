@@ -21,6 +21,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { errName, txFailReason } from "./errors.js";
 import { padWrites } from "./headroom.js";
+import { padTransaction } from "./padding.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const ENV_FILE = process.env.ENV_FILE ?? path.join(ROOT, ".env");
@@ -152,9 +153,11 @@ async function invokeOnce(
   rpcAnswered();
   if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
   // Simulation under-counts write bytes when a token try_call is rolled back
-  // (parked payout, failed auto-repay pull): send with headroom (headroom.ts).
+  // (parked payout, failed auto-repay pull): send with headroom (headroom.ts),
+  // then the general resource padding (padding.ts).
   if (rpc.Api.isSimulationSuccess(sim) && !NO_PAD) sim.transactionData = new SorobanDataBuilder(padWrites(sim.transactionData.build()));
-  const prepared = rpc.assembleTransaction(tx, sim).build();
+  const assembled = rpc.assembleTransaction(tx, sim).build();
+  const prepared = NO_PAD ? assembled : padTransaction(assembled);
   prepared.sign(signer);
   const sent = await server.sendTransaction(prepared);
   rpcAnswered();
