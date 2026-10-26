@@ -171,8 +171,11 @@ set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
 # ADMIN above MIN_ADMIN_XLM by merging a friendbot-funded throwaway account
 # into it (+~10k XLM), the same trick scripts/deploy.sh uses.
 MIN_ADMIN_XLM="${MIN_ADMIN_XLM:-3000}"
+HORIZON_TIMEOUT="${HORIZON_TIMEOUT:-10}"   # s per Horizon request: a hung Horizon must not stall the loop (Raven D-02)
+TOPUP_TIMEOUT="${TOPUP_TIMEOUT:-60}"       # s per friendbot / merge CLI call (outside the 20 s `cli` cap: friendbot is slow)
+slow_cli() { timeout -k 5 "$TOPUP_TIMEOUT" "$STELLAR" "$@"; }
 xlm_balance() {
-  curl -fsS "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$1" | python3 -c \
+  curl -fsS --max-time "${HORIZON_TIMEOUT:-10}" "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$1" | python3 -c \
     'import json,sys; print(int(float(next(b["balance"] for b in json.load(sys.stdin)["balances"] if b["asset_type"]=="native"))))'
 }
 top_up() {
@@ -181,13 +184,13 @@ top_up() {
   (( bal >= MIN_ADMIN_XLM )) && return 0
   gas="caravel-gas-keeper-$$"
   log "admin has $bal XLM < $MIN_ADMIN_XLM, merging a friendbot account in"
-  if "$STELLAR" keys generate "$gas" --fund --overwrite >/dev/null 2>&1 \
-     && "$STELLAR" tx new account-merge -q --source-account "$gas" --account "$ADMIN_ADDRESS" >/dev/null 2>&1; then
+  if slow_cli keys generate "$gas" --fund --overwrite >/dev/null 2>&1 \
+     && slow_cli tx new account-merge -q --source-account "$gas" --account "$ADMIN_ADDRESS" >/dev/null 2>&1; then
     log "admin now $(xlm_balance "$ADMIN_ADDRESS") XLM"
   else
-    log "WARN: XLM top-up failed (friendbot down?)"
+    log "WARN: XLM top-up failed (friendbot down or timed out after ${TOPUP_TIMEOUT}s?)"
   fi
-  "$STELLAR" keys rm "$gas" >/dev/null 2>&1 || true
+  slow_cli keys rm "$gas" >/dev/null 2>&1 || true
 }
 
 [[ -f "$ENV_FILE" ]] || { log "missing $ENV_FILE"; exit 1; }

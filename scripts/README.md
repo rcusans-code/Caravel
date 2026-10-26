@@ -93,7 +93,7 @@ It reads keys and `ORACLE_ID` from `~/.local/lib/caravel/.env` (the unit's `ENV_
 
 **Jump refusal (keeper-launder).** Re-posting is what would turn one bad push into an accepted price: 20 re-posts fill the contract's 20-record band window (#31), so `check_band` passes, and push the pre-jump price out of the keeper's `prices(asset, 20)` history. So `nav-keeper.sh` never re-posts a price more than `NAV_JUMP_ACK_BPS` (1000, the keeper's needs-ack class, below) away from the last price it posted, unless that exact price is in `NAV_JUMP_ACK` (no spaces: the script sources `.env`) or pinned with `NAV` / `SAFO_NAV`. It logs `tBENJI NOT re-posting 50000000000000: 5000 bps from the last posted 100000000000000 …` every round, sends an `ALERT` on the first refused round and every 20th, and lets the price go stale: after `max_nav_age_secs` the contract refuses takes, margin calls, missed-call defaults and liquidations; repay and top-up still work. Fix it the same way as for the keeper: push the corrected price (runbook below, it is re-posted at once), or ack the price if it is real. Moves up to 10% (the Admin slider's 0.90–1.10) are re-posted as before; the keeper's 180 s jump hold covers them. The last posted price per asset is kept in `NAV_KEEPER_STATE` (default `~/.local/state/caravel/nav-keeper-<ORACLE_ID>.state`, one file per oracle), so a restart keeps it; with no file yet it trusts the current price.
 
-**Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
+**Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000). The balance read is capped at `HORIZON_TIMEOUT` (10 s, `curl --max-time`) and each friendbot / merge CLI call at `TOPUP_TIMEOUT` (60 s), so a hung Horizon or friendbot skips the top-up and the next push still runs (Raven D-02: an uncapped `curl` used to stop every push after the first one).
 
 The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main 72dd78a (all eight attack fixes, a guardian key of its own): margin calls, auto-repay, per-asset NAV staleness (DECISIONS #25), tSAFO collateral (issue #20), pause switches (#28), NAV sanity band (#26), exposure caps (#29) and the rule #20 change (a missed margin call clears at `default` when a fresh NAV shows the loan recovered) are live. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
@@ -122,6 +122,10 @@ Each tick the keeper:
 3. `liquidate(LIQUIDATOR, id)` on every `Defaulted` repo (defaulted by the keeper or by anyone else). The liquidator pays collateral × NAV × (1 − 1%) in USDC; the lender gets principal + interest − fee first, the treasury the fee, the borrower any rest. Before sending it checks NAV age ≤ the asset's `max_nav_age_secs` and the liquidator's USDC ≥ proceeds; if either fails it logs one line (with the `buy-usdc.sh` command to top up) and retries every tick. That repo is stuck (lender unpaid, borrower's collateral frozen): after 2 more ticks the keeper logs an `ALERT` line and runs `ALERT_CMD` (Alerts, below). A `StaleNav` or `NavOutOfBand` from the contract is treated the same way.
 4. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` and `NavOutOfBand` (#31) are logged once and skipped (#17). Before the repos, each tick simulates `note_nav(asset)` per collateral asset and sends it only when the NAV level moved past the band (log line `nav-level`), so the repo's band settle clock starts one tick after a real move; a contract without `note_nav` is logged once and skipped. On `auto_repay`, `NotDue` (ledger clock lag) means "next tick", like `NotDefaultable`.
 5. `MarginCall` repos wait for a top-up, repay or the deadline.
+
+Before the repo actions it also reconciles collateral (Raven AS-02, `src/reconcile.ts`): per collateral token, the repo contract's `balance` against the sum of `collateral_amount` over `Open`, `MarginCall` and `Defaulted` repos. A deficit means the issuer clawed back (or burned) part of the pooled balance; the first repos to settle are still paid in full and the last one cannot repay or be liquidated. It logs `collateral   collateral short: …` at once and ALERTs from the second tick in a row (runbook "Collateral short", below). Collateral parked for a refused push (`claimable_collateral`) shows as surplus, so a clawback smaller than the parked amount is not seen; clawback-safe accounting in the contract is roadmap (R11).
+
+Liveness (Raven D-01, D-03, D-04): every RPC request gives up after `RPC_TIMEOUT_MS` (15,000), and a tick watchdog exits the keeper (exit 1, after an `ALERT`) when no RPC call has answered for `TICK_WATCHDOG_SECS` (90) inside a tick, so systemd restarts it and a crash loop fires `OnFailure`. A slow tick that keeps getting answers (several sends in a row) is not killed. A tick that throws (RPC down, 503) logs `tick failed: …`, and the second failed tick in a row sends `ALERT keeper blind: …`. Views simulate from the SDK's `NULL_ACCOUNT` with no `getAccount` call (as the app's `book.ts` does): half the RPC calls of a tick (a `--once --dry-run` with 2 repos: 29 calls, was 54), and an outage reads as the RPC error instead of `Account not found: G<admin>`. Only a real send reads the signer's account.
 
 NAV jump hold (flash-crash fixes #2 and #3, `src/navguard.ts`). The oracle accepts any price in one push, and `nav-keeper.sh` re-posts it every 60 s, so a fat-fingered NAV would turn into a margin call, a default and a liquidation within ~2 minutes. Each tick the keeper reads `prices(asset, 20)` (~19 min of history) per collateral asset and measures the current price against an anchor: the most recent earlier price that stood longer than the hold time (re-posts of one price count as one). While the price is held, the keeper does not send, for repos of that asset:
 
@@ -184,6 +188,9 @@ Both keepers write an `ALERT …` line to their journal and run `ALERT_CMD "<mes
 | nav-keeper | an asset's `set_price` fails 2 rounds in a row | every 20 failed rounds |
 | nav-keeper | it refuses to re-post a price that jumped > `NAV_JUMP_ACK_BPS` (jump refusal, above) | first round, then every 20 |
 | keeper | `--refresh-nav` refuses to re-post a price held for an ack (> 2 ticks); the NAV jump state file is unreadable at start | every `ALERT_REPEAT_SECS`; once |
+| keeper | `keeper blind`: 2 ticks in a row fail (RPC down or answering errors) | every `ALERT_REPEAT_SECS` |
+| keeper | `keeper hung`: no RPC answer for `TICK_WATCHDOG_SECS` (90) inside a tick; the keeper then exits 1 and systemd restarts it | each time |
+| keeper | `collateral short`: the repo contract holds less of a collateral token than its live repos (2 ticks in a row; runbook below) | every `ALERT_REPEAT_SECS` |
 | systemd | either unit fails past its start limit (10 restarts in 600 s): `OnFailure=caravel-alert@%n.service` | once per failure |
 
 Under `--once` every stuck state alerts and exits 1 at once; a failed action exits 1 without an ALERT. `caravel-alert.sh` always logs to the journal (`journalctl --user -t caravel-alert`); it also sends to Telegram when `~/.config/caravel/alert.env` (chmod 600, never in the repo) sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Test it with `~/.local/lib/caravel/caravel-alert.sh "test"`.
@@ -209,6 +216,20 @@ CFG=$("${G[@]}" --send=no --id $REPO_ID -- asset --asset $ASSET)
 ```
 
 Then tell the issuer. When the token works again (unpaused, contract re-allowlisted), undo with the admin: switching off is a loosening, so `propose_pause --pause '{"no_new_repos":false,"no_seize":false}'` and `propose_asset` with `enabled:true`, then `execute_pause` / `execute_asset` after `timelock_secs` (120 s demo). While `no_seize` is on, the keeper logs `paused (no_seize)` for those repos and does not alert. Borrowers can repay again as soon as the token moves.
+
+## Collateral short: guardian runbook
+
+The keeper's `collateral short` ALERT (AS-02) means the repo contract's balance of that token is below what its live repos hold: an issuer clawback or burn on the contract. Every repo is paid from the one pooled balance, so the repos that settle first get their full collateral back and the last one cannot repay or be liquidated. New repos would refill the pool and move the loss onto their borrowers, so stop them at once (guardian, instant, tighten only):
+
+```sh
+cd ~/src/caravel && set -a && . ./.env && set +a
+G=(stellar contract invoke --network testnet --source-account "$GUARDIAN_SECRET")
+ASSET=$TBENJI_SAC   # or $TSAFO_ID, from the ALERT
+"${G[@]}" --send=no --id $REPO_ID -- pause --asset $ASSET          # current switches
+"${G[@]}" --id $REPO_ID -- guardian_set_pause --asset $ASSET --pause '{"no_new_repos":true,"no_seize":false}'   # keep no_seize true if it already is
+```
+
+Then ask the issuer why it clawed back and whether it returns the tokens, and tell the affected lenders. The contract has no write-down yet: clawback-safe accounting (a per-asset total checked on every exit) is roadmap R11. Undo `no_new_repos` with `propose_pause` / `execute_pause` once the balance matches again.
 
 ## Bad NAV push: admin runbook
 

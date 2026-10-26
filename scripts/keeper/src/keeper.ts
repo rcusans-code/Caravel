@@ -21,13 +21,15 @@
 import { readFileSync } from "node:fs";
 import { Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
-import { alertDue, sendAlert, StuckTracker, stuckFails } from "./alert.js";
-import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, outcomeOf, stellarAsset, txLink, u64, view } from "./chain.js";
+import { alertDue, sendAlert, STUCK_TICKS, StuckTracker, stuckFails } from "./alert.js";
+import { ContractError, ENV_FILE, Err, RPC_TIMEOUT_MS, RPC_URL, env, invoke, keypair, log, onRpcAnswer, outcomeOf, stellarAsset, txLink, u64, view } from "./chain.js";
 import { describeHold, navHold, type PriceData } from "./navguard.js";
 import { emptyNavState, loadNavState, navStatePath, saveNavState, serializeNavState, type NavState } from "./navstate.js";
 import { onceExitCode } from "./once.js";
+import { collateralShortfalls } from "./reconcile.js";
 import { setNav } from "./set-nav.js";
 import { type BandCandidate, noteNeeded, noteUnsupported } from "./settleclock.js";
+import { Watchdog } from "./watchdog.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
 interface Repo {
@@ -57,6 +59,12 @@ const ONCE = flag("--once");
 const DRY = flag("--dry-run");
 // A stuck ALERT repeats every ALERT_REPEAT_SECS (default 30 min) while it lasts.
 const ALERT_REPEAT_TICKS = Math.round((Number(process.env.ALERT_REPEAT_SECS || 1800) * 1000) / INTERVAL_MS);
+// Tick watchdog (Raven D-01): no RPC answer for this long inside a tick =
+// ALERT and exit 1, so systemd restarts the keeper.
+const TICK_WATCHDOG_MS = Number(process.env.TICK_WATCHDOG_SECS || 90) * 1000;
+// Failed ticks in a row before the "keeper blind" ALERT (Raven D-03): the
+// second failed tick alerts, i.e. after 1 tolerated failure.
+const BLIND_AFTER = 1;
 
 const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
@@ -238,11 +246,11 @@ const pendingAlerts: Promise<void>[] = [];
  * at once with --once, counts a failure and sends `alert` (journal ALERT line
  * + ALERT_CMD), repeated every ALERT_REPEAT_SECS.
  */
-function stuck(key: string, state: string, alert: string, line?: string) {
+function stuck(key: string, state: string, alert: string, line?: string, threshold = STUCK_TICKS) {
   const ticks = tracker.see(key, state);
   if (ticks === 1 && line) log(line);
-  if (stuckFails(ticks, ONCE)) failures++;
-  if (alertDue(ticks, ONCE, ALERT_REPEAT_TICKS)) {
+  if (stuckFails(ticks, ONCE, threshold)) failures++;
+  if (alertDue(ticks, ONCE, ALERT_REPEAT_TICKS, threshold)) {
     const msg = `${alert} (${ONCE ? "keeper --once" : `stuck ${ticks} ticks, ~${Math.round((ticks * INTERVAL_MS) / 1000)}s`})`;
     log(`ALERT        ${msg}`);
     pendingAlerts.push(sendAlert(`caravel-keeper ${REPO_ID.slice(0, 6)}…: ${msg}`, log));
@@ -315,6 +323,30 @@ async function liveRepos(): Promise<Repo[]> {
 
 type Cfg = { discountBps: bigint; graceSecs: bigint; decimals: number; holdSecs: bigint };
 
+/**
+ * Collateral reconciliation (Raven AS-02 interim, reconcile.ts): the repo
+ * contract's balance of each collateral token against the live repos'
+ * collateral. A deficit (issuer clawback or burn on the pooled balance) means
+ * the last repo of that asset to settle cannot repay or be liquidated. Logged
+ * at once; ALERT from the second tick in a row (a repay landing between the
+ * repo reads and the balance read shows a one-tick deficit). Read before the
+ * keeper's own actions move collateral; a failed balance read is skipped.
+ */
+async function collateralWatch(repos: Repo[]) {
+  const repoAddr = new Address(REPO_ID).toScVal();
+  const ids = [...new Set([...ASSETS.map((a) => a.id), ...repos.map((r) => r.collateral_asset)])];
+  const held = await Promise.all(ids.map((id) => view<bigint>(id, "balance", [repoAddr]).catch(() => null)));
+  const balances = new Map(ids.map((id, i) => [id, held[i] === null ? null : BigInt(held[i]!)] as const));
+  for (const s of collateralShortfalls(repos, balances)) {
+    const a = assetOf(s.asset);
+    const why =
+      `collateral short: repo contract holds ${fmt(s.held, a.decimals)} ${a.label} but ${s.repos} live repo(s) hold ${fmt(s.owed, a.decimals)} ` +
+      `(short ${fmt(s.short, a.decimals)}; clawback or burn?): the last ${a.label} repo to settle cannot repay or be liquidated; ` +
+      `guardian: guardian_set_pause ${a.label} {no_new_repos} (scripts/README.md "Collateral short")`;
+    stuck(`collateral:${s.asset}`, "short", why, `collateral   ${why}`, 1);
+  }
+}
+
 async function tick(cfg: Cfg) {
   const changed = fileRepoId();
   if (startRepoId && changed && changed !== startRepoId) {
@@ -360,6 +392,7 @@ async function tick(cfg: Cfg) {
   await noteNavs(cfg);
 
   const repos = await liveRepos();
+  await collateralWatch(repos);
   const next = new Map<bigint, string>();
   for (const r of repos) {
     const asset = assetOf(r.collateral_asset);
@@ -613,19 +646,36 @@ async function main() {
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")}, margin trigger ${ASSETS.map((a) => `${a.label} ${a.triggerBps}bps`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps` +
       `, nav state ${NAV_STATE_FILE}${latched.length ? ` (latched: ${latched.join(", ")})` : ""}` +
+      `, rpc timeout ${RPC_TIMEOUT_MS / 1000}s, tick watchdog ${TICK_WATCHDOG_MS / 1000}s` +
       `, alerts ${process.env.ALERT_CMD ? `via ${process.env.ALERT_CMD}` : "journal only (no ALERT_CMD)"}`,
   );
+  // Tick watchdog (D-01): armed for each tick, pushed back by every RPC answer.
+  const watchdog = new Watchdog(TICK_WATCHDOG_MS, () => {
+    const msg = `keeper hung: no RPC answer for ${TICK_WATCHDOG_MS / 1000}s inside a tick (RPC ${RPC_URL}), exiting so systemd restarts it`;
+    log(`ALERT        ${msg}`);
+    const exit = () => process.exit(1);
+    // Give ALERT_CMD up to 10 s, then exit whatever it does.
+    setTimeout(exit, 10_000).unref();
+    void sendAlert(`caravel-keeper ${REPO_ID.slice(0, 6)}…: ${msg}`, log).then(exit);
+  });
+  onRpcAnswer(() => watchdog.kick());
   for (;;) {
     let failed = false;
     failures = 0;
+    watchdog.arm();
     try {
       await tick(cfg);
       tracker.end();
     } catch (e) {
       failed = true;
+      const msg = (e as Error).message;
+      log(`tick failed: ${msg}`);
+      // D-03: a keeper that cannot read the chain acts on nothing; ALERT on
+      // the second failed tick in a row, repeated every ALERT_REPEAT_SECS.
+      stuck("rpc", "blind", `keeper blind: tick failed, cannot read the chain (RPC ${RPC_URL}): ${msg}`, undefined, BLIND_AFTER);
       tracker.skipTick(); // a failed read is not a recovery: keep the stuck counts
-      log(`tick failed: ${(e as Error).message}`);
     }
+    watchdog.clear();
     if (ONCE) {
       await Promise.all(pendingAlerts);
       process.exit(onceExitCode(failed, failures));
@@ -635,4 +685,9 @@ async function main() {
   }
 }
 
-main();
+main().catch((e) => {
+  // Startup reads failed (RPC down or hung past RPC_TIMEOUT_MS): one line, exit 1;
+  // systemd restarts it, and a crash loop past the start limit fires OnFailure.
+  log(`startup failed: ${(e as Error).message} (RPC ${RPC_URL})`);
+  process.exit(1);
+});

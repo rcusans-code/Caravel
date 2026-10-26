@@ -5,12 +5,14 @@ import { config as loadEnv } from "dotenv";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
+  Account,
   Address,
   BASE_FEE,
   Contract,
   Keypair,
   Networks,
   TransactionBuilder,
+  contract as sdkContract,
   nativeToScVal,
   rpc,
   scValToNative,
@@ -33,7 +35,20 @@ export function env(name: string, fallback?: string): string {
 
 export const NETWORK = env("NETWORK", "testnet");
 export const PASSPHRASE = NETWORK === "testnet" ? Networks.TESTNET : env("NETWORK_PASSPHRASE");
-export const server = new rpc.Server(env("RPC_URL", "https://soroban-testnet.stellar.org"));
+export const RPC_URL = env("RPC_URL", "https://soroban-testnet.stellar.org");
+// Plain http only for a local RPC (tests, a local quickstart node).
+export const server = new rpc.Server(RPC_URL, { allowHttp: /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(RPC_URL) });
+// Bound every RPC request (Raven D-01). The SDK ignores an Options.timeout
+// and its HTTP client otherwise waits ~300 s on an RPC that accepts and
+// never answers, which freezes the keeper with no log line.
+export const RPC_TIMEOUT_MS = Number(process.env.RPC_TIMEOUT_MS || 15_000);
+server.httpClient.defaults.timeout = RPC_TIMEOUT_MS;
+
+/** Called after every RPC answer (the keeper's tick watchdog listens). */
+let rpcAnswered: () => void = () => {};
+export const onRpcAnswer = (fn: () => void) => {
+  rpcAnswered = fn;
+};
 // Testnet inclusion fees spike; pay up so keeper txs are not dropped.
 const INCLUSION_FEE = process.env.INCLUSION_FEE ?? String(Number(BASE_FEE) * 1000);
 
@@ -67,22 +82,31 @@ export const i128 = (n: bigint) => nativeToScVal(n, { type: "i128" });
 export const stellarAsset = (sac: string) =>
   xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("Stellar"), new Address(sac).toScVal()]);
 
-async function build(source: string, contractId: string, method: string, args: xdr.ScVal[]) {
-  const account = await server.getAccount(source);
+/** Simulation source for views: a well-known address with no ledger entry. */
+export const NULL_ACCOUNT = sdkContract.NULL_ACCOUNT;
+
+function build(account: Account, contractId: string, method: string, args: xdr.ScVal[]) {
   return new TransactionBuilder(account, { fee: INCLUSION_FEE, networkPassphrase: PASSPHRASE })
     .addOperation(new Contract(contractId).call(method, ...args))
     .setTimeout(60)
     .build();
 }
 
-/** Simulate a call and return its decoded return value. Throws ContractError. */
+/**
+ * Simulate a call and return its decoded return value. Throws ContractError.
+ * The source needs no ledger entry (simulation never checks the sequence),
+ * so no getAccount round trip: half the RPC calls, and an RPC outage reads as
+ * the RPC error instead of "Account not found: G<admin>" (Raven D-04; the app
+ * does the same in book.ts).
+ */
 export async function view<T = unknown>(
   contractId: string,
   method: string,
   args: xdr.ScVal[] = [],
-  source = env("ADMIN_ADDRESS"),
+  source: string = NULL_ACCOUNT,
 ): Promise<T> {
-  const sim = await server.simulateTransaction(await build(source, contractId, method, args));
+  const sim = await server.simulateTransaction(build(new Account(source, "0"), contractId, method, args));
+  rpcAnswered();
   if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
   const ret = sim.result?.retval;
   return (ret ? scValToNative(ret) : undefined) as T;
@@ -118,16 +142,20 @@ async function invokeOnce(
   method: string,
   args: xdr.ScVal[],
 ): Promise<{ hash: string; result: unknown }> {
-  const tx = await build(signer.publicKey(), contractId, method, args);
+  // A real send needs the signer's sequence number: the only getAccount call.
+  const tx = build(await server.getAccount(signer.publicKey()), contractId, method, args);
   const sim = await server.simulateTransaction(tx);
+  rpcAnswered();
   if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
   const prepared = rpc.assembleTransaction(tx, sim).build();
   prepared.sign(signer);
   const sent = await server.sendTransaction(prepared);
+  rpcAnswered();
   if (sent.status === "ERROR" || sent.status === "TRY_AGAIN_LATER") {
     throw new SendError(`send ${sent.status}: ${sent.errorResult?.result().switch().name ?? "busy"}`);
   }
   const done = await server.pollTransaction(sent.hash, { attempts: 30 });
+  rpcAnswered();
   if (done.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     // A FAILED tx landed and was charged: say why (e.g. txFailed/invokeHostFunctionResourceLimitExceeded).
     const why = done.status === rpc.Api.GetTransactionStatus.FAILED ? txFailReason(done.resultXdr) : "";
