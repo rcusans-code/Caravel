@@ -374,7 +374,7 @@ Demo profile: 1 day = 60 s; term 420 s; margin window 120 s; grace 60 s; NAV age
 4. **Beat 3 (margin call).** Slider preset **0.985** (0.99 does not fire; the trigger is 0.98980 at D#35's 2%, 0.99487 at v2's 2.5%). Both open repos get called within 10 s; narrate that. `required_top_up` for the P = 240 repo at 0.985 is 3.7714711 tBENJI; the UI pre-fills it.
 5. **Beat 4 (top-up).** 50-60 s of the 120 s window go on detection, signing and narration. Never pause a rehearsal while a repo is in MarginCall.
 6. **Beat 5-6 (default, liquidate).** Set NAV back to **1.00** right before `liquidate`: at 0.985 the P = 240 liquidation pays 241.51 against terms 240.21 (whole since D#35's 1% discount; at 2% it paid 239.07 and showed a `Shortfall`), but at 1.00 the beat shows the full 4.95 surplus. The UI shows the NAV timestamp and age next to the price.
-7. **Reset.** Transfer-only: liquidator's tBENJI back to the borrower; USDC back to 500 / 100 / 500. Each liquidation moves 242.71 USDC and 247.66 tBENJI; the balances do not survive a second run without it.
+7. **Reset.** Transfer-only: liquidator's tBENJI back to the borrower; USDC back to 500 / 100 / 500. Each liquidation moves 245.18 USDC and 247.66 tBENJI; the balances do not survive a second run without it.
 
 ## 12. Trust assumptions and compliance `[v2 F-08, F-13, F-14, F-15, F-16, F-25]` (README "Risks and limits")
 
