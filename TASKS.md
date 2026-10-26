@@ -13,7 +13,7 @@ Per-dev task lists and handoff times: [DEVS.md](DEVS.md). Read [DECISIONS.md](DE
 Exit: AUTH_REQUIRED go/no-go, repo public, decisions locked.
 
 - [x] **I** ⚠️ AUTH_REQUIRED spike: issue tBENJI (AUTH_REQUIRED + REVOCABLE + CLAWBACK), deploy dummy contract, `set_authorized(contract)` via SAC, transfer in and out. *Done when: go/no-go posted by 13:00*
-- [x] **I** ⚠️ Testnet accounts (admin, issuer, lender, borrower, liquidator) + trustlines to **Circle testnet USDC** and tBENJI. Testnet keys in `.env` (gitignored). *Done when: every demo account holds USDC or tBENJI*
+- [x] **I** ⚠️ Testnet accounts (admin, issuer, lender, borrower, liquidator) + trustlines to **Circle testnet USDC** and tBENJI. Testnet burner keys in the committed `.env`. *Done when: every demo account holds USDC or tBENJI*
 - [x] **C** Contract skeleton: `Offer`, `Repo`, `Status`, `Config`, storage keys (instance = config, persistent = offers/repos), TTL helper, events. *Done when: compiles with stubs*
 - [x] **C** ⚠️ `math.rs` with tests: interest, collateral value, margin threshold, liquidation waterfall incl. fee and shortfall. *Done when: the 3 brief scenarios pass*
 - [x] **F** Frontend scaffold: Scaffold Stellar or Next.js + `@stellar/stellar-sdk` + Freighter, testnet, role switcher (lender / borrower / liquidator / admin). *Done when: wallet connects, balances show*

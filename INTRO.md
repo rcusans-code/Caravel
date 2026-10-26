@@ -29,7 +29,7 @@ Repo itself already exists on Stellar: Ascend × M1X ran a bilateral institution
 |---|---|---|
 | Borrower | Dollars now, keep earning bond interest | Bond tokens as deposit + interest |
 | Lender | A safe fixed return on idle dollars | USDC for a fixed term |
-| Liquidator | A ~2% near-riskless profit | Buys bonds if a borrower defaults |
+| Liquidator | A ~1% near-riskless profit | Buys bonds if a borrower defaults |
 | Issuer (e.g. Franklin Templeton) | More people using their token | Approves who may hold it |
 
 ## Words you'll hear

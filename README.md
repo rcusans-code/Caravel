@@ -201,7 +201,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta` until `eta + timelock_secs` (then it expires); the admin can `cancel_*` it any time, the guardian once per change (Raven R6). An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 311 tests (18 oracle, 282 repo, 11 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 313 tests (18 oracle, 284 repo, 11 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -350,7 +350,8 @@ Everything in this repo was written during the hackathon, starting around noon o
 - **Mon 06:00–07:50:** tuned risk numbers with sources ([DECISIONS #35](DECISIONS.md), [config-tuning.md](docs/config-tuning.md)); the NAV risk review's five fixes (ledger-time feed records, band settle on a real move, in-kind claim after a NAV outage, keeper re-post guard, the app's NAV hold; DECISIONS #36–#41); two testnet redeploys; demo video recorded.
 - **Mon 08:15–09:00:** App.tsx split (#38); guardian proposals expire (#41) and a redeploy; in-kind claim UI; [mainnet readiness](docs/mainnet-readiness.md) gap list.
 - **Mon 09:30–10:35:** Raven audit fixes R1–R8 merged (tests and CI, keeper liveness, app error paths, deploy guards, contract guards, governance, docs; [docs/audits/](docs/audits/README.md)); short-borrower auto-repay fix; two testnet redeploys, the last at 10:19.
-- **Mon 11:30:** submission (deadline 12:00).
+- **Mon 10:35–11:10:** plan-only mainnet profile merged (keys out of git; Raven R10/R12); audit reports published in [docs/audits/](docs/audits/README.md); repo cleanup.
+- **Mon 11:30 (planned):** submission (deadline 12:00).
 
 ## Team
 
