@@ -499,3 +499,110 @@ fn cmp_borrower_deallowlisted_before_repay() {
     assert!(w.safo.balance(&w.liquidator) > 0);
     assert_eq!(w.usdc.balance(&w.repo.address), 0);
 }
+
+// --- Raven audit CT-03: storage TTL --------------------------------------
+
+/// Raven audit CT-03: nothing asserted a TTL, so making `extend_instance` /
+/// `extend_persistent` no-ops left the suite green. Every write puts an
+/// entry at the full bump; an entry nobody touches for 29 days is still
+/// live, and the next read puts it back at the full bump. The instance is
+/// kept alive by a view call every 4 days, as the keeper's tick does.
+/// (`AllowanceUntil` is bumped on write only; reads do not extend it.)
+/// Lives here because this world's USDC issuer can freeze the lender, which
+/// is what parks a payout under `Claimable`.
+#[test]
+fn ttl_is_bumped_on_every_touch() {
+    use crate::storage::DataKey;
+    use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+    const DAY: u32 = 17_280;
+    const INSTANCE_TTL: u32 = 6 * DAY; // storage.rs INSTANCE_BUMP
+    const INSTANCE_MIN: u32 = INSTANCE_TTL - DAY; // INSTANCE_THRESHOLD
+    const ENTRY_TTL: u32 = 30 * DAY; // storage.rs PERSISTENT_BUMP
+
+    let w = world();
+    let addr = w.repo.address.clone();
+    let inst = || {
+        w.env
+            .as_contract(&addr, || w.env.storage().instance().get_ttl())
+    };
+    let ttl = |key: DataKey| {
+        w.env
+            .as_contract(&addr, || w.env.storage().persistent().get_ttl(&key))
+    };
+    let hop = |days: u32| {
+        let seq = w.env.ledger().sequence();
+        w.env.ledger().set_sequence_number(seq + days * DAY);
+    };
+    let allowance = || DataKey::AllowanceUntil(w.borrower.clone());
+
+    // create_offer: Offer + instance.
+    let offer = || {
+        w.repo
+            .create_offer(&w.lender, &w.tbenji, &PRINCIPAL, &APR_BPS, &TERM_SECS)
+    };
+    let kept = offer(); // stays open for the whole test
+    assert_eq!(ttl(DataKey::Offer(kept)), ENTRY_TTL);
+    assert_eq!(inst(), INSTANCE_TTL);
+
+    // take_offer with auto-repay: Repo + AllowanceUntil.
+    let offer_id = offer();
+    let id = w.repo.take_offer(&w.borrower, &offer_id, &true);
+    assert_eq!(ttl(DataKey::Repo(id)), ENTRY_TTL);
+    assert_eq!(ttl(allowance()), ENTRY_TTL);
+    assert!(inst() >= INSTANCE_MIN);
+
+    // 29 days with the offer and the repo untouched.
+    for _ in 0..7 {
+        hop(4);
+        assert!(inst() < INSTANCE_MIN); // due for a bump
+        w.repo.config();
+        assert_eq!(inst(), INSTANCE_TTL);
+    }
+    hop(1);
+    assert_eq!(ttl(DataKey::Repo(id)), DAY);
+    assert_eq!(ttl(DataKey::Offer(kept)), DAY);
+    assert_eq!(ttl(allowance()), DAY);
+
+    // A read 29 days on restores the full bump.
+    assert_eq!(w.repo.repo(&id).status, Status::Open);
+    assert_eq!(ttl(DataKey::Repo(id)), ENTRY_TTL);
+    assert_eq!(w.repo.offer(&kept).id, kept);
+    assert_eq!(ttl(DataKey::Offer(kept)), ENTRY_TTL);
+
+    // repay two days on with the lender frozen: the instance and Repo are
+    // bumped, the lender's USDC is parked under Claimable at the full bump.
+    // Only the ledger sequence moves in this test, and the 7-minute repo's
+    // SAC allowance has long lapsed, so AllowanceUntil is removed.
+    let offer_id = offer(); // before the freeze: create_offer pulls the lender's USDC
+    hop(2);
+    assert!(inst() < INSTANCE_MIN);
+    w.set_usdc_auth(&w.lender, false);
+    w.repo.repay(&id);
+    assert_eq!(inst(), INSTANCE_TTL);
+    assert_eq!(ttl(DataKey::Repo(id)), ENTRY_TTL);
+    assert_eq!(w.repo.repo(&id).status, Status::Repaid);
+    assert!(!w
+        .env
+        .as_contract(&addr, || w.env.storage().persistent().has(&allowance())));
+    let parked = w.repo.claimable(&w.lender);
+    assert!(parked > 0);
+    assert_eq!(ttl(DataKey::Claimable(w.lender.clone())), ENTRY_TTL);
+
+    // A new auto-repay take writes AllowanceUntil at the full bump again.
+    let second = w.repo.take_offer(&w.borrower, &offer_id, &true);
+    assert_eq!(ttl(DataKey::Repo(second)), ENTRY_TTL);
+    assert_eq!(ttl(allowance()), ENTRY_TTL);
+
+    // The parked balance is bumped again when read, then claimed.
+    hop(4);
+    assert_eq!(
+        ttl(DataKey::Claimable(w.lender.clone())),
+        ENTRY_TTL - 4 * DAY
+    );
+    assert_eq!(w.repo.claimable(&w.lender), parked);
+    assert_eq!(ttl(DataKey::Claimable(w.lender.clone())), ENTRY_TTL);
+    w.set_usdc_auth(&w.lender, true);
+    assert_eq!(w.repo.claim(&w.lender), parked);
+    assert_eq!(w.repo.claimable(&w.lender), 0);
+    assert!(inst() >= INSTANCE_MIN);
+}
