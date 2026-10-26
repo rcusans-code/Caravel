@@ -244,7 +244,9 @@ pub struct Claimed {
 /// kind (no sale, no fee, no borrower surplus). The repo is `Liquidated`.
 /// `parked` = the token refused the push to the lender (permissioned token,
 /// frozen trustline); it waits for `claim_collateral`. `nav_timestamp` is
-/// the stale NAV the outage was measured from.
+/// the time the outage was measured from: the stale NAV's timestamp, or the
+/// repo's `maturity_ts + grace_secs` when the feed gave no usable one (no
+/// price, or dated beyond `oracle::MAX_FUTURE_SKEW_SECS`).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimedInKind {

@@ -1198,9 +1198,11 @@ impl CaravelRepo {
     /// amount. Lender signs.
     ///
     /// `InvalidStatus` unless Defaulted, `Paused` under `no_seize` (#30),
-    /// `NoNavOutage` while the NAV is fresh or not stale long enough,
-    /// `NoPrice` if the feed has no price. Until the claim lands the borrower
-    /// can still `repay`, which needs no NAV.
+    /// `NoNavOutage` while the NAV is fresh or not stale long enough. A feed
+    /// with no usable timestamp (no price, a price `<= 0`, or one dated more
+    /// than `oracle::MAX_FUTURE_SKEW_SECS` ahead) starts the same clock at
+    /// `maturity_ts + grace_secs` instead (`inkind::nav_outage`). Until the
+    /// claim lands the borrower can still `repay`, which needs no NAV.
     pub fn claim_in_kind(env: Env, repo_id: u64) -> Result<i128, Error> {
         let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
         if repo.status != Status::Defaulted {
@@ -1211,7 +1213,12 @@ impl CaravelRepo {
         let asset =
             storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
         let config = storage::read_config(&env);
-        let nav_timestamp = inkind::nav_outage(&env, &config, &asset)?;
+        let nav_timestamp = inkind::nav_outage(
+            &env,
+            &config,
+            &asset,
+            repo.maturity_ts.saturating_add(config.grace_secs),
+        )?;
 
         repo.status = Status::Liquidated;
         storage::write_repo(&env, &repo);
