@@ -112,6 +112,7 @@ OLD_AT="2026-10-01T00:00:00Z"
   echo "NETWORK=testnet"
   echo "ORACLE_ID=$ORACLE"; echo "TSAFO_ID=$TSAFO"; echo "REPO_ID=$OLD"; echo "DEPLOYED_AT=$OLD_AT"
 } > "$ROOT/.env"
+cp "$ROOT/.env" "$TMP/env.initial"
 python3 - "$ROOT/deployments/testnet.json" "$PREV" <<'PY'
 import json, sys
 json.dump({"superseded": [sys.argv[2]]}, open(sys.argv[1], "w"))
@@ -162,6 +163,32 @@ printf '#!/usr/bin/env bash\nexit 1\n' > "$ROOT/scripts/winddown.sh"
 echo "SUPERSEDED_PENDING=$OLD" >> "$ROOT/.env"
 out=$(deploy); rc=$?
 check "failed wind-down: WARN, marker kept" '[[ $rc == 0 && "$out" == *"winddown of $OLD failed"* && "$(envval SUPERSEDED_PENDING)" == "$OLD" ]]' "$out"
+
+# --- two partial runs in a row: A->B dies, B->C dies, run 3 recovers ---------
+# The marker then names two repos; .env must stay sourceable (every script,
+# incl. the production nav-keeper, does `set -a; source .env`).
+cat > "$ROOT/scripts/winddown.sh" <<EOF
+#!/usr/bin/env bash
+: > "$STATE/winddown.args"; for a in "\$@"; do echo "\$a" >> "$STATE/winddown.args"; done
+EOF
+cp "$TMP/env.initial" "$ROOT/.env"
+python3 -c 'import json,sys; json.dump({"superseded": [sys.argv[2]]}, open(sys.argv[1], "w"))' "$ROOT/deployments/testnet.json" "$PREV"
+A="$OLD"
+echo "$TSAFO" > "$STATE/fail_set_asset"
+out=$(deploy); rc=$?; B=$(envval REPO_ID)
+check "double: run 1 (A->B) dies" '[[ $rc != 0 && -n "$B" && "$B" != "$A" ]]' "$out"
+mkwasm "$WASM/caravel_repo.wasm" repo-v3
+echo "$TSAFO" > "$STATE/fail_set_asset"
+out=$(deploy); rc=$?; C=$(envval REPO_ID)
+check "double: run 2 (B->C) dies" '[[ $rc != 0 && -n "$C" && "$C" != "$B" && "$C" != "$A" ]]' "$out"
+check "double: marker is B,A (comma, no space)" '[[ "$(envval SUPERSEDED_PENDING)" == "$B,$A" ]]' "$(grep SUPERSEDED_PENDING "$ROOT/.env")"
+srcerr=$(bash -c 'set -a; source "$1"' _ "$ROOT/.env" 2>&1 >/dev/null); rc=$?
+check "double: .env still sources cleanly after run 2" '[[ $rc == 0 && -z "$srcerr" ]]' "$srcerr"
+out=$(deploy); rc=$?
+check "double: run 3 succeeds" '[[ $rc == 0 ]]' "$out"
+check "double: superseded = [B, A, PREV]" '[[ "$(json "\" \".join(d[\"superseded\"])")" == "$B $A $PREV" ]]' "$(json 'd["superseded"]')"
+check "double: winddown.sh got B and A as separate args" '[[ $(wc -l < "$STATE/winddown.args") == 2 && "$(paste -sd" " "$STATE/winddown.args")" == "$B $A" ]]' "$(cat "$STATE/winddown.args" 2>/dev/null)"
+check "double: run 3 cleared the marker" '! grep -q "^SUPERSEDED_PENDING=" "$ROOT/.env"'
 
 echo "$PASS passed, $FAIL failed"
 (( FAIL == 0 ))

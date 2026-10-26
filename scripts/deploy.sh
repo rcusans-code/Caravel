@@ -140,7 +140,10 @@ OLD_REPO_ID="${REPO_ID:-}"   # wound down below if this run replaces it (UA-05)
 # Repos replaced by an earlier run that died before step 7: that run wrote the
 # new REPO_ID at once, so this run reads it as OLD_REPO_ID and would forget the
 # one it replaced. Steps 7-9 record and wind these down, then clear the marker.
+# Stored comma-separated (no spaces: every script `source`s .env, and an
+# unquoted space would run the second id as a command); spaces still accepted.
 PENDING_SUPERSEDED="${SUPERSEDED_PENDING:-}"
+PENDING_SUPERSEDED="${PENDING_SUPERSEDED//,/ }"
 
 # --- 0. guards (Raven R4) -------------------------------------------------------
 check_sac USDC "$USDC_ASSET" "$USDC_SAC"
@@ -377,7 +380,8 @@ else
   # does not lose it (the re-run would see this new repo as OLD_REPO_ID).
   if [[ -n "$OLD_REPO_ID" && "$OLD_REPO_ID" != "$REPO_ID" ]]; then
     PENDING_SUPERSEDED="$OLD_REPO_ID${PENDING_SUPERSEDED:+ $PENDING_SUPERSEDED}"
-    (( PLAN )) || set_env SUPERSEDED_PENDING "$PENDING_SUPERSEDED"
+    # shellcheck disable=SC2086  # unquoted echo collapses the spaces; join with commas
+    (( PLAN )) || set_env SUPERSEDED_PENDING "$(echo $PENDING_SUPERSEDED | tr ' ' ,)"
   fi
   mark_deployed
 fi
