@@ -10,3 +10,6 @@ dist/
 dist-pages/
 .DS_Store
 *.log
+
+# npm install in packages/* (app postinstall builds the generated bindings)
+packages/*/package-lock.json

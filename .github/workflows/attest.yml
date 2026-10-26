@@ -1,0 +1,49 @@
+# SEP-55 build provenance for the Soroban contracts (Raven STD-05).
+# On a v* tag or by hand: builds the wasm with SEP-46 meta (source_repo,
+# commit_sha), attests each file with GitHub's build-provenance action and
+# uploads them as the `contracts-wasm` artifact. Deploy those exact bytes with
+#   gh run download <run-id> -n contracts-wasm -D /tmp/wasm
+#   PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh
+# and `stellar contract info build --id <REPO_ID> --network testnet` finds the
+# attestation (it looks the wasm hash up under source_repo). No secrets needed.
+name: Attest contract wasm
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust stable + wasm32v1-none
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32v1-none
+      - name: Stellar CLI 28
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C "$HOME/.local/bin" stellar
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/stellar" --version
+      - name: Build with SEP-46 meta
+        run: |
+          stellar contract build \
+            --meta source_repo=github:${{ github.repository }} \
+            --meta commit_sha=${{ github.sha }}
+          mkdir -p wasm
+          cp target/wasm32v1-none/release/caravel_repo.wasm \
+             target/wasm32v1-none/release/caravel_oracle.wasm \
+             target/wasm32v1-none/release/caravel_spiko_mock.wasm wasm/
+          sha256sum wasm/*.wasm | tee wasm/SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: wasm/*.wasm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contracts-wasm
+          path: wasm/

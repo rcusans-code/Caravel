@@ -1,5 +1,6 @@
 import { TBENJI_SAC, TSAFO, USDC_SAC, ORACLE_ID } from "./config";
 import { staleNavText } from "./gates";
+import { txText } from "./txerror";
 
 // contracts/repo/src/errors.rs
 const REPO_ERRORS: Record<number, string> = {
@@ -26,7 +27,10 @@ const REPO_ERRORS: Record<number, string> = {
   21: "The timelock on this change has not passed yet.",
   22: "There is no pending change for this asset.",
   23: "Only the admin or the guardian can cancel a pending change.",
-  24: "Nothing to claim: no USDC payout is waiting for this account.",
+  24: "Nothing to claim: no USDC payout or parked collateral is waiting for this account.",
+  25: "The in-kind claim is not open yet: it opens once the collateral's NAV has been stale for 7 contract days past its maximum age. While the NAV is fresh, a liquidator sells the collateral instead.",
+  26: "This pending change expired: its execute window closed. Propose it again.",
+  27: "The guardian already vetoed this exact change once; only the admin can cancel it now.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.
@@ -42,7 +46,8 @@ const TOKEN_ERRORS: Record<number, string> = {
   6: "The account does not exist on testnet. Fund it with friendbot first.",
   8: "Amounts must be positive.",
   10: "Not enough balance for this transfer.",
-  11: "This account is not authorized to hold the asset. tBENJI is AUTH_REQUIRED: the issuer must authorize the account.",
+  // Asset-neutral (Raven AS-04): the frozen asset can be USDC as well as tBENJI; explain() prefixes the token.
+  11: "This account is not authorized for this asset: the issuer has not authorized its trustline, or has frozen it.",
   13: "The account has no trustline for this asset. Add the trustline, then try again.",
 };
 
@@ -57,6 +62,10 @@ export function explain(err: unknown, navAges: { code: string; secs: number | bi
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
   const msg = raw ?? "";
 
+  // Network result codes (txTooLate, txBadSeq, low reserve …) and still-pending
+  // writes first (Raven DW-01/DW-02): a refused tx is not a wallet decline.
+  const tx = txText(err);
+  if (tx) return tx;
   if (/declin|reject|denied|cancel+ed|user closed|not allowed/i.test(msg))
     return "You rejected the request in your wallet. Nothing was sent.";
   if (/network passphrase|wrong network|networkPassphrase/i.test(msg))

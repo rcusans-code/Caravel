@@ -121,7 +121,7 @@ fn world_with_decimals<'a>(decimals: u32) -> World<'a> {
     let lender = Address::generate(&env);
     let borrower = Address::generate(&env);
     let liquidator = Address::generate(&env);
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     for who in [&repo.address, &borrower, &liquidator] {
         safo.set_whitelisted(who, &true);
     }
@@ -382,7 +382,7 @@ fn liquidate_rejects_liquidator_not_allowlisted_on_token() {
     let w = world();
     let repo_id = w.defaulted();
     let other = Address::generate(&w.env);
-    w.repo.set_liquidator(&other, &true);
+    crate::test::whitelist(&w.env, &w.repo, &other);
     StellarAssetClient::new(&w.env, &w.usdc.address).mint(&other, &(2_000 * UNIT));
 
     assert_eq!(

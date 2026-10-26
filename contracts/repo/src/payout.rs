@@ -11,7 +11,7 @@
 //! claimable balance, collected later with `claim`. Collateral legs stay push
 //! (DECISIONS.md #24).
 
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{token, token::StellarAssetClient, Address, Env};
 
 use crate::{events, storage};
 
@@ -32,4 +32,15 @@ pub fn pay_or_park(env: &Env, usdc: &token::Client, to: &Address, amount: i128, 
         amount,
     }
     .publish(env);
+}
+
+/// False only when the USDC issuer has frozen `who` (SAC
+/// `authorized(who) == false`, Raven AS-03). A call that fails (no
+/// trustline, a token without `authorized`) is not a freeze and reads true:
+/// the transfers that follow fail or park on their own.
+pub fn usdc_authorized(env: &Env, usdc: &Address, who: &Address) -> bool {
+    !matches!(
+        StellarAssetClient::new(env, usdc).try_authorized(who),
+        Ok(Ok(false))
+    )
 }

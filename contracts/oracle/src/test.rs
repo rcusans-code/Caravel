@@ -291,7 +291,115 @@ fn set_admin_hands_over_control() {
     s.env.mock_all_auths();
     let new_admin = Address::generate(&s.env);
     s.client.set_admin(&new_admin);
+    // The current admin signed the handover (checked right after the call).
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    // Two-step (Raven R6, UA-06): nothing moves until the new admin accepts.
+    assert_eq!(s.client.admin(), s.admin);
+    assert_eq!(s.client.pending_admin(), Some(new_admin.clone()));
+    s.client.accept_admin();
+    assert_eq!(s.env.auths()[0].0, new_admin);
     assert_eq!(s.client.admin(), new_admin);
+    assert_eq!(s.client.pending_admin(), None);
     s.client.set_price(&s.tbenji, &ONE);
     assert_eq!(s.env.auths()[0].0, new_admin);
+}
+
+/// Raven audit CT-01: deleting `set_admin`'s `require_auth` used to leave
+/// every oracle test green. Without the current admin's signature the
+/// handover is refused, even when the would-be admin signs.
+#[test]
+fn audit_set_admin_requires_current_admin_auth() {
+    let s = setup();
+    let thief = Address::generate(&s.env);
+    // Nobody signs: refused.
+    assert!(s.client.try_set_admin(&thief).is_err());
+    // Only the would-be admin signs: refused.
+    s.env.mock_auths(&[MockAuth {
+        address: &thief,
+        invoke: &MockAuthInvoke {
+            contract: &s.client.address,
+            fn_name: "set_admin",
+            args: (&thief,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.client.try_set_admin(&thief).is_err());
+    assert_eq!(s.client.admin(), s.admin);
+}
+
+// --- Raven R6 (UA-06): two-step admin handover, admin and price events -------
+
+#[test]
+fn r6_set_admin_is_two_step_and_only_the_named_admin_accepts() {
+    let s = setup();
+    s.env.mock_all_auths();
+    // Nothing pending: accept fails.
+    assert_eq!(s.client.try_accept_admin(), Err(Ok(Error::NoPendingAdmin)));
+    let typo = Address::generate(&s.env);
+    s.client.set_admin(&typo);
+    // A mistyped handover is harmless: the old admin still prices and can
+    // name the right successor, which replaces the typo.
+    s.client.set_price(&s.tbenji, &ONE);
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    let next = Address::generate(&s.env);
+    s.client.set_admin(&next);
+    assert_eq!(s.client.pending_admin(), Some(next.clone()));
+    // Only `next` can accept: with the typo (or the old admin) signing, it fails.
+    for wrong in [&typo, &s.admin] {
+        s.env.mock_auths(&[MockAuth {
+            address: wrong,
+            invoke: &MockAuthInvoke {
+                contract: &s.client.address,
+                fn_name: "accept_admin",
+                args: ().into_val(&s.env),
+                sub_invokes: &[],
+            },
+        }]);
+        assert!(s.client.try_accept_admin().is_err());
+        assert_eq!(s.client.admin(), s.admin);
+    }
+    s.env.mock_all_auths();
+    s.client.accept_admin();
+    assert_eq!(s.env.auths()[0].0, next);
+    assert_eq!(s.client.admin(), next);
+    // Naming the current admin cancels a pending handover.
+    let other = Address::generate(&s.env);
+    s.client.set_admin(&other);
+    s.client.set_admin(&next);
+    assert_eq!(s.client.pending_admin(), None);
+}
+
+#[test]
+fn r6_admin_and_price_changes_emit_events() {
+    use soroban_sdk::{testutils::Events as _, Event as _};
+    let s = setup();
+    s.env.mock_all_auths();
+    s.client.set_price(&s.tbenji, &ONE);
+    assert_eq!(
+        s.env.events().all().filter_by_contract(&s.client.address),
+        [PriceSet {
+            asset: s.tbenji.clone(),
+            price: ONE,
+            timestamp: 1_000,
+        }
+        .to_xdr(&s.env, &s.client.address)]
+    );
+    let next = Address::generate(&s.env);
+    s.client.set_admin(&next);
+    assert_eq!(
+        s.env.events().all().filter_by_contract(&s.client.address),
+        [AdminProposed {
+            pending: next.clone()
+        }
+        .to_xdr(&s.env, &s.client.address)]
+    );
+    s.client.accept_admin();
+    assert_eq!(
+        s.env.events().all().filter_by_contract(&s.client.address),
+        [AdminSet {
+            admin: next,
+            previous: s.admin.clone(),
+        }
+        .to_xdr(&s.env, &s.client.address)]
+    );
 }

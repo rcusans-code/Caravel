@@ -119,13 +119,18 @@ body {
 .app-check:has(input:disabled) { cursor: default; opacity: 0.6; }
 .app-empty { color: var(--ink-subtle); padding: var(--space-4); }
 
+/* The offers column never goes below its content width (max-content: table cells don't wrap),
+   so a wide open-offers row (1,000,000.00, 365 days, "Signing…") takes width from the form
+   instead of scrolling the table and hiding the Cancel button; at typical amounts the split
+   stays 7:5. min-content would not do: the scrolling wrap's min-content ignores the table. */
 .app-lend__grid {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  grid-template-columns: minmax(0, 7fr) minmax(max-content, 5fr);
   gap: var(--space-6);
   align-items: start;
 }
-@media (max-width: 860px) {
+/* Stack below ~1040px: narrower than that, a wide offers column would squeeze the form. */
+@media (max-width: 1040px) {
   .app-lend__grid { grid-template-columns: 1fr; }
 }
 /* Compact lend form: fields two by two, summary and the button on one row. */
@@ -138,6 +143,11 @@ body {
 .app-lend__foot { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); }
 .app-lend__foot .cv-terms { flex: 1 1 280px; min-width: 0; }
 @media (max-width: 560px) { .app-lend__fields { grid-template-columns: minmax(0, 1fr); } }
+/* "Your open offers" sits in the narrow 5fr column: tighter cell padding so all six columns,
+   the Cancel button included, fit at 1280px (the wrap's scrollbar is overlay-only on many systems). */
+.app-lend .cv-table th, .app-lend .cv-table td { padding-left: var(--space-2); padding-right: var(--space-2); }
+.app-lend .cv-table th:first-child, .app-lend .cv-table td:first-child { padding-left: var(--space-3); }
+.app-lend .cv-table th:last-child, .app-lend .cv-table td:last-child { padding-right: var(--space-3); }
 .app-select {
   flex: 1;
   border: 0;

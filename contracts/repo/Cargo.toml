@@ -8,6 +8,12 @@ publish = false
 crate-type = ["lib", "cdylib"]
 doctest = false
 
+[features]
+# Mainnet build (Raven R12, UA-07): timelock floor 1 day, instance TTL 30 days.
+# `stellar contract build --package caravel-repo --features production`.
+# The default build (testnet, demo) is unchanged.
+production = []
+
 [dependencies]
 soroban-sdk = { workspace = true }
 

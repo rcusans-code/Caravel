@@ -4,10 +4,11 @@
 //! USDC payouts (claimable balances). Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
 use crate::types::{
-    Asset, AssetConfig, BandCandidate, Config, Offer, Pause, PendingAsset, PendingPause, Repo,
+    Asset, AssetConfig, BandCandidate, Config, Offer, Pause, PendingAdmin, PendingAsset,
+    PendingGuardian, PendingPause, Repo,
 };
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
@@ -18,12 +19,16 @@ const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
 /// XLM). 6 days stays inside the TTL a fresh upload/deploy already has, so
 /// deploy pays no code rent.
 ///
-/// PRODUCTION: set this to [`PROD_INSTANCE_BUMP`].
+/// The `production` cargo feature uses [`PROD_INSTANCE_BUMP`] instead
+/// (Raven R12, UA-07).
+#[cfg(not(feature = "production"))]
 const INSTANCE_BUMP: u32 = 6 * DAY_IN_LEDGERS;
+#[cfg(feature = "production")]
+const INSTANCE_BUMP: u32 = PROD_INSTANCE_BUMP;
 /// Production instance TTL: 30 days, matching persistent entries, so config,
 /// asset settings and open-debt counters cannot lapse while repos live.
 #[allow(dead_code)]
-const PROD_INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
+pub(crate) const PROD_INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const INSTANCE_THRESHOLD: u32 = INSTANCE_BUMP - DAY_IN_LEDGERS;
 const PERSISTENT_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const PERSISTENT_THRESHOLD: u32 = PERSISTENT_BUMP - DAY_IN_LEDGERS;
@@ -60,6 +65,18 @@ pub enum DataKey {
     /// lender (permissioned token refused it, frozen trustline). Paid out by
     /// `claim_collateral`.
     ClaimableCollateral(Address, Address),
+    // --- Raven R6 governance (appended; instance unless noted) ---
+    /// Admin guardian rotation waiting out the timelock.
+    PendingGuardian,
+    /// Temporary: admin handover waiting for `accept_admin`.
+    PendingAdmin,
+    /// Liquidator addition waiting out the timelock: its `eta`.
+    PendingLiquidator(Address),
+    /// The last change of each kind the guardian cancelled or superseded:
+    /// re-proposed unchanged, only the admin can cancel it.
+    VetoedAsset(Address),
+    VetoedPause(Address),
+    VetoedLiquidator(Address),
 }
 
 pub fn extend_instance(env: &Env) {
@@ -335,4 +352,74 @@ pub fn remove_claimable_collateral(env: &Env, who: &Address, token: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::ClaimableCollateral(who.clone(), token.clone()));
+}
+
+// --- role rotation and the liquidator timelock (Raven R6) -------------------
+
+pub fn read_pending_guardian(env: &Env) -> Option<PendingGuardian> {
+    env.storage().instance().get(&DataKey::PendingGuardian)
+}
+
+pub fn write_pending_guardian(env: &Env, pending: &PendingGuardian) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingGuardian, pending);
+}
+
+pub fn remove_pending_guardian(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingGuardian);
+}
+
+/// The admin handover in flight, if any and not past its
+/// `live_until_ledger` (the temporary entry may outlive it by a ledger or
+/// two, so the ledger is checked here too).
+pub fn read_pending_admin(env: &Env) -> Option<PendingAdmin> {
+    let pending: PendingAdmin = env.storage().temporary().get(&DataKey::PendingAdmin)?;
+    (env.ledger().sequence() <= pending.live_until_ledger).then_some(pending)
+}
+
+/// Stores the handover in temporary storage, alive through
+/// `pending.live_until_ledger` (the caller checked it is in range).
+pub fn write_pending_admin(env: &Env, pending: &PendingAdmin) {
+    let key = DataKey::PendingAdmin;
+    let ttl = pending
+        .live_until_ledger
+        .saturating_sub(env.ledger().sequence());
+    env.storage().temporary().set(&key, pending);
+    env.storage().temporary().extend_ttl(&key, ttl, ttl);
+}
+
+pub fn remove_pending_admin(env: &Env) {
+    env.storage().temporary().remove(&DataKey::PendingAdmin);
+}
+
+pub fn read_pending_liquidator(env: &Env, who: &Address) -> Option<u64> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingLiquidator(who.clone()))
+}
+
+pub fn write_pending_liquidator(env: &Env, who: &Address, eta: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingLiquidator(who.clone()), &eta);
+}
+
+pub fn remove_pending_liquidator(env: &Env, who: &Address) {
+    env.storage()
+        .instance()
+        .remove(&DataKey::PendingLiquidator(who.clone()));
+}
+
+/// The change the guardian last cancelled under `key` (a `Vetoed*` key).
+pub fn read_vetoed<V: TryFromVal<Env, Val>>(env: &Env, key: &DataKey) -> Option<V> {
+    env.storage().instance().get(key)
+}
+
+pub fn write_vetoed<V: IntoVal<Env, Val>>(env: &Env, key: &DataKey, change: &V) {
+    env.storage().instance().set(key, change);
+}
+
+pub fn remove_vetoed(env: &Env, key: &DataKey) {
+    env.storage().instance().remove(key);
 }

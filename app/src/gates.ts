@@ -19,7 +19,8 @@ export function fmtDuration(secs: number | bigint): string {
 /**
  * Why this wallet cannot hold `token` as collateral, or null when it can. The
  * gate is per collateral asset: tBENJI needs an issuer-authorized trustline,
- * tSAFO needs the issuer allowlist. Lending needs neither (USDC only).
+ * tSAFO needs the issuer allowlist. Lending needs neither (USDC only;
+ * a #38 in-kind claim the token refuses is parked for claim_collateral).
  */
 export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | "kind">): string | null {
   if (!b || !b.exists) return null; // the friendbot / trustline checks say what to do
@@ -27,6 +28,19 @@ export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | 
     return b.tsafoAllowed ? null : `Your account is not on the ${token.code} allowlist. The issuer must allowlist it first. ${ACCESS_LIMITED}`;
   if (b.tbenji === null) return `Add the ${token.code} trustline, then the issuer must authorize it. ${ACCESS_LIMITED}`;
   return b.tbenjiAuthorized ? null : `Your account is not authorized to hold ${token.code}. The issuer must authorize it first. ${ACCESS_LIMITED}`;
+}
+
+export const USDC_FROZEN =
+  "USDC frozen by its issuer: this account cannot send or receive USDC, so lending, borrowing, repaying and claiming are off until the issuer unfreezes it.";
+
+/**
+ * USDC trustline present but not authorized (Raven AS-04): Circle froze it. Every
+ * write that moves USDC to or from the account (lend, take, repay, claim) would fail
+ * with SAC error #11, so the buttons are disabled with this text instead. Null = fine,
+ * or no line yet (the trustline prompt covers that).
+ */
+export function usdcBlock(b: Balances | null): string | null {
+  return b?.exists && b.usdc !== null && !b.usdcAuthorized ? USDC_FROZEN : null;
 }
 
 /** Contract error 9 (StaleNav), built from each asset's max_nav_age_secs. */
@@ -230,6 +244,38 @@ export function navBlock(code: string, h: NavHealth, asset: BandAsset | null): s
   if (h.state === "stale")
     return `The ${code} price is more than ${asset ? fmtDuration(asset.max_nav_age_secs) : "its maximum age"} old. Wait for the next update (or push one from Admin), then try again.`;
   return navHoldText(code, h, asset);
+}
+
+// --- NAV outage fallback: the lender's in-kind claim (DECISIONS.md #38) ------
+// Mirrors contracts/repo/src/inkind.rs `nav_outage`.
+
+/** Contract days a NAV must be stale before `claim_in_kind` opens (inkind.rs NAV_OUTAGE_DAYS). */
+export const NAV_OUTAGE_DAYS = 7;
+
+export interface InKindWindow {
+  /**
+   * none: no price, so the window never opens (NoPrice) · fresh: the NAV is
+   * fresh, a liquidator sells the collateral · waiting: stale, not long
+   * enough yet (NoNavOutage) · open: `claim_in_kind` succeeds.
+   */
+  state: "none" | "fresh" | "waiting" | "open";
+  /** Ledger second from which the claim succeeds (the contract wants now > last NAV ts + max age + 7 days); null without a price. */
+  opensAt: number | null;
+}
+
+/** When the lender of a Defaulted repo may take its collateral in kind, at ledger time `now`. */
+export function inKindWindow(
+  nav: Nav | null,
+  asset: Pick<AssetConfig, "max_nav_age_secs"> | null,
+  daySecs: number | bigint,
+  now: number,
+): InKindWindow {
+  if (!nav || nav.price <= 0n || !asset) return { state: "none", opensAt: null };
+  const ts = Number(nav.timestamp);
+  const opensAt = ts + Number(asset.max_nav_age_secs) + NAV_OUTAGE_DAYS * Number(daySecs) + 1;
+  if (now >= opensAt) return { state: "open", opensAt };
+  // fresh_nav's staleness (a future-dated price counts as fresh).
+  return { state: now - ts > Number(asset.max_nav_age_secs) ? "waiting" : "fresh", opensAt };
 }
 
 /** Why Take is blocked by the NAV, or null. */

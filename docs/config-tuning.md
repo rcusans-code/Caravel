@@ -1,6 +1,6 @@
 # Config tuning: why each risk number is what it is
 
-As of 26 Oct 2026. Ruling: [DECISIONS #35](../DECISIONS.md) (orchestrator best guess under the hackathon async rule; it replaces the launch numbers in #26 and #31 where they differ). Goal (MB, 26 Oct): terms at least as good as the nearest competitor, and every number keeps a stated edge, either a safety margin or a fee kept.
+As of 26 Oct 2026. Ruling: [DECISIONS #35](../DECISIONS.md) (it replaces the launch numbers in #26 and #31 where they differ). Goal: terms at least as good as the nearest competitor, and every number keeps a stated edge, either a safety margin or a fee kept.
 
 Reproduce every safety number from the repo, offline:
 

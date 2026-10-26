@@ -7,6 +7,8 @@ import { big, contractDataKey, dataKey, normRepo, server, simulateView } from ".
 import type { Repo, Status } from "./book";
 import { toReading, type Asset, type FeedReading } from "./sep40";
 import {
+  COLLATERAL,
+  DEPLOYED_AT,
   HORIZON_URL,
   LIVE_FEED,
   NETWORK_PASSPHRASE,
@@ -20,15 +22,19 @@ import {
 } from "./config";
 import { horizonToUnits } from "./format";
 import { NAV_BAND_RECORDS, type BandCandidate, type PricePoint } from "./gates";
+import { padAssembled } from "./resources";
 import type { Signer } from "./wallet";
 import {
   SIGN_TIMEOUT_MS,
   addTrustlinesWithRetry,
+  boundedSign,
   signOnce,
   type TrustCode,
   type TrustResult,
   type WalletSignError,
 } from "./trustline";
+import { FRIENDBOT_TIMEOUT_MS, HORIZON_TIMEOUT_MS, fetchWithin } from "./net";
+import { TxError, friendbotAlreadyFunded, sendAssembled, sendClassic, txHashOf, type AssembledLike } from "./txerror";
 
 // The order book reads live in book.ts (shared with the landing page's live deals).
 export { getBook, getCounters, server } from "./book";
@@ -77,6 +83,8 @@ export interface Balances {
   exists: boolean;
   xlm: bigint;
   usdc: bigint | null; // null = no trustline
+  /** USDC trustline authorized by its issuer; false = frozen (Raven AS-04) or no line. */
+  usdcAuthorized: boolean;
   tbenji: bigint | null;
   tbenjiAuthorized: boolean;
   /** tSAFO units (5 decimals); null when tSAFO is not deployed. No trustline. */
@@ -92,9 +100,10 @@ export function holding(b: Balances, sac: string): { amount: bigint | null; allo
 }
 
 // --- read-only clients (simulation needs no signer) ----------------------------
+// Every client shares book.ts's `server`, which carries the RPC timeout (Raven Q-01).
 
-const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
-const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
+const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL, server });
+const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL, server });
 const oracleAsset = (sac: string) => ({ tag: "Stellar" as const, values: [sac] as const });
 
 export async function getConfig(): Promise<ProtocolConfig> {
@@ -225,9 +234,18 @@ export async function getLedgerTime(): Promise<number> {
 // --- balances (classic trustlines, via Horizon) -------------------------------
 
 export async function getBalances(address: string): Promise<Balances> {
-  const res = await fetch(`${HORIZON_URL}/accounts/${address}`);
+  const res = await fetchWithin(`${HORIZON_URL}/accounts/${address}`, HORIZON_TIMEOUT_MS);
   if (res.status === 404)
-    return { exists: false, xlm: 0n, usdc: null, tbenji: null, tbenjiAuthorized: false, tsafo: TSAFO ? 0n : null, tsafoAllowed: false };
+    return {
+      exists: false,
+      xlm: 0n,
+      usdc: null,
+      usdcAuthorized: false,
+      tbenji: null,
+      tbenjiAuthorized: false,
+      tsafo: TSAFO ? 0n : null,
+      tsafoAllowed: false,
+    };
   if (!res.ok) throw new Error(`Horizon ${res.status}`);
   const acc = (await res.json()) as {
     balances: { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string; is_authorized?: boolean }[];
@@ -248,6 +266,7 @@ export async function getBalances(address: string): Promise<Balances> {
     exists: true,
     xlm: native ? horizonToUnits(native.balance) : 0n,
     usdc: u ? horizonToUnits(u.balance) : null,
+    usdcAuthorized: !!u?.is_authorized,
     tbenji: t ? horizonToUnits(t.balance) : null,
     tbenjiAuthorized: !!t?.is_authorized,
     tsafo,
@@ -255,9 +274,12 @@ export async function getBalances(address: string): Promise<Balances> {
   };
 }
 
+/** Funds a new testnet account. "Already exists" (a second click while the first funds it) counts as success (DW-05). */
 export async function friendbot(address: string) {
-  const res = await fetch(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`);
-  if (!res.ok) throw new Error("Friendbot did not fund the account. Try again in a minute.");
+  const res = await fetchWithin(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`, FRIENDBOT_TIMEOUT_MS);
+  if (res.ok) return;
+  if (friendbotAlreadyFunded(res.status, await res.text().catch(() => ""))) return;
+  throw new Error("Friendbot did not fund the account. Try again in a minute.");
 }
 
 // --- writes ---------------------------------------------------------------------
@@ -270,26 +292,30 @@ export interface TxOutcome<T> {
 const clientOpts = (signer: Signer) => ({
   networkPassphrase: NETWORK_PASSPHRASE,
   rpcUrl: RPC_URL,
+  server,
   publicKey: signer.address,
-  // Report the wallet step to the UI (TxProgress): sign while the signer is open, submit once it returns.
-  signTransaction: async (...args: Parameters<Signer["signTransaction"]>) => {
-    emitPhase("sign");
-    const out = await signer.signTransaction(...args);
-    emitPhase("submit");
-    return out;
-  },
+  // Report the wallet step to the UI (TxProgress): sign while the signer is open, submit once it
+  // returns. A wallet that never answers fails after 120 s instead of holding the app busy (DW-04).
+  signTransaction: boundedSign(signer.signTransaction, (p) => emitPhase(p)),
 });
 
 type Unwrappable<T> = { isErr(): boolean; unwrap(): T; unwrapErr?(): { message: string } };
 
+/**
+ * Simulation errors throw before any wallet prompt. After signing, sendAssembled
+ * reports the hash as soon as the network accepts the tx and keeps it on every
+ * failure (TxError), checking the status before reading the result (DW-02).
+ */
 async function submit<R>(tx: contract.AssembledTransaction<R>): Promise<TxOutcome<R>> {
   const sim = tx.simulation;
   if (sim && rpc.Api.isSimulationError(sim as rpc.Api.SimulateTransactionResponse)) {
     throw new Error((sim as rpc.Api.SimulateTransactionErrorResponse).error);
   }
-  const sent = await tx.signAndSend();
-  const hash = sent.getTransactionResponse?.txHash ?? sent.sendTransactionResponse?.hash ?? "";
-  return { hash, value: sent.result };
+  // Declare padded resources, not the simulated ones: simulation under-counts
+  // a try_ sub-call that writes and rolls back. Same two layers as the keeper's
+  // invokeOnce: padWrites (headroom) first, then padAssembled (resources.ts).
+  const padded = padAssembled(padWrites(tx));
+  return sendAssembled(padded as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
 }
 
 function unwrapResult<T>(r: unknown): T {
@@ -398,7 +424,10 @@ export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promi
     const settledElsewhere =
       /Error\(Contract, #7\)/.test(msg) || (await getRepoStatus(repo.id).catch(() => null))?.match(/^(Repaid|Defaulted|Liquidated)$/);
     if (settledElsewhere)
-      throw new Error(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`);
+      throw new TxError(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`, {
+        hash: txHashOf(e),
+        stage: "failed",
+      });
     throw e;
   }
 }
@@ -436,6 +465,107 @@ export async function claim(signer: Signer): Promise<TxOutcome<bigint>> {
   return { hash: out.hash, value: big(unwrapResult(out.value)) };
 }
 
+// --- NAV outage fallback: in-kind claim (DECISIONS.md #38) ------------------------
+
+/**
+ * Lender only: takes a Defaulted repo's whole collateral in kind once its NAV
+ * has been stale for 7 contract days past max_nav_age_secs. Returns the
+ * collateral amount. A push the token refuses is parked for claimCollateral.
+ */
+export async function claimInKind(signer: Signer, repoId: bigint): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.claim_in_kind({ repo_id: repoId }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/**
+ * Adds write-byte and fee headroom to every simulated write (submit). When a
+ * token call fails inside `try_transfer`/`try_transfer_from` and is rolled
+ * back (a parked payout, a failed auto-repay pull), testnet simulation
+ * under-counts write bytes, so the tx fails on chain with
+ * RESOURCE_LIMIT_EXCEEDED (claim_in_kind: simulated 3,024, needed 3,248).
+ * Same numbers as the keeper's scripts/keeper/src/headroom.ts; runbook:
+ * scripts/README.md "Under-simulated write bytes". Only the write-byte share
+ * of the extra fee is kept; the refundable rest comes back. sign() rebuilds
+ * from this cached transactionData.
+ */
+function padWrites<R>(tx: contract.AssembledTransaction<R>, bytes = 2048, fee = 200_000n): contract.AssembledTransaction<R> {
+  const sim = tx.simulation;
+  if (!sim || !rpc.Api.isSimulationSuccess(sim as rpc.Api.SimulateTransactionResponse)) return tx;
+  const data = tx.simulationData.transactionData;
+  const r = data.resources();
+  r.writeBytes(r.writeBytes() + bytes);
+  data.resourceFee(xdr.Int64.fromString((data.resourceFee().toBigInt() + fee).toString()));
+  return tx;
+}
+
+/** Collateral parked for `address` per collateral token id (in-kind claims the token refused); 0 on a contract without it. */
+export async function getClaimableCollateral(address: string): Promise<Record<string, bigint>> {
+  const amounts = await Promise.all(
+    COLLATERAL.map((a) =>
+      readRepo.claimable_collateral({ who: address, asset: a.sac }).then(
+        (r) => big(r.result),
+        () => 0n,
+      ),
+    ),
+  );
+  return Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, amounts[i]]));
+}
+
+/** Sends the signer's parked `asset` to `to` (itself, or an allowlisted custody account). Returns the amount. */
+export async function claimCollateral(signer: Signer, asset: string, to: string): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.claim_collateral({ who: signer.address, asset, to }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/** A `ClaimedInKind` event: the lender took the collateral itself, no sale. */
+export interface InKindClaim {
+  repoId: bigint;
+  lender: string;
+  amount: bigint;
+  /** The token refused the push, so the collateral waits for claim_collateral. */
+  parked: boolean;
+  /** The stale NAV the outage was measured from. */
+  navTimestamp: bigint;
+}
+
+/**
+ * Every `ClaimedInKind` event the RPC still holds for the repo contract, by
+ * repo id. Repo state is `Liquidated` for a sale and an in-kind claim alike;
+ * only the event tells them apart. RPC scans at most ~10,000 ledgers per
+ * call, so the scan starts near the deploy (DEPLOYED_AT, ledgers ≥ 4 s
+ * apart, so this overshoots back) and follows the cursor to the latest
+ * ledger. Testnet keeps about 7 days of events.
+ */
+export async function getInKindClaims(): Promise<Map<string, InKindClaim>> {
+  const t = await server.getTransaction("0".repeat(64));
+  const sinceDeploy = Math.max(0, Number(t.latestLedgerCloseTime) - Date.parse(DEPLOYED_AT) / 1000);
+  const startLedger = Math.max(t.oldestLedger, t.latestLedger - Math.ceil(sinceDeploy / 4));
+  const topics = [[xdr.ScVal.scvSymbol("claimed_in_kind").toXDR("base64"), "*", "*"]];
+  const filters = [{ type: "contract" as const, contractIds: [REPO_ID], topics }];
+  const out = new Map<string, InKindClaim>();
+  let page = await server.getEvents({ startLedger, filters, limit: 100 });
+  for (let i = 0; i < 30; i++) {
+    for (const e of page.events) {
+      const id = big(scValToNative(e.topic[1]));
+      const d = scValToNative(e.value) as { collateral_amount: bigint; parked: boolean; nav_timestamp: bigint };
+      out.set(String(id), {
+        repoId: id,
+        lender: String(scValToNative(e.topic[2])),
+        amount: big(d.collateral_amount),
+        parked: d.parked === true,
+        navTimestamp: big(d.nav_timestamp),
+      });
+    }
+    // Cursor = toid: ledger sequence in the high 32 bits.
+    const cursorLedger = page.cursor ? Number(BigInt(page.cursor.split("-")[0]) >> 32n) : Infinity;
+    if (!page.cursor || cursorLedger >= page.latestLedger) break;
+    page = await server.getEvents({ cursor: page.cursor, filters, limit: 100 });
+  }
+  return out;
+}
+
 /** Admin only: mock oracle `set_price` (contracts/oracle) for collateral `sac`. */
 export async function setNav(signer: Signer, price: bigint, sac: string = TBENJI_SAC): Promise<TxOutcome<null>> {
   const c = new OracleClient({ contractId: ORACLE_ID, ...clientOpts(signer) });
@@ -452,7 +582,9 @@ export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise
     const a = code === "USDC" ? USDC : TBENJI;
     b.addOperation(Operation.changeTrust({ asset: new ClassicAsset(a.code, a.issuer) }));
   }
-  const tx = b.setTimeout(SIGN_TIMEOUT_MS / 1000).build();
+  // The timebound starts before the prompt: leave 60 s after the longest signature so a
+  // slow (but answered) wallet does not land as txTooLate.
+  const tx = b.setTimeout(SIGN_TIMEOUT_MS / 1000 + 60).build();
   emitPhase("sign");
   const signedTxXdr = await signOnce(async () =>
     (await signer.signTransaction(tx.toXDR(), { networkPassphrase: NETWORK_PASSPHRASE, address: signer.address }))
@@ -460,11 +592,9 @@ export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise
   );
   emitPhase("submit");
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
-  const sent = await server.sendTransaction(signed);
-  if (sent.status === "ERROR") throw new Error(`Trustline tx rejected: ${sent.errorResult?.result().switch().name}`);
-  const done = await server.pollTransaction(sent.hash, { attempts: 20 });
-  if (done.status !== "SUCCESS") throw new Error(`Trustline tx ${done.status}`);
-  return { hash: sent.hash, value: null };
+  // ERROR -> "Trustline tx not accepted: <code>", FAILED -> decoded op code (e.g. low reserve), hash kept (DW-01).
+  const hash = await sendClassic(server, signed, "Trustline tx", (h) => emitPhase("submit", h));
+  return { hash, value: null };
 }
 
 /**

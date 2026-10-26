@@ -85,7 +85,8 @@ pub struct ProposalExecuted {
     pub kind: Symbol,
 }
 
-/// A proposal was dropped: cancelled by admin or guardian, or superseded
+/// A proposal was dropped: cancelled by admin or guardian, replaced by a
+/// new proposal of the same kind (`by` = admin, issue #41), or superseded
 /// by an instant change to the same asset (`by` made that change).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -277,4 +278,82 @@ pub struct Shortfall {
     #[topic]
     pub repo_id: u64,
     pub amount: i128,
+}
+
+// --- governance (Raven R6) ----------------------------------------------------
+
+/// The liquidator whitelist changed (Raven STD-03 / OZ-03): `allowed` true
+/// when `execute_liquidator` added `who`, false when `set_liquidator`
+/// removed it.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiquidatorSet {
+    #[topic]
+    pub who: Address,
+    pub allowed: bool,
+}
+
+/// Admin queued a liquidator addition behind the timelock (Raven UA-03).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiquidatorProposed {
+    #[topic]
+    pub who: Address,
+    pub eta: u64,
+}
+
+/// A pending liquidator addition was dropped: cancelled by admin or
+/// guardian, replaced by a re-proposal, or by a removal (`by` = admin).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiquidatorProposalCancelled {
+    #[topic]
+    pub who: Address,
+    pub by: Address,
+}
+
+/// Admin queued a guardian rotation behind the timelock (Raven UA-02).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardianChangeProposed {
+    #[topic]
+    pub guardian: Address,
+    pub eta: u64,
+}
+
+/// Admin dropped its pending guardian rotation (only the admin can).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardianChangeCancelled {
+    #[topic]
+    pub guardian: Address,
+}
+
+/// The guardian role moved to `guardian` (`execute_guardian`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardianSet {
+    #[topic]
+    pub guardian: Address,
+    pub previous: Address,
+}
+
+/// Admin started a handover to `new_admin`, valid through
+/// `live_until_ledger`; 0 means the pending handover was cancelled (Raven
+/// UA-06).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferStarted {
+    #[topic]
+    pub new_admin: Address,
+    pub live_until_ledger: u32,
+}
+
+/// The admin role moved to `admin` (`accept_admin`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminSet {
+    #[topic]
+    pub admin: Address,
+    pub previous: Address,
 }

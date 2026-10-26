@@ -47,4 +47,11 @@ pub enum Error {
     /// `claim_in_kind` while the NAV is fresh, or stale for no longer than
     /// `inkind::NAV_OUTAGE_DAYS` demo/real days: use `liquidate` or wait.
     NoNavOutage = 25,
+    /// `execute_*` after the proposal's window closed (`eta + timelock_secs`):
+    /// propose it again (#33, issue #41).
+    ProposalExpired = 26,
+    /// The guardian already cancelled (or superseded) this exact change
+    /// once; the admin's re-proposal of it can only be cancelled by the
+    /// admin (Raven R6, UA-02).
+    VetoSpent = 27,
 }

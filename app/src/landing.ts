@@ -11,7 +11,7 @@ import { Address, xdr } from "@stellar/stellar-sdk";
 import { big, getBook, simulateView } from "./book";
 import type { Offer, Repo, Status } from "./book";
 import { ORACLE_ID, REPO_ID, TBENJI_SAC, assetBySac } from "./config";
-import { BPS, collateralDecimals, collateralValue, coverPct, fmtAmount, fmtCountdown, fmtNav, fmtPct } from "./format";
+import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtPct } from "./format";
 
 const g = globalThis as unknown as { Buffer?: typeof Buffer };
 g.Buffer = g.Buffer ?? Buffer;
@@ -91,10 +91,10 @@ function repoAprBps(r: Repo, daySecs: bigint): bigint {
   return (r.interest * BPS * 365n * daySecs + den / 2n) / den;
 }
 
-/** Cover vs the asset's margin-call line (DECISIONS.md #14, #26), in %. */
+/** Cover vs the repo's margin-call line (DECISIONS.md #14, #26; clamped as in margin.rs), in %. */
 function repoCoverPct(r: Repo, nav: Nav, triggerBps: bigint): number | null {
   const value = collateralValue(r.collateral_amount, nav.price, collateralDecimals(nav.decimals, assetBySac(r.collateral_asset).decimals));
-  return coverPct(value, r.principal + r.interest, triggerBps);
+  return coverPct(value, r.principal + r.interest, effectiveTriggerBps(triggerBps, r.haircut_bps));
 }
 
 /** Term in demo days (1 day = day_secs seconds; 60 s on testnet, DECISIONS.md #5). */

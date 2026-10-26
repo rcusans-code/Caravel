@@ -20,8 +20,10 @@
 # work. The last posted price per asset lives in NAV_KEEPER_STATE (default
 # ${XDG_STATE_HOME:-~/.local/state}/caravel/nav-keeper-<ORACLE_ID>.state), so
 # a restart keeps it; with no state yet the current price is trusted.
-# Signs set_price with ADMIN_SECRET from ENV_FILE (the oracle admin), passed
-# to the CLI through STELLAR_ACCOUNT so it never shows up in `ps`.
+# Signs set_price with the oracle admin from ENV_FILE: FEEDER_SECRET when the
+# feeder key is split from ADMIN (Raven R10, after oracle set_admin), else
+# ADMIN_SECRET; passed to the CLI through STELLAR_ACCOUNT so it never shows
+# up in `ps`.
 #
 # Attempts are interleaved (tBENJI, tSAFO, then a retry of whichever failed),
 # so one asset's failures never delay the other's push; every CLI call is
@@ -156,7 +158,7 @@ guard_price() { # guard_price LABEL PRICE PIN: 0 = post it (and remember it), 1 
 
 set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
   local label="$1" asset="$2" price="$3" try="$4" out ts
-  if ! out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" cli contract invoke -q --inclusion-fee "$INCLUSION_FEE" \
+  if ! out=$(STELLAR_ACCOUNT="${FEEDER_SECRET:-$ADMIN_SECRET}" cli contract invoke -q --inclusion-fee "$INCLUSION_FEE" \
                --id "$ORACLE_ID" -- set_price --asset "$asset" --price "$price" 2>&1); then
     [[ -z "$out" ]] && out="no output (timed out after ${CLI_TIMEOUT}s?)"
     log "$label set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"
@@ -171,8 +173,11 @@ set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
 # ADMIN above MIN_ADMIN_XLM by merging a friendbot-funded throwaway account
 # into it (+~10k XLM), the same trick scripts/deploy.sh uses.
 MIN_ADMIN_XLM="${MIN_ADMIN_XLM:-3000}"
+HORIZON_TIMEOUT="${HORIZON_TIMEOUT:-10}"   # s per Horizon request: a hung Horizon must not stall the loop (Raven D-02)
+TOPUP_TIMEOUT="${TOPUP_TIMEOUT:-60}"       # s per friendbot / merge CLI call (outside the 20 s `cli` cap: friendbot is slow)
+slow_cli() { timeout -k 5 "$TOPUP_TIMEOUT" "$STELLAR" "$@"; }
 xlm_balance() {
-  curl -fsS "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$1" | python3 -c \
+  curl -fsS --max-time "${HORIZON_TIMEOUT:-10}" "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$1" | python3 -c \
     'import json,sys; print(int(float(next(b["balance"] for b in json.load(sys.stdin)["balances"] if b["asset_type"]=="native"))))'
 }
 top_up() {
@@ -181,13 +186,13 @@ top_up() {
   (( bal >= MIN_ADMIN_XLM )) && return 0
   gas="caravel-gas-keeper-$$"
   log "admin has $bal XLM < $MIN_ADMIN_XLM, merging a friendbot account in"
-  if "$STELLAR" keys generate "$gas" --fund --overwrite >/dev/null 2>&1 \
-     && "$STELLAR" tx new account-merge -q --source-account "$gas" --account "$ADMIN_ADDRESS" >/dev/null 2>&1; then
+  if slow_cli keys generate "$gas" --fund --overwrite >/dev/null 2>&1 \
+     && slow_cli tx new account-merge -q --source-account "$gas" --account "$ADMIN_ADDRESS" >/dev/null 2>&1; then
     log "admin now $(xlm_balance "$ADMIN_ADDRESS") XLM"
   else
-    log "WARN: XLM top-up failed (friendbot down?)"
+    log "WARN: XLM top-up failed (friendbot down or timed out after ${TOPUP_TIMEOUT}s?)"
   fi
-  "$STELLAR" keys rm "$gas" >/dev/null 2>&1 || true
+  slow_cli keys rm "$gas" >/dev/null 2>&1 || true
 }
 
 [[ -f "$ENV_FILE" ]] || { log "missing $ENV_FILE"; exit 1; }

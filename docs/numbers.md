@@ -59,10 +59,16 @@ One source per figure, **DefiLlama RWA**, read on **25 Oct 2026**. Put the date 
 - BlackRock BUIDL on Binance, 14 Nov 2025: "accepted as off-exchange collateral for trading on Binance". [Securitize via PR Newswire](https://www.prnewswire.com/news-releases/blackrocks-buidl-tokenized-by-securitize-now-accepted-as-collateral-for-trading-on-binance-and-launches-on-bnb-chain-302613374.html)
 - Aave Horizon, launched 26 Aug 2025: permissioned market where qualified users borrow stablecoins against RWAs. [Aave blog](https://aave.com/blog/horizon-launch)
 
+## Precedent and peers (checked 26 Oct)
+
+- Ascend × M1X, 23 Oct 2026: bilateral institutional repo on USDM1 (a sovereign-bond token), 72 automated hourly rolls, SOFR+10bp, 2% haircut, SAC tokens for both legs. [stellar.org press](https://stellar.org/press/ascend-and-m1x-global-complete-first-institutional-repo-on-stellar-using-usdm1-secured-sovereign-bond). Say Caravel is the open order book (any USDC lender, multi-issuer permissioned collateral, daily-NAV margin, issuer-approved liquidation); never say "first".
+- XOXNO "Spiko RWA" spoke: collateral-only, 6 Spiko markets configured, all disabled (XOXNO mainnet `configs/mainnet/spokes.json`). [WhaleHub](https://whalehub.io/blog/spiko-stellar)
+- Liqvid X Stellar RWA Lending Market, SCF #45 (Build, $97,500 budget): verified investors borrow USDC against Liqvid-issued tokenized assets, in isolated markets on Alula (health factor and liquidation run by Alula). [SCF submission](https://communityfund.stellar.org/submissions/recLauVL3boo779AG)
+
 ## Other figures already sourced
 
 - 0 smart contracts hold BENJI: [Horizon](https://horizon.stellar.org/assets?asset_code=BENJI&asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5)
 - T-bill floor 3.87% (USDXX 7-day SEC yield, 23 Oct): [BlackRock](https://www.blackrock.com/cash/en-us/products/329365/circle-reserve-fund)
-- Blend Fixed pool USDC supply 6.69% (6 Oct, DefiLlama via [WhaleHub](https://whalehub.io/blog/best-lending-protocols-stellar))
+- Blend Fixed pool USDC supply 6.69% (6 Oct, DefiLlama via [WhaleHub](https://whalehub.io/blog/best-lending-protocols-stellar)). **Superseded:** re-read 26 Oct: 5.70% APY, 30-day mean 6.71% ([DefiLlama yields](https://defillama.com/yields/pool/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf)). WhaleHub (update 8 Oct): the Fixed V2 pool is "on ice", new borrowing blocked, supply and withdrawal still work.
 - More with quotes: [collateral-research.md](collateral-research.md), [research/](research/)
 - Competitor lending terms (Aave Horizon, Morpho, XOXNO, Blend, Templar, Flux, Fed discount window, tri-party repo), read 26 Oct 2026, and the NAV / FX history behind every haircut, margin trigger, NAV band, discount and fee: [config-tuning.md](config-tuning.md) (raw rows in [research/config-tuning/competitor-terms.json](research/config-tuning/competitor-terms.json)). Quote risk numbers from there, not from older slides.

@@ -100,7 +100,7 @@ fn world<'a>(trigger: u32) -> W<'a> {
     usdc_admin.mint(&borrower, &(100 * UNIT));
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
 
     W {
         usdc: TokenClient::new(&env, &usdc),
@@ -285,29 +285,27 @@ fn a3_raising_the_trigger_tightens_lowering_loosens() {
 }
 
 #[test]
-fn a3_top_up_clears_only_below_a_raised_trigger() {
+fn a3_raised_trigger_is_clamped_below_the_repos_haircut() {
     // A live repo snapshotted haircut 300. The guardian re-tiers the asset to
-    // haircut 500 / trigger 400, above the snapshot: the repo is now past the
-    // trigger at NAV 1.00 (debt 0.97 × value > 0.96 × value).
+    // haircut 500 / trigger 400, above the snapshot. Raven UA-01 / D3: the
+    // repo is checked at min(400, 300 − 1) = 299, so at NAV 1.00 (debt 0.97
+    // × value, not past 0.9701 × value) it is not margin-called.
     let w = world(TRIGGER);
     let id = w.take();
     w.repo
         .guardian_set_asset(&w.tbenji, &asset_cfg(&w.tbenji, 500, 400));
+    assert_eq!(w.repo.check_margin(&id), Status::Open);
+
+    // A real NAV dip past the clamped line (0.97 / 0.9701 ≈ 0.999897) still
+    // calls it, and a top-up back to initial margin at the snapshot haircut
+    // clears it: the call is always curable at the repo's own terms.
+    let dip = 999 * ONE / 1_000;
+    w.set_nav(dip, NOW + 1);
     assert_eq!(w.repo.check_margin(&id), Status::MarginCall);
-
-    // 1 unit restores ltv_ok at the snapshot haircut (it already held), but
-    // the loan is still past the live trigger: the call stays open, so the
-    // next check cannot hand out a fresh deadline.
     w.repo.top_up(&id, &1);
     assert_eq!(w.repo.repo(&id).status, Status::MarginCall);
-
-    // Enough to clear 0.96 at NAV 1.00 (value = amount): one unit short
-    // keeps the call, the exact amount clears it. Collateral is now
-    // TAKE_COLLATERAL + 1.
-    let required = math::required_collateral(DEBT, 1, 0, 400).unwrap();
-    w.repo.top_up(&id, &(required - TAKE_COLLATERAL - 2));
-    assert_eq!(w.repo.repo(&id).status, Status::MarginCall);
-    w.repo.top_up(&id, &1);
+    let required = math::required_collateral(DEBT, 999, 3, HAIRCUT).unwrap();
+    w.repo.top_up(&id, &(required - TAKE_COLLATERAL));
     let repo = w.repo.repo(&id);
     assert_eq!(repo.status, Status::Open);
     assert_eq!(repo.margin_call_deadline, None);

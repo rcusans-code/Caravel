@@ -31,11 +31,27 @@ pub(crate) const TRIGGER_BPS: u32 = 200;
 /// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
+/// Whitelists `who` the only way the contract allows (Raven UA-03):
+/// `propose_liquidator`, wait out the timelock, `execute_liquidator`. The
+/// ledger clock is put back afterwards, so setup code keeps its timeline.
+pub(crate) fn whitelist(env: &Env, repo: &CaravelRepoClient<'_>, who: &Address) {
+    let now = env.ledger().timestamp();
+    let eta = repo.propose_liquidator(who);
+    env.ledger().set_timestamp(eta);
+    repo.execute_liquidator(who);
+    env.ledger().set_timestamp(now);
+}
+
+/// Demo profile. `usdc` is a real 7-decimal SAC and `oracle` a USD-based
+/// mock feed, because the constructor checks both (Raven CS-07, STD-01);
+/// tests that need their own token or feed overwrite them.
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
         admin: Address::generate(env),
-        usdc: Address::generate(env),
-        oracle: Address::generate(env),
+        usdc: env
+            .register_stellar_asset_contract_v2(Address::generate(env))
+            .address(),
+        oracle: crate::oracle::mock::setup_mock_oracle(env),
         treasury: Address::generate(env),
         fee_bps: 1_000,
         liquidation_discount_bps: 200,
@@ -210,7 +226,7 @@ fn admin_manages_liquidator_whitelist() {
     let liquidator = Address::generate(&env);
 
     assert!(!client.is_liquidator(&liquidator));
-    client.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &client, &liquidator);
     assert!(client.is_liquidator(&liquidator));
     client.set_liquidator(&liquidator, &false);
     assert!(!client.is_liquidator(&liquidator));
@@ -278,7 +294,7 @@ fn world<'a>() -> World<'a> {
     StellarAssetClient::new(&env, &usdc).mint(&borrower, &(100 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(2_000 * UNIT));
     let liquidator = Address::generate(&env);
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     StellarAssetClient::new(&env, &usdc).mint(&liquidator, &(2_000 * UNIT));
 
     World {
@@ -1159,6 +1175,55 @@ fn short_borrower_still_defaults() {
     w.set_time(MATURED);
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
     assert_eq!(w.usdc.balance(&w.borrower), keep);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
+/// Ledger entries the last invocation wrote (its read-write footprint).
+fn last_write_entries(w: &World) -> u32 {
+    w.env.cost_estimate().resources().write_entries
+}
+
+/// Write entries of a plain (no auto-repay) maturity default: the baseline a
+/// short auto-repay borrower's default must match.
+fn plain_default_write_entries() -> u32 {
+    let w = world();
+    let repo_id = w.take();
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    last_write_entries(&w)
+}
+
+#[test]
+fn short_borrower_default_makes_no_pull() {
+    // Testnet repo 5: a failed `transfer_from` inside `default` still put the
+    // borrower's Allowance entry in the write footprint, and the network
+    // charged write bytes simulation did not count, so every `default` tx
+    // failed. A short balance must be read first, with no pull attempted.
+    let w = world();
+    let repo_id = w.take_auto();
+    let spend = w.usdc.balance(&w.borrower) - (DEBT - 1);
+    w.usdc
+        .transfer(&w.borrower, Address::generate(&w.env), &spend);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(last_write_entries(&w), plain_default_write_entries());
+    assert_eq!(w.allowance(), DEBT);
+    assert_eq!(w.usdc.balance(&w.borrower), DEBT - 1);
+}
+
+#[test]
+fn short_allowance_default_makes_no_pull() {
+    // Balance covers the debt, but the borrower cut the allowance below it.
+    let w = world();
+    let repo_id = w.take_auto();
+    let live_until = w.env.ledger().sequence() + 100_000;
+    w.usdc
+        .approve(&w.borrower, &w.repo.address, &(DEBT - 1), &live_until);
+    assert!(w.usdc.balance(&w.borrower) >= DEBT);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(last_write_entries(&w), plain_default_write_entries());
+    assert_eq!(w.allowance(), DEBT - 1);
     assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
 }
 
@@ -3093,6 +3158,26 @@ fn cancel_works_for_admin_and_guardian_only() {
     assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
 }
 
+/// Raven audit CT-01: deleting the `require_auth` in `admin_or_guardian`
+/// used to leave every repo test green, because the cancel tests only check
+/// the caller's identity. With nobody signing, naming the admin or the
+/// guardian as `caller` is refused and both proposals stay pending.
+#[test]
+fn audit_cancel_requires_caller_signature() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    // Nobody signs, caller = admin / guardian address: refused.
+    w.env.set_auths(&[]);
+    assert!(w.repo.try_cancel_asset(&w.admin(), &w.tbenji).is_err());
+    assert!(w.repo.try_cancel_pause(&w.guardian(), &w.tbenji).is_err());
+    assert!(w.repo.pending_asset(&w.tbenji).is_some());
+    assert!(w.repo.pending_pause(&w.tbenji).is_some());
+}
+
 #[test]
 fn propose_execute_cancel_emit_events() {
     let w = world();
@@ -3240,7 +3325,7 @@ fn constructor_rejects_zero_timelock() {
     assert!(result.is_err());
 }
 
-// --- QA t_08bda0ce: every loosening as the guardian, guardian-only auth -------
+// --- QA: every loosening as the guardian, guardian-only auth ------------------
 
 impl World<'_> {
     /// Authorizes exactly one call, signed by the guardian only.
@@ -3309,7 +3394,8 @@ fn qa_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfi
     c.enabled = true;
     out.push(("cut cap + enable", c));
     let mut c = tight.clone();
-    c.max_nav_age_secs = 1;
+    // Still at least the mock feed's 60 s resolution (Raven STD-02).
+    c.max_nav_age_secs = 60;
     c.haircut_bps = 300;
     out.push(("cut nav age + lower haircut", c));
     out.extend(qa_band_loosenings(tight));
@@ -3556,4 +3642,114 @@ fn qa_execute_exactly_at_eta_and_reproposal_restarts_clock() {
     w.set_time(eta2);
     w.repo.execute_asset(&w.tbenji);
     assert_eq!(w.tbenji_config().haircut_bps, 250);
+}
+
+#[test]
+fn execute_window_closes_at_eta_plus_timelock() {
+    // Issue #41: a proposal executes from eta through eta + timelock_secs
+    // inclusive; later it has expired and must be proposed again.
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    let eta = w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(eta + TIMELOCK + 1);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::ProposalExpired))
+    );
+    assert_eq!(w.tbenji_config().haircut_bps, 300);
+    // Still visible (and cancellable) until replaced or cancelled.
+    assert_eq!(w.repo.pending_asset(&w.tbenji).map(|p| p.eta), Some(eta));
+
+    // Re-proposing opens a fresh window; its last second still executes.
+    let eta2 = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(eta2, eta + 2 * TIMELOCK + 1);
+    w.set_time(eta2 + TIMELOCK);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config().haircut_bps, 250);
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+
+    // Same window for a pause change.
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(eta + TIMELOCK + 1);
+    assert_eq!(
+        w.repo.try_execute_pause(&w.tbenji),
+        Err(Ok(Error::ProposalExpired))
+    );
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    w.repo.cancel_pause(&w.guardian(), &w.tbenji);
+    assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(eta + TIMELOCK);
+    w.repo.execute_pause(&w.tbenji);
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+}
+
+#[test]
+fn reproposal_emits_cancel_for_the_replaced_proposal() {
+    // Issue #41: replacing a pending proposal emits the same
+    // ProposalCancelled as an explicit cancel (by = admin), then the new
+    // proposal's event.
+    let w = world();
+    let addr = &w.repo.address;
+    let admin = w.admin();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(NOW + TIMELOCK / 2);
+    c.haircut_bps = 260;
+    let eta = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalCancelled {
+                asset: w.tbenji.clone(),
+                kind: soroban_sdk::symbol_short!("asset"),
+                by: admin.clone(),
+            }
+            .to_xdr(&w.env, addr),
+            events::AssetChangeProposed {
+                asset: w.tbenji.clone(),
+                eta,
+                haircut_bps: 260,
+                margin_trigger_bps: TRIGGER_BPS,
+                enabled: true,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
+                max_open_debt: NO_CAP,
+                band_settle_secs: c.band_settle_secs,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
+    assert_eq!(
+        w.repo.pending_asset(&w.tbenji),
+        Some(PendingAsset { config: c, eta })
+    );
+
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalCancelled {
+                asset: w.tbenji.clone(),
+                kind: soroban_sdk::symbol_short!("pause"),
+                by: admin,
+            }
+            .to_xdr(&w.env, addr),
+            events::PauseChangeProposed {
+                asset: w.tbenji.clone(),
+                eta,
+                no_new_repos: false,
+                no_seize: false,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
 }

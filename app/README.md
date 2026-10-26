@@ -40,7 +40,7 @@ npm run deploy:pages
 
 `.github/workflows/pages.yml` runs the same build and deploy on pushes to `main` (skipped while the repo has no Cloudflare secrets). There are no client routes, so no `_redirects`.
 
-Takes need a NAV younger than 180 s: on sim-server the `caravel-nav-keeper` user service pushes one every minute (see `../scripts/README.md`).
+Takes need a NAV younger than 180 s: on the team's server the `caravel-nav-keeper` user service pushes one every minute (see `../scripts/README.md`).
 
 ## What it does
 

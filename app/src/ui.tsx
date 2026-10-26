@@ -162,12 +162,15 @@ export interface TxState {
   key: string;
   step: number;
   failed: boolean;
+  /** Set as soon as the network accepts the tx (Raven DW-02), before it is confirmed. */
+  hash?: string;
 }
 
 /** TxProgress: Prepare → Sign → Submit → Settled, with the active step carrying the tide. */
 export function TxProgress({ tx, demo }: { tx: TxState; demo: boolean }) {
   const meta = ["simulating", demo ? "in browser" : "in wallet", "to Stellar", "≈5 s"];
   return (
+    <>
     <ol className="cv-txprog" style={{ ["--steps" as string]: TX_STEPS.length }} aria-label="Transaction progress" data-testid="txprog">
       {TX_STEPS.map((label, i) => {
         const cls = i < tx.step ? " is-done" : i === tx.step ? (tx.failed ? " is-failed" : " is-active") : "";
@@ -179,6 +182,12 @@ export function TxProgress({ tx, demo }: { tx: TxState; demo: boolean }) {
         );
       })}
     </ol>
+    {tx.hash && (
+      <span className="cv-field__hint" data-testid="txprog-hash">
+        Submitted <TxHash kind="TX" value={tx.hash} />
+      </span>
+    )}
+    </>
   );
 }
 
@@ -259,4 +268,18 @@ export function DvpReceipt({
 
 export function Busy({ busy, idle, children }: { busy: string | null; idle: string; children?: ReactNode }) {
   return <>{busy ?? children ?? idle}</>;
+}
+
+/** Plain-language line + this: the technical detail opens on hover or keyboard focus. */
+export function Tip({ children }: { children: ReactNode }) {
+  return (
+    <span className="app-tip">
+      <button type="button" className="app-tip__btn" aria-label="More info">
+        i
+      </button>
+      <span className="app-tip__pop" role="tooltip">
+        {children}
+      </span>
+    </span>
+  );
 }

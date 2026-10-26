@@ -6,7 +6,7 @@
 //! (#28). Both apply the NAV sanity band (#31). Never call the oracle
 //! directly from `lib.rs`.
 
-use soroban_sdk::{contractclient, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{contractclient, contracttype, token, Address, Env, Symbol, Vec};
 
 use crate::{
     errors::Error,
@@ -43,6 +43,38 @@ pub trait PriceFeed {
     fn base(env: Env) -> Asset;
     /// Update interval of the feed, in seconds.
     fn resolution(env: Env) -> u32;
+}
+
+/// Base every feed must quote in: all value math is in USDC, priced 1:1
+/// with USD (Raven STD-01).
+pub const FEED_BASE: &str = "USD";
+
+/// Constructor checks on the configured feed and dollar token (Raven STD-01,
+/// CS-07): the feed's `base()` is `Other("USD")` and `usdc.decimals()` is
+/// [`VALUE_DECIMALS`], the scale every value computation assumes. A call
+/// that traps (not a feed, not a token) counts as a mismatch.
+pub fn config_feeds_ok(env: &Env, cfg: &Config) -> bool {
+    let usd = Asset::Other(Symbol::new(env, FEED_BASE));
+    let base_ok = matches!(
+        PriceFeedClient::new(env, &cfg.oracle).try_base(),
+        Ok(Ok(base)) if base == usd
+    );
+    let decimals_ok = matches!(
+        token::Client::new(env, &cfg.usdc).try_decimals(),
+        Ok(Ok(VALUE_DECIMALS))
+    );
+    base_ok && decimals_ok
+}
+
+/// The feed's `resolution()` in seconds, `None` if the call fails. SEP-40
+/// stamps a record at `floor(now / resolution) × resolution`, so a fresh
+/// record is up to one resolution old: `max_nav_age_secs` below it reads the
+/// current record as stale for part of every period (Raven STD-02).
+pub fn feed_resolution(env: &Env, cfg: &Config) -> Option<u32> {
+    match PriceFeedClient::new(env, &cfg.oracle).try_resolution() {
+        Ok(Ok(resolution)) => Some(resolution),
+        _ => None,
+    }
 }
 
 /// Latest NAV for `asset` with no staleness check: `(price, decimals, timestamp)`.
@@ -381,8 +413,10 @@ pub mod mock {
             Asset::Other(Symbol::new(&env, "USD"))
         }
 
+        /// Testnet feed resolution (deploy.sh `ORACLE_RESOLUTION`); every
+        /// test NAV age must be at least this (Raven STD-02).
         pub fn resolution(_env: Env) -> u32 {
-            300
+            60
         }
     }
 
@@ -430,7 +464,10 @@ mod test {
         let oracle = setup_mock_oracle(&env);
         let cfg = Config {
             admin: Address::generate(&env),
-            usdc: Address::generate(&env),
+            // A real 7-decimal token: the constructor reads `decimals()`.
+            usdc: env
+                .register_stellar_asset_contract_v2(Address::generate(&env))
+                .address(),
             oracle: oracle.clone(),
             treasury: Address::generate(&env),
             fee_bps: 1_000,
@@ -484,7 +521,7 @@ mod test {
         s.set_price(ONE, NOW);
         let feed = PriceFeedClient::new(&s.env, &s.oracle);
         assert_eq!(feed.decimals(), MOCK_DECIMALS);
-        assert_eq!(feed.resolution(), 300);
+        assert_eq!(feed.resolution(), 60);
         assert_eq!(feed.base(), Asset::Other(Symbol::new(&s.env, "USD")));
         let data = feed.lastprice(&s.asset.oracle_asset).unwrap();
         assert_eq!((data.price, data.timestamp), (ONE, NOW));

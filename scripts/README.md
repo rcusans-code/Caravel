@@ -10,21 +10,35 @@ scripts/deploy.sh --fresh        # force a new oracle + repo contract
 NAV=0.97 scripts/deploy.sh       # also push a tBENJI price (default 1.00, only if none is set)
 SAFO_NAV=1.02 scripts/deploy.sh  # same for tSAFO
 SKIP_BINDINGS=1 scripts/deploy.sh
+scripts/deploy.sh --preflight    # guards only: .env complete, *_ASSET derive to *_SAC; no build, no tx
+scripts/deploy.sh --no-winddown  # leave the repo contract this run replaces open
+PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh   # deploy attested wasm from attest.yml instead of building
+scripts/test/deploy-guards.test.sh              # offline tests for the guards below (21 checks)
+scripts/deploy.sh --plan         # print every tx this run would send against the live state; send nothing, write nothing
+NETWORK=mainnet scripts/deploy.sh --plan        # mainnet profile, plan only (Mainnet runbook, below)
+scripts/test/mainnet-profile.test.sh            # key loader + mainnet refusals (25 checks; OFFLINE=1 skips the Horizon reads)
 ```
+
+`--plan` runs every read (wasm fetch, views, Horizon) and prints each tx a real run would send, numbered, with the role that signs it (admin, issuer, feeder, friendbot) and addresses or IDs only, never a secret. A contract it would deploy shows as `PLANNED_<wasm>`. A no-op run prints `nothing to send`. It writes no `.env`, `testnet.json`, README or bindings.
+
+**Keys (Raven R10).** The admin, guardian, issuer and oracle feeder keys (`ADMIN_*`, `GUARDIAN_*`, `ISSUER_*`, `FEEDER_*`) are read from the untracked `~/.local/lib/caravel/.env` (override: `CARAVEL_KEYS_FILE`) when it exists, the file the keepers already run on; a role found there takes both its lines from there, the rest come from the tracked `.env`. The start line names the source (`keys: ADMIN GUARDIAN ISSUER from … (untracked)`). Without that file (a teammate's laptop) everything comes from the tracked `.env` as before. An explicit `ENV_FILE` (a throwaway deployment) is used as-is unless `CARAVEL_KEYS_FILE` is set too. A new guardian key is written to `.env` as before and also to the untracked file when that file holds the guardian. `onboard.sh`, `winddown.sh` and `buy-usdc.sh` load keys the same way (`scripts/lib/keys.sh`). `FEEDER_*` (unset today = ADMIN) is the oracle admin that signs `set_price`: a fresh oracle gets it as admin, and `nav-keeper.sh` signs with `FEEDER_SECRET` when set.
 
 What it does, idempotently (each step reads chain state first and only sends a tx if it differs):
 
-1. `stellar contract build` (repo, oracle, and the tSAFO mock).
+0. Guards (Raven R4): `USDC_ASSET` and `TBENJI_ASSET` are required, and each must derive to its `*_SAC` (`stellar contract id asset`, local), else the run stops before any build or tx (AS-05).
+1. `stellar contract build --meta source_repo=github:rcusans-code/Caravel --meta commit_sha=<HEAD>` (repo, oracle, and the tSAFO mock; `-dirty` is appended when `contracts/` has uncommitted changes). The SEP-46 meta lands on-chain with the next deploy of each contract: `stellar contract info meta --id <REPO_ID> --network testnet` (STD-05). Reuse compares the on-chain wasm without its `contractmetav0` section (`scripts/wasm-code-hash.py`), because `commit_sha` changes the raw hash on every commit; compare wasm by hand the same way.
 2. Tops ADMIN up to 6,000 XLM by merging a friendbot-funded throwaway account into it (testnet rent is steep: a wasm upload costs ~1,000–1,500 XLM).
 3. Mock oracle: reused if the on-chain wasm matches the build, otherwise deployed with admin = ADMIN, base `Other("USD")`, 14 decimals, resolution 60. Sets tBENJI (`Stellar(TBENJI_SAC)`) to 1.00 if it has no price.
    tSAFO (collateral #2, issue #20): `contracts/spiko-mock`, a Spiko-style token (allowlist checked on every transfer, no `approve`/`transfer_from`, issuer pause, 5 decimals like Spiko's mainnet tokens). Reused if the wasm matches, otherwise deployed with admin = ISSUER; `TSAFO_ID` goes into `.env`. Priced at 1.00 if it has none.
-4. Repo contract: reused if wasm and `config()` match, otherwise deployed with the demo profile (#5): fee 1000 bps (#3), liquidation discount 200 bps (#4), `day_secs` 60, margin window 120 s, grace 60 s. Treasury = ADMIN (override with `TREASURY_ADDRESS`). Guardian (#33) is a key of its own, not ADMIN: with no `GUARDIAN_ADDRESS` in `.env`, the run that deploys a new repo contract generates a funded testnet key and writes `GUARDIAN_ADDRESS` / `GUARDIAN_SECRET` to `.env` (never printed). `Config` has no setter, so a reused repo keeps its on-chain guardian and a no-op run stays a no-op; the separate guardian goes live with the next redeploy. Set `GUARDIAN_ADDRESS` yourself to pin one.
+4. Repo contract: reused if wasm and `config()` match, otherwise deployed with the demo profile (#5): fee 1000 bps (#3), liquidation discount 100 bps (#35), `day_secs` 60, margin window 120 s, grace 60 s. Treasury = ADMIN (override with `TREASURY_ADDRESS`). Guardian (#33) is a key of its own, not ADMIN: with no `GUARDIAN_ADDRESS` in `.env`, the run that deploys a new repo contract generates a funded testnet key and writes `GUARDIAN_ADDRESS` / `GUARDIAN_SECRET` to `.env` (never printed). A reused repo keeps its on-chain guardian and a no-op run stays a no-op (the admin can rotate it on-chain with `propose_guardian` / `execute_guardian`, Raven R6; update `GUARDIAN_*` in `.env` after, or the next run sees a config mismatch and redeploys). Set `GUARDIAN_ADDRESS` yourself to pin one.
 5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, margin trigger 200 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 100,000 USDC, band settle 1,200 s })` (#26: discount ≤ trigger < haircut; #25: staleness is per asset; #31: NAV sanity band; #32: exposure cap) and `set_asset(tSAFO, { Stellar(TSAFO_ID), haircut 3000 bps, margin trigger 2000 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 50,000 USDC, band settle 1,200 s })` (testnet only, DECISIONS #29; override with `MARGIN_TRIGGER_BPS`, `SAFO_MARGIN_TRIGGER_BPS`, `SAFO_HAIRCUT_BPS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, `SAFO_MAX_OPEN_DEBT`, in whole USDC; `BAND_SETTLE_SECS`, `SAFO_BAND_SETTLE_SECS`).
-6. `set_liquidator(LIQUIDATOR, true)`.
-7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`).
+6. Whitelists LIQUIDATOR the timelocked way (Raven R6): `propose_liquidator`, waits out `timelock_secs` (120 s on testnet), `execute_liquidator`. A re-run reuses a proposal still in its window.
+7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`). For the repo contract a failed `set_authorized`, or `authorized` still false after it, stops the deploy (AS-06: otherwise every tBENJI take fails with the SAC's #11); the wallets only WARN (no trustline yet).
    Issuer `set_whitelisted(…, true)` on tSAFO for the repo contract, the liquidator, the borrower and lender wallets, plus any `TSAFO_HOLDERS` (space-separated). Without the repo contract and every liquidator on the list, takes and liquidations revert with the token's `NotWhitelisted` (#100). Then mints `TSAFO_BORROWER_MINT` (2,000) tSAFO to the borrower if it holds none, and `TSAFO_HOLDER_MINT` (200) to each `TSAFO_HOLDERS` address if it holds none.
 8. Writes `ORACLE_ID`, `REPO_ID`, `TSAFO_ID`, `DEPLOYED_AT` (and a new `GUARDIAN_*`) into `.env` and the public `deployments/testnet.json` (IDs, addresses incl. guardian, params) for the app. The keepers run on a copy of `.env`: re-run the `install -Dm600 .env …` line below after every deploy that changed an ID.
+   A replaced `REPO_ID` is prepended to `superseded` in `deployments/testnet.json` (newest first, kept across runs).
 9. Regenerates TS bindings in `packages/caravel-repo` and `packages/caravel-oracle` when a contract ID changes.
+10. Winds down the repo contract it replaced (`scripts/winddown.sh <old REPO_ID>`, below), after the new one is live; a failure there only WARNs. `--no-winddown` or `WINDDOWN=0` skips it.
 
 Every param can be overridden from the environment (`HAIRCUT_BPS`, `SAFO_HAIRCUT_BPS`, `TSAFO_DECIMALS`, `MAX_NAV_AGE_SECS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, …); see the top of the script.
 
@@ -32,6 +46,49 @@ Dry run, 25 Oct, on throwaway keys and a separate `ENV_FILE` (the app's deployme
 
 The mock price goes stale after tBENJI's `max_nav_age_secs` (180 s, set per asset): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## Mainnet runbook (plan only; Raven R10, R12 UA-07)
+
+`NETWORK=mainnet scripts/deploy.sh --plan` prints the mainnet deploy and sends nothing; mainnet without `--plan` refuses. It never reads the tracked `.env` and refuses a key or address copied from it (also from a shell that ran `. ./.env`), a keys file tracked in git, and any `*_SECRET` in its input: mainnet admin and guardian are multisig accounts, and their signers sign the printed XDRs with their own wallets.
+
+1. Write the input file, untracked, `chmod 600`: `~/.local/lib/caravel/mainnet.env` (or `CARAVEL_KEYS_FILE=…`). Addresses and IDs only:
+   ```sh
+   ADMIN_ADDRESS=G…        # multisig: med and high threshold >= 2, no signer meets med alone
+   GUARDIAN_ADDRESS=G…     # multisig, != ADMIN_ADDRESS (#33, OZ-05)
+   TREASURY_ADDRESS=G…     # fee reserve; default ADMIN_ADDRESS
+   USDC_SAC=CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75
+   USDC_ASSET=USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+   ORACLE_ID=C…            # the SEP-40 feed (RedStone for BENJI), base USD
+   FEED_DECIMALS=…         # the feed's decimals(), for the BENJI 0.90 / 1.10 bounds
+   COLLATERAL="BENJI"      # labels; numbers per label from DECISIONS #35 / #32
+   BENJI_TOKEN=CCDSDPD7FXB74PFB2SYCHGQRWLXQRYRTQSPCVSRJ7FAOLOUGWEYAXQ7A   # BENJI SAC on mainnet
+   BENJI_ASSET=BENJI:GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5
+   LIQUIDATORS="G…"        # optional; whitelisted the timelocked way
+   ```
+   Per-asset numbers can be overridden (`BENJI_HAIRCUT_BPS`, `_MARGIN_TRIGGER_BPS`, `_NAV_MOVE_BPS`, `_MAX_OPEN_DEBT`, `_NAV_FLOOR`, `_NAV_CEILING`); SAFO has none (disabled until due diligence, #35) and needs them set. Change a number in DECISIONS first, then in `scripts/lib/mainnet-plan.sh`, which holds the production profile: `day_secs` 86,400, margin window 3 days, grace 1 day, timelock 172,800 s, fee 1,000 bps, discount 100 bps, NAV age 345,600 s, band settle 86,400 s.
+2. Run `NETWORK=mainnet scripts/deploy.sh --plan`. Checks first, all reads: each `*_ASSET` derives to its token under the mainnet passphrase, admin and guardian are multisig on Horizon (signers, thresholds, sequence printed), the contract bounds `discount < trigger < haircut < 10,000` per asset. Any failure: it lists them and prints no plan.
+3. It builds `caravel-repo --features production` into `target/production` (timelock floor 1 day, instance TTL 30 days; the default build, the testnet one, is unchanged; `MAINNET_WASM=` takes an attested wasm instead), then prints the predicted `REPO_ID` (admin + `REPO_SALT`, default from the wasm hash) and the txs as `stellar … --build-only` commands for the admin multisig: upload, deploy with the production config, `set_asset` per collateral, `propose_liquidator` / `execute_liquidator` after the timelock, the treasury USDC trustline if missing. Then the txs other parties sign (the issuer's `set_authorized` of the repo contract and each liquidator), and what testnet does that mainnet does not (mock oracle, `set_price`, tSAFO mock, friendbot, key generation, mints, wind-down, file writes).
+4. Sending stays manual and outside this script: each XDR goes to the signers, then `stellar tx send`. Not before the gates in [docs/mainnet-readiness.md](../docs/mainnet-readiness.md) (issuer approval, a real feed, an audit, legal analysis).
+
+Tested 26 Oct 2026, nothing sent: a plan against public mainnet multisig accounts as stand-ins (3-of-5 admin, 2-of-4 guardian) printed 4 admin txs; both accounts' sequences were the same before and after. A single-key admin, a guardian with one signer of weight 3 against a threshold of 2, a mismatched BENJI SAC and every tracked-key case refuse (`scripts/test/mainnet-profile.test.sh`).
+
+## `winddown.sh`: close superseded repo contracts (UA-05)
+
+Contracts are immutable (DECISIONS: versioned redeploys), so every redeploy leaves the old repo contract holding escrowed offers and maybe live repos that the app and keeper no longer show. `deploy.sh` calls this for the contract it replaces; run it by hand for older ones.
+
+```sh
+scripts/winddown.sh --dry-run          # every id in deployments/testnet.json "superseded"; simulate only
+scripts/winddown.sh --dry-run C… C…    # just these
+scripts/winddown.sh                    # send: pause + cancel our offers on every superseded contract
+```
+
+Per contract: (1) `no_new_repos` on every listed asset (admin `set_pause`, else `guardian_set_pause`, else admin `set_asset` with `enabled: false` on pre-#30 contracts), so nobody takes a stale offer; (2) `cancel_offer` for each open offer whose lender key is in `.env` (demo lender and the other burner wallets), which returns the escrowed USDC; (3) lists offers of other lenders (they must call `cancel_offer` on that contract themselves) and live repos (Open / MarginCall / Defaulted), which settle on their own terms: repay, top-up, default and liquidate are never paused by this. `--dry-run` simulates every tx with `--send=no` (simulation records auth instead of checking signatures, so it proves the call logic, not the key). Testnet only; refuses the live `REPO_ID`. Keys go to the CLI only, never printed.
+
+Dry run, 26 Oct, on the 10 superseded contracts: 17 open offers / 1,445 USDC, 11 / 1,100 USDC cancellable with `.env` keys, 6 / 345 USDC held by GDFLRCV4…, 1 Defaulted repo (CCFP3L7T… #8).
+
+## Build provenance (SEP-55): `.github/workflows/attest.yml`
+
+On a `v*` tag or a manual run, the workflow builds the three wasm files with the same meta, attests them (`actions/attest-build-provenance`) and uploads the `contracts-wasm` artifact. To make the testnet contract verifiable, deploy those exact bytes: `gh run download <run-id> -n contracts-wasm -D /tmp/wasm`, then `PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh`; `stellar contract info build --id <REPO_ID> --network testnet` then finds the attestation. A local build carries the meta but no attestation.
 
 ## `onboard.sh`: give a team wallet access and a test allowance
 
@@ -53,12 +110,12 @@ Idempotent, amounts are targets (a re-run tops up to them, never beyond). Step 7
 
 ### Liquidator checklist
 
-`set_liquidator` checks nothing (CMP-05, F-25): a whitelisted wallet that the issuer has not authorized or allowlisted makes every liquidation of that collateral revert (the token's `NotWhitelisted`, `#100`), and the repo sits `Defaulted` with the lender unpaid. Before `set_liquidator(addr, true)`:
+The whitelist checks nothing (CMP-05, F-25): a whitelisted wallet that the issuer has not authorized or allowlisted makes every liquidation of that collateral revert (the token's `NotWhitelisted`, `#100`), and the repo sits `Defaulted` with the lender unpaid. Before `propose_liquidator(addr)`:
 
 1. tBENJI: issuer `set_authorized(addr, true)` (onboard step 3; needs the owner's trustline).
 2. tSAFO: issuer `set_whitelisted(addr, true)` (onboard step 6, or `TSAFO_HOLDERS` in `.env` so every redeploy re-adds it).
 3. Funded: USDC ≥ the funding floor that `npm run repos` prints: Σ debt × (1 − discount) / (1 − haircut) over the live repos, plus `LIQ_FLOOR_MARGIN_BPS` (default 10%). A liquidation sells the whole collateral, so per 100 USDC of debt the liquidator fronts 101.03 USDC on tBENJI (haircut 3%) and 140.00 on tSAFO (30%), before the margin. Top up with `scripts/buy-usdc.sh <amount> <addr>`.
-4. `scripts/onboard.sh <addr>` shows all four; then admin `set_liquidator --liquidator <addr> --allowed true`.
+4. `scripts/onboard.sh <addr>` shows all four; then admin `propose_liquidator --liquidator <addr>`, and `execute_liquidator --liquidator <addr>` once `timelock_secs` has passed (Raven R6; `set_liquidator --allowed true` fails with `#20 Loosens`). The guardian can cancel the addition once in that window.
 
 The keeper also checks items 1–2 for the live liquidator every tick and alerts when one fails (Alerts, below).
 
@@ -77,7 +134,7 @@ scripts/nav-keeper.sh --once     # one push
 scripts/nav-keeper.sh            # loop (INTERVAL=60)
 ```
 
-On sim-server it runs as a systemd user service (linger is on, so it survives logout and reboot):
+On the team's server it runs as a systemd user service (linger is on, so it survives logout and reboot):
 
 ```sh
 install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh   # copy: branch switches cannot break it
@@ -93,9 +150,9 @@ It reads keys and `ORACLE_ID` from `~/.local/lib/caravel/.env` (the unit's `ENV_
 
 **Jump refusal (keeper-launder).** Re-posting is what would turn one bad push into an accepted price: 20 re-posts fill the contract's 20-record band window (#31), so `check_band` passes, and push the pre-jump price out of the keeper's `prices(asset, 20)` history. So `nav-keeper.sh` never re-posts a price more than `NAV_JUMP_ACK_BPS` (1000, the keeper's needs-ack class, below) away from the last price it posted, unless that exact price is in `NAV_JUMP_ACK` (no spaces: the script sources `.env`) or pinned with `NAV` / `SAFO_NAV`. It logs `tBENJI NOT re-posting 50000000000000: 5000 bps from the last posted 100000000000000 …` every round, sends an `ALERT` on the first refused round and every 20th, and lets the price go stale: after `max_nav_age_secs` the contract refuses takes, margin calls, missed-call defaults and liquidations; repay and top-up still work. Fix it the same way as for the keeper: push the corrected price (runbook below, it is re-posted at once), or ack the price if it is real. Moves up to 10% (the Admin slider's 0.90–1.10) are re-posted as before; the keeper's 180 s jump hold covers them. The last posted price per asset is kept in `NAV_KEEPER_STATE` (default `~/.local/state/caravel/nav-keeper-<ORACLE_ID>.state`, one file per oracle), so a restart keeps it; with no file yet it trusts the current price.
 
-**Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000).
+**Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000). The balance read is capped at `HORIZON_TIMEOUT` (10 s, `curl --max-time`) and each friendbot / merge CLI call at `TOPUP_TIMEOUT` (60 s), so a hung Horizon or friendbot skips the top-up and the next push still runs (Raven D-02: an uncapped `curl` used to stop every push after the first one).
 
-The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main 72dd78a (all eight attack fixes, a guardian key of its own): margin calls, auto-repay, per-asset NAV staleness (DECISIONS #25), tSAFO collateral (issue #20), pause switches (#28), NAV sanity band (#26), exposure caps (#29) and the rule #20 change (a missed margin call clears at `default` when a fresh NAV shows the loan recovered) are live. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
+The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `auto_repay`, `default` and `liquidate`; on the team's server it runs as `caravel-keeper.service`. The live testnet contracts are the ones in [`deployments/testnet.json`](../deployments/testnet.json) (`deployedAt` gives the time), and they run every method in the [README's Methods table](../README.md#methods). Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
 
 ## `keeper/`: keeper + NAV setter
@@ -122,6 +179,10 @@ Each tick the keeper:
 3. `liquidate(LIQUIDATOR, id)` on every `Defaulted` repo (defaulted by the keeper or by anyone else). The liquidator pays collateral × NAV × (1 − 1%) in USDC; the lender gets principal + interest − fee first, the treasury the fee, the borrower any rest. Before sending it checks NAV age ≤ the asset's `max_nav_age_secs` and the liquidator's USDC ≥ proceeds; if either fails it logs one line (with the `buy-usdc.sh` command to top up) and retries every tick. That repo is stuck (lender unpaid, borrower's collateral frozen): after 2 more ticks the keeper logs an `ALERT` line and runs `ALERT_CMD` (Alerts, below). A `StaleNav` or `NavOutOfBand` from the contract is treated the same way.
 4. For `Open` repos, simulates `check_margin(id)` and sends the tx only when it would return `MarginCall` (no fee spent on healthy repos). `StaleNav` and `NavOutOfBand` (#31) are logged once and skipped (#17). Before the repos, each tick simulates `note_nav(asset)` per collateral asset and sends it only when the NAV level moved past the band (log line `nav-level`), so the repo's band settle clock starts one tick after a real move; a contract without `note_nav` is logged once and skipped. On `auto_repay`, `NotDue` (ledger clock lag) means "next tick", like `NotDefaultable`.
 5. `MarginCall` repos wait for a top-up, repay or the deadline.
+
+Before the repo actions it also reconciles collateral (Raven AS-02, `src/reconcile.ts`): per collateral token, the repo contract's `balance` against the sum of `collateral_amount` over `Open`, `MarginCall` and `Defaulted` repos. A deficit means the issuer clawed back (or burned) part of the pooled balance; the first repos to settle are still paid in full and the last one cannot repay or be liquidated. It logs `collateral   collateral short: …` at once and ALERTs from the second tick in a row (runbook "Collateral short", below). Collateral parked for a refused push (`claimable_collateral`) shows as surplus, so a clawback smaller than the parked amount is not seen; clawback-safe accounting in the contract is roadmap (R11).
+
+Liveness (Raven D-01, D-03, D-04): every RPC request gives up after `RPC_TIMEOUT_MS` (15,000), and a tick watchdog exits the keeper (exit 1, after an `ALERT`) when no RPC call has answered for `TICK_WATCHDOG_SECS` (90) inside a tick, so systemd restarts it and a crash loop fires `OnFailure`. A slow tick that keeps getting answers (several sends in a row) is not killed. A tick that throws (RPC down, 503) logs `tick failed: …`, and the second failed tick in a row sends `ALERT keeper blind: …`. Views simulate from the SDK's `NULL_ACCOUNT` with no `getAccount` call (as the app's `book.ts` does): half the RPC calls of a tick (a `--once --dry-run` with 2 repos: 29 calls, was 54), and an outage reads as the RPC error instead of `Account not found: G<admin>`. Only a real send reads the signer's account.
 
 NAV jump hold (flash-crash fixes #2 and #3, `src/navguard.ts`). The oracle accepts any price in one push, and `nav-keeper.sh` re-posts it every 60 s, so a fat-fingered NAV would turn into a margin call, a default and a liquidation within ~2 minutes. Each tick the keeper reads `prices(asset, 20)` (~19 min of history) per collateral asset and measures the current price against an anchor: the most recent earlier price that stood longer than the hold time (re-posts of one price count as one). While the price is held, the keeper does not send, for repos of that asset:
 
@@ -154,7 +215,7 @@ Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQU
 
 Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it once the -3% price has stood 180 s (NAV jump hold, above) and `default` follows ~120 s later (margin window), then `liquidate`. For a faster demo set `NAV_JUMP_HOLD_SECS=0` in `.env` and restart the keeper.
 
-On sim-server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
+On the team's server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
 
 ```sh
 mkdir -p ~/.local/lib/caravel/keeper   # copy: branch switches cannot break it
@@ -184,9 +245,27 @@ Both keepers write an `ALERT …` line to their journal and run `ALERT_CMD "<mes
 | nav-keeper | an asset's `set_price` fails 2 rounds in a row | every 20 failed rounds |
 | nav-keeper | it refuses to re-post a price that jumped > `NAV_JUMP_ACK_BPS` (jump refusal, above) | first round, then every 20 |
 | keeper | `--refresh-nav` refuses to re-post a price held for an ack (> 2 ticks); the NAV jump state file is unreadable at start | every `ALERT_REPEAT_SECS`; once |
+| keeper | `keeper blind`: 2 ticks in a row fail (RPC down or answering errors) | every `ALERT_REPEAT_SECS` |
+| keeper | `keeper hung`: no RPC answer for `TICK_WATCHDOG_SECS` (90) inside a tick; the keeper then exits 1 and systemd restarts it | each time |
+| keeper | `collateral short`: the repo contract holds less of a collateral token than its live repos (2 ticks in a row; runbook below) | every `ALERT_REPEAT_SECS` |
 | systemd | either unit fails past its start limit (10 restarts in 600 s): `OnFailure=caravel-alert@%n.service` | once per failure |
 
 Under `--once` every stuck state alerts and exits 1 at once; a failed action exits 1 without an ALERT. `caravel-alert.sh` always logs to the journal (`journalctl --user -t caravel-alert`); it also sends to Telegram when `~/.config/caravel/alert.env` (chmod 600, never in the repo) sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Test it with `~/.local/lib/caravel/caravel-alert.sh "test"`.
+
+## Under-simulated write bytes (RESOURCE_LIMIT_EXCEEDED)
+
+Symptom: a tx passes simulation, then lands `FAILED` with `txFailed/invokeHostFunctionResourceLimitExceeded`; the tx's diagnostic events say `operation byte-write resources exceeds amount specified, <needed>, <declared>`.
+
+Cause: when a token call inside the contract fails and is rolled back (`try_transfer_from` in the auto-repay pull, `try_transfer` in `push_or_park`), an entry that call touched (e.g. the borrower's `Allowance`, or the contract's own collateral `Balance`) stays in the read-write footprint but ends the tx unchanged. Simulation leaves those bytes out of `writeBytes`; on chain the host counts every existing read-write entry. The gap is exactly the size of those entries. Measured on testnet (CBWTB23F, 26 Oct 2026):
+
+| Call | Path | Simulated | Needed | Gap |
+|---|---|---|---|---|
+| `default` (repo 3) | auto-repay on, borrower has no USDC trustline: pull fails | 660 | 956 | 296 = `Allowance` entry |
+| `claim_in_kind` (CD4Q2QTO repo 2) | lender cannot hold tBENJI: push parked | 3,024 | 3,248 | 224 = contract tBENJI `Balance` |
+| `repay` (repo 1) | lender has no USDC trustline: lender leg parked | 3,688 | lands | none (contract USDC balance changes anyway) |
+| `liquidate` (repo 3) | borrower has no USDC trustline: surplus parked | 3,808 | lands | none |
+
+So a parked USDC leg alone is safe (the contract's USDC balance is written anyway); the rollback of an entry nothing else writes is what breaks. A frozen (de-authorized but existing) recipient trustline probably adds its own size the same way (not testable here: Circle's USDC cannot be frozen by us). Fix: the keeper (`keeper/src/headroom.ts`) and the app (`padWrites` in `app/src/chain.ts`) add 2,048 write bytes and 0.02 XLM resource fee to every write before signing. Only the write-byte share is kept (the padded `default` cost 0.0011 XLM in total); the rest is refunded. To reproduce the under-count, run a keeper CLI with `NO_WRITE_PAD=1`. If a future path needs more than 2,048 extra bytes, raise both numbers together.
 
 ## Issuer pause or de-allowlist: guardian runbook
 
@@ -208,7 +287,21 @@ CFG=$("${G[@]}" --send=no --id $REPO_ID -- asset --asset $ASSET)
 "${G[@]}" --id $REPO_ID -- guardian_set_asset --asset $ASSET --config "${CFG/\"enabled\":true/\"enabled\":false}"
 ```
 
-Then tell the issuer. When the token works again (unpaused, contract re-allowlisted), undo with the admin: switching off is a loosening, so `propose_pause --pause '{"no_new_repos":false,"no_seize":false}'` and `propose_asset` with `enabled:true`, then `execute_pause` / `execute_asset` after `timelock_secs` (120 s demo). While `no_seize` is on, the keeper logs `paused (no_seize)` for those repos and does not alert. Borrowers can repay again as soon as the token moves.
+Then tell the issuer. When the token works again (unpaused, contract re-allowlisted), undo with the admin: switching off is a loosening, so `propose_pause --pause '{"no_new_repos":false,"no_seize":false}'` and `propose_asset` with `enabled:true`, then `execute_pause` / `execute_asset` after `timelock_secs` (120 s demo) and within the next `timelock_secs` too (120 s demo, 2 days in production; else `Error(Contract, #26)`, `ProposalExpired`: propose again). While `no_seize` is on, the keeper logs `paused (no_seize)` for those repos and does not alert. Borrowers can repay again as soon as the token moves.
+
+## Collateral short: guardian runbook
+
+The keeper's `collateral short` ALERT (AS-02) means the repo contract's balance of that token is below what its live repos hold: an issuer clawback or burn on the contract. Every repo is paid from the one pooled balance, so the repos that settle first get their full collateral back and the last one cannot repay or be liquidated. New repos would refill the pool and move the loss onto their borrowers, so stop them at once (guardian, instant, tighten only):
+
+```sh
+cd ~/src/caravel && set -a && . ./.env && set +a
+G=(stellar contract invoke --network testnet --source-account "$GUARDIAN_SECRET")
+ASSET=$TBENJI_SAC   # or $TSAFO_ID, from the ALERT
+"${G[@]}" --send=no --id $REPO_ID -- pause --asset $ASSET          # current switches
+"${G[@]}" --id $REPO_ID -- guardian_set_pause --asset $ASSET --pause '{"no_new_repos":true,"no_seize":false}'   # keep no_seize true if it already is
+```
+
+Then ask the issuer why it clawed back and whether it returns the tokens, and tell the affected lenders. The contract has no write-down yet: clawback-safe accounting (a per-asset total checked on every exit) is roadmap R11. Undo `no_new_repos` with `propose_pause` / `execute_pause` once the balance matches again.
 
 ## Bad NAV push: admin runbook
 
@@ -224,20 +317,48 @@ The commands below are for tBENJI. For a bad tSAFO push (`TSAFO_ID` in `.env`), 
 
 1. **Freeze liquidation.** `liquidate` is whitelisted, so this stops every liquidation. Repos can still default; they wait as `Defaulted`.
    `"${A[@]}" --id $REPO_ID -- set_liquidator --liquidator $LIQUIDATOR_ADDRESS --allowed false`
+   Removal is instant; putting the liquidator back is timelocked (`propose_liquidator`, wait `timelock_secs`, `execute_liquidator`), so plan the ~2 min before unfreezing.
 2. **Stop takes.** `create_offer` and `take_offer` then return `AssetNotSupported`; live repos are unaffected. `set_asset` replaces the whole config, so flip `enabled` on the current one:
    `CFG=$("${A[@]}" --send=no --id $REPO_ID -- asset --asset $TBENJI_SAC)`
    `"${A[@]}" --id $REPO_ID -- set_asset --asset $TBENJI_SAC --config "${CFG/\"enabled\":true/\"enabled\":false}"`
 3. **Correct the price.** Read the bad record: `"${A[@]}" --send=no --id $ORACLE_ID -- lastprice --asset "$TBENJI"` prints `{"price":…,"timestamp":…}`. Price = NAV × 10^14.
-   `cd scripts/keeper && npm run set-nav -- 1.00`. Every record is stamped with ledger time (there is no `set_price_at`), so a future-dated price cannot exist. A correction inside the bad record's 60 s slot replaces it, and the window is clean at once. A later correction adds a record and the bad one stays in the band window for 20 slots (~19 min): takes, margin calls and liquidations return `NavOutOfBand` (error 18) until it rolls out, or until a widened band clears `propose_asset` / `execute_asset` (timelock, 120 s demo; narrow it again right after, narrowing is instant). Records cannot be overwritten any more: the power that let an admin erase a bad record also let a wrong key erase the good ones. The band settle clock (`band_settle_secs`, 1,200 s on testnet) does not shorten this: a bad price the keeper noted is accepted only after it stood that long, and any correction restarts the level at the corrected price, so the bad one never settles.
+   `cd scripts/keeper && npm run set-nav -- 1.00`. Every record is stamped with ledger time (there is no `set_price_at`), so a future-dated price cannot exist. A correction inside the bad record's 60 s slot replaces it, and the window is clean at once. A later correction adds a record and the bad one stays in the band window for 20 slots (~19 min): takes, margin calls and liquidations return `NavOutOfBand` (error 18) until it rolls out, or until a widened band clears `propose_asset` / `execute_asset` (timelock, 120 s demo; execute within the next 120 s or it fails `ProposalExpired`, #26; narrow it again right after, narrowing is instant). Records cannot be overwritten any more: the power that let an admin erase a bad record also let a wrong key erase the good ones. The band settle clock (`band_settle_secs`, 1,200 s on testnet) does not shorten this: a bad price the keeper noted is accepted only after it stood that long, and any correction restarts the level at the corrected price, so the bad one never settles.
 
    Check with `npm run feeds`. `nav-keeper.sh` re-posts whatever `lastprice` returns within 10% of its last post; a bigger jump it refuses (and ALERTs), so the bad price goes stale after 180 s instead of being re-stamped as fresh. After the correction it re-posts the good one at once.
-4. **Re-enable**, only after step 3 shows the right price. Enabling loosens risk, so `set_asset` fails with `Error(Contract, #20)` (`Loosens`, DECISIONS #33): queue the config read before step 2 with `"${A[@]}" --id $REPO_ID -- propose_asset --asset $TBENJI_SAC --config "$CFG"`, then after `timelock_secs` (120 s demo) run `execute_asset --asset $TBENJI_SAC`. Then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
+4. **Re-enable**, only after step 3 shows the right price. Enabling loosens risk, so `set_asset` fails with `Error(Contract, #20)` (`Loosens`, DECISIONS #33): queue the config read before step 2 with `"${A[@]}" --id $REPO_ID -- propose_asset --asset $TBENJI_SAC --config "$CFG"`, then after `timelock_secs` (120 s demo) run `execute_asset --asset $TBENJI_SAC`, within the next `timelock_secs` too (else `Error(Contract, #26)`, `ProposalExpired`: propose again). Then step 1 with `--allowed true`. The keeper liquidates any `Defaulted` repo on its next tick, at the corrected NAV.
 
 What this does not undo:
 - A margin call raised at the bad price stays open until its deadline. Once the price is corrected, `default` after the deadline clears it instead of defaulting (#20), so an absent borrower no longer loses the 1% discount (S2b). If the price is still wrong at the deadline (or stale), the default goes ahead: -10.01 USDC on a 970 USDC repo.
 - A take that landed at an inflated price leaves the lender short: -872.74 of 970.84 at a 10× push (S6). Only step 2 before the take prevents it.
 
 Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1 and 2 (disable) simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026. The one-record-per-slot oracle (no `set_price_at`) is covered by `contracts/repo/src/test_feed_rewrite.rs`.
+
+## Emergency key rotation (testnet)
+
+The tracked `.env` holds the testnet admin, guardian, issuer, liquidator and keeper keys on purpose, so anyone who reads the repo can sign as them (README Risks "Public testnet keys", Raven AS-01 / UA-04; keys move out of git at the first post-judging redeploy, roadmap R10). If one is abused, take the account back with one transaction, no redeploy: add a signer only you hold and set the old master key's weight to 0. The contracts store addresses, not keys, so `config()`, the contract IDs, the app and the other keys stay as they are.
+
+```sh
+cd ~/src/caravel && set -a && . ./.env && set +a
+ROLE=ISSUER                                   # or ADMIN, GUARDIAN, LIQUIDATOR, KEEPER
+stellar keys generate caravel-${ROLE,,}-signer   # local keystore only, never in .env or git
+NEW=$(stellar keys address caravel-${ROLE,,}-signer)
+OLD=${ROLE}_SECRET
+stellar tx new set-options --network testnet --source-account "${!OLD}" \
+  --signer $NEW --signer-weight 1 --master-weight 0 \
+  --low-threshold 1 --med-threshold 1 --high-threshold 1
+```
+
+The old key signs its own lock-out (fee only). If that fails with `tx_bad_auth`, someone rotated the account first and it is lost: for the guardian, the admin replaces it (`propose_guardian`, then `execute_guardian` after `timelock_secs`); for the admin or issuer, redeploy with new keys.
+
+After the rotation the `<ROLE>_SECRET` in `.env` no longer signs. Act as the role with its address as the source and the new key as the signer, e.g. `stellar contract invoke --network testnet --source-account $ISSUER_ADDRESS --sign-with-key caravel-issuer-signer --id $TSAFO_ID -- set_whitelisted …`. What stops until then, per role:
+
+- **ISSUER** (tBENJI issuer, tSAFO admin): `onboard.sh` and `deploy.sh` steps 6b–7. The keepers do not use it. Rotate this one first: it can claw back or freeze the tBENJI the repo contract holds.
+- **GUARDIAN**: no keeper signs with it; the runbooks above do (add `--sign-with-key`), and `scripts/winddown.sh` falls back to `guardian_set_pause` when `.env` has no admin key. Safe to rotate any time.
+- **ADMIN**: nav-keeper and `keeper --refresh-nav` sign `set_price` with it, so the NAV goes stale within `max_nav_age_secs` (180 s) and takes, margin calls and liquidations stop (repay and top-up still work). Also `deploy.sh`, `onboard.sh` and `winddown.sh`. Before rotating, move the oracle to a feeder key (oracle `set_admin`, then `accept_admin` by the new key) or plan to post NAV by hand.
+- **LIQUIDATOR**: the keeper's `liquidate` fails. The quicker fix for an abused liquidator key is admin `set_liquidator --allowed false` (instant); adding it back is timelocked.
+- **KEEPER**: the keeper's `check_margin` / `default` fail; they are permissionless, so set `KEEPER_SECRET` in the keeper's untracked `~/.local/lib/caravel/.env` to a fresh funded key instead.
+
+Tested on testnet with a throwaway account, 26 Oct 2026: the `set-options` above succeeded; the old key then failed `TxBadAuth` on a Soroban call (native SAC `transfer`), and the same call with `--source-account <old address> --sign-with-key <new>` succeeded. Horizon then showed thresholds 1/1/1, the new signer at weight 1 and the master key at 0.
 
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 
@@ -327,7 +448,7 @@ Four things make the live demo look broken on camera. Check them before you pres
 1. **The seeded repo is gone in about 4 minutes.** Its term is 3 demo days (180 s) with auto-repay off, so the keeper defaults and liquidates it about 255 s after seeding. Just before recording, take the seeded 30-day offer in the app with auto-repay on (the default): it stays Open for 30 minutes and repays itself at maturity. For a longer taken repo from the seed itself, run `SEED_NEAR_DAYS=30 npm run seed`.
 2. **The margin call after a NAV slide comes about 3 minutes late.** The keeper holds `check_margin` on any NAV move over 2% until the new price has stood 180 s (NAV jump hold, above). Right after the Admin slider, press **Check margin** on the repo in the app: it is permissionless and not held, so the MarginCall shows at once. The keeper's `default` and `liquidate` still wait out the hold (about 3 minutes after the slide).
 3. **Keep the slider at 0.90 or above.** A move over 10% parks the keeper until someone adds the price to `NAV_JUMP_ACK` in `.env`. Before the liquidation beat, set the NAV back to 1.00 so the lender is paid in full on camera instead of showing a Shortfall; a move back of over 2% is held too, so leave 3 minutes before the liquidation. Show the liquidation on a maturity default (the seeded 3-day repo): at NAV 1.00 a missed margin call clears at `default` instead (rule #20).
-4. **No admin loosening on camera.** Re-enabling an asset, lowering a haircut or clearing a pause fails with `Loosens` (error #20) and goes through `propose_*` / `execute_*` with the 120 s timelock (DECISIONS #33). Tightening (disable, raise a haircut, switch a pause on) is instant.
+4. **No admin loosening on camera.** Re-enabling an asset, lowering a haircut or clearing a pause fails with `Loosens` (error #20) and goes through `propose_*` / `execute_*` with the 120 s timelock (DECISIONS #33); `execute_*` must also run within the 120 s after `eta`, or it fails `ProposalExpired` (#26) and must be proposed again. Tightening (disable, raise a haircut, switch a pause on) is instant.
 
 ## Bindings
 

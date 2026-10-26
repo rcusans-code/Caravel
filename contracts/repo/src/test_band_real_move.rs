@@ -170,7 +170,7 @@ fn world<'a>(p: Profile, mode: Mode) -> W<'a> {
     usdc_admin.mint(&borrower, &(100 * UNIT));
     usdc_admin.mint(&liquidator, &(5_000 * UNIT));
     StellarAssetClient::new(&env, &token).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
 
     let mut w = W {
         usdc: TokenClient::new(&env, &usdc),
@@ -723,7 +723,7 @@ fn real_oracle_daily_resolution_settles_in_a_day() {
     assert_eq!(check(dropped + DAY).map(|(p, _)| p), Ok(ONE * 98 / 100));
 }
 
-// --- corridor jump (QA t_28264b5d) --------------------------------------------
+// --- corridor jump (QA) -------------------------------------------------------
 
 /// `level × (1 + 145 bps)`: inside the 150 bps band of a 1.00 level.
 const CORRIDOR_HIGH: i128 = ONE * 10_145 / 10_000;
