@@ -36,7 +36,7 @@ The asset is safe; the exit is slow. A tokenized Treasury fund share has a price
 
 Money markets already have a model for this asset: the **repo**. Caravel puts it on-chain. Debt is fixed up front, margin is checked against daily NAV, the borrower gets a window to post more collateral before default, and a default goes to issuer-approved liquidators at NAV minus a fixed discount.
 
-One design fact carries most of the compliance weight: **lenders never hold fund shares.** They put in USDC and get USDC back. Only the contract, borrowers and liquidators need the issuer's approval, the same split [Aave Horizon](https://aave.com/docs/aave-v3/horizon) uses.
+One design fact carries most of the compliance weight: **lenders deal only in USDC.** They put in USDC and get USDC back, except in the NAV-outage fallback of [DECISIONS #38](DECISIONS.md), where a Defaulted repo's collateral goes to the lender or to an issuer-approved custody account the lender names. Otherwise only the contract, borrowers and liquidators need the issuer's approval, the same split [Aave Horizon](https://aave.com/docs/aave-v3/horizon) uses.
 
 ## How it works
 
@@ -54,7 +54,7 @@ In the demo, **1 day = 60 seconds**, so the 7-day repo matures in 7 minutes. Tha
 ## FAQ
 
 - **Why borrow at 5% against a fund yielding 3.87%?** For a passive holder the carry is negative, about 1.13% a year against redeeming, and known up front. The borrower is a treasury bridging a cash gap without redeeming, or a desk whose USDC earns more than the loan costs ([Risks: Carry](#risks-and-limits)).
-- **Who liquidates?** Issuer-approved accounts the admin whitelists. On testnet that is one team wallet, driven by the keeper; at launch, a market maker that can redeem with the issuer. Nothing obliges one to buy, so a Defaulted repo can wait.
+- **Who liquidates?** Issuer-approved accounts the admin whitelists. On testnet that is one team wallet, driven by the keeper; at launch, a market maker that can redeem with the issuer. Nothing obliges one to buy, so a Defaulted repo can wait. If the NAV feed itself dies, nobody liquidates (a stale NAV blocks `liquidate`); after `max_nav_age` + 7 days the lender may instead take the collateral in kind, to its own approved wallet or a custody account (DECISIONS #38).
 - **What if the issuer freezes or pauses the token?** Repay, top-up and liquidation of that asset stop until it lifts, and the haircut does not cover that. The guardian can switch on `no_seize` at once, so no borrower is defaulted for the issuer's action meanwhile.
 - **Who gets the fund's dividends?** Real BENJI pays its yield in new tokens to the holder of record, which during a repo is the contract. Passing it back to the borrower is on the roadmap; the demo tokens pay none.
 - **Is the price feed live?** No. The contract reads a mock SEP-40 feed so the demo can move the NAV on camera; `npm run feeds` reads a live Reflector feed through the same interface, and switching is a config change. The USDC is real Circle testnet USDC.
@@ -91,7 +91,7 @@ flowchart LR
 - **Price feed:** a mock of the SEP-40 interface Reflector uses (same `Asset` and `PriceData` shapes, 14 decimals). Pointing the contract at a live SEP-40 feed is a config change, not a code change.
 - **Keeper** ([scripts/keeper](scripts/keeper/src/keeper.ts)): an off-chain script that calls `check_margin` on open repos, `auto_repay` or `default` once a deadline passes, and then `liquidate` on every Defaulted repo. The first three are permissionless, so anyone can run them. `liquidate` is signed with the whitelisted, issuer-approved liquidator key; on testnet the keeper is the only liquidator.
 - **Web app:** lender, borrower, liquidator and admin views on testnet, built on generated TypeScript bindings.
-- **Issuer:** authorizes the repo contract, each borrower and each liquidator on tBENJI. This is the compliance layer; Caravel does no KYC of its own.
+- **Issuer:** authorizes the repo contract, each borrower and each liquidator on tBENJI, plus, for the #38 NAV-outage fallback, the lender or one custody account per lender. This is the compliance layer; Caravel does no KYC of its own.
 
 ## Contract spec
 

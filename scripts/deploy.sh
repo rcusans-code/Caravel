@@ -312,8 +312,9 @@ done
 
 # --- 6b. Spiko-style allowlist on tSAFO ----------------------------------------
 # Every transfer checks both sides, so the repo contract and every liquidator
-# must be on it, not only borrowers (issue #20). The lender never holds tSAFO
-# but is allowlisted so the demo lender wallet can also borrow.
+# must be on it, not only borrowers (issue #20). The lender holds tSAFO only via the
+# #38 NAV-outage in-kind claim; it is allowlisted for that and so the demo
+# lender wallet can also borrow.
 for who in "$REPO_ID" "$LIQUIDATOR_ADDRESS" "$BORROWER_ADDRESS" "$LENDER_ADDRESS" ${TSAFO_HOLDERS:-}; do
   if [[ "$(view --id "$TSAFO_ID" -- is_whitelisted --account "$who" 2>/dev/null || echo false)" == true ]]; then
     log "tSAFO allowlisted: $who"
