@@ -44,13 +44,13 @@ Exit: margin, default, liquidate tested; one-command deploy.
 
 - [x] **I** ⚠️ Per-asset NAV staleness (DECISIONS #25): move `max_nav_age_secs` into `AssetConfig`, `fresh_nav` reads it; deploy config 96h prod / 180 s demo. Tests: Friday NAV still fresh on Sunday; stale blocks `take_offer` + `check_margin` only. *Done when: tests pass, redeployed*
 - [x] **C** Compliance-agnostic check (DECISIONS #24): `take_offer` + `repay` + `liquidate` against a Spiko-style SEP-41 token with an allowlist and no `approve`. *Done when: test passes with a mock permissioned token* Done on `simon/safo-collateral` (issue #20): `contracts/repo/src/test_spiko.rs` on `contracts/spiko-mock`.
-- [ ] **T** Decide: `liquidate` on stale NAV (DECISIONS → Open)
+- [x] **T** Decide: `liquidate` on stale NAV (DECISIONS → Open). Stays blocked: DECISIONS #34.
 ## G3 · Happy path on testnet — 19:30–00:00
 Exit: lender → borrower → repay works in the UI.
 
-- [ ] **F** 🔄 My positions: maturity countdown, health, status pill, repay + top-up buttons *(merged without Top up: needs the margin-call UI)*
+- [x] **F** My positions: maturity countdown, health, status pill, repay + top-up buttons *(Top up shipped with the margin-call UI, #19)*
 - [x] **F** Demo NAV slider (admin) → oracle `set_price`, shows feed timestamp
-- [x] **I** ⚠️ Read one live Reflector/RedStone testnet SEP-40 feed through the same client. *Done when: live price shown next to mock NAV*
+- [x] **I** ⚠️ Read one live Reflector/RedStone testnet SEP-40 feed through the same client. *Done when: live price shown next to mock NAV* Shown in the app, reference only (96d4d61).
 - [ ] **P** Video script v1: 6 beats, exact screens, voiceover, timings (target 2:30)
 - [ ] **P** Submission answers draft, one per rubric line
 
@@ -59,19 +59,19 @@ Exit: margin call, default, liquidation in the UI.
 
 - [x] **F** Liquidator view (fallback: liquidate from a script on camera)
 - [x] **F** stellar.expert links on every tx, especially the `take_offer` DvP
-- [ ] **C** Hardening: auth on every mutating call, double-take guard, status transitions, TTL bumps
+- [x] **C** Hardening: auth on every mutating call, double-take guard, status transitions, TTL bumps. Take-twice test in e1898ca; attack fixes A1–A8 merged.
 - [x] **I** Reset & seed script: 2 offers + 1 open repo near maturity. *Done when: demo restart < 2 min*
 - [ ] **P** Deck v1 complete
 
 ## G5 · Freeze — 06:00–08:00 (feature freeze 08:00)
 
-- [ ] **F** UI polish + copy pass: empty/loading states, number formatting
+- [ ] **F** 🔄 UI polish + copy pass: empty/loading states, number formatting. Skeletons and `fmtAmount` in; left: copy pass, Offers table at 390 px.
 - [ ] **P** README final: run instructions, contract IDs, built-during-hackathon log, risks, oracle swap guide
 - [ ] **T** Two full rehearsals of all 6 beats on a fresh seed
 
 ## G6 · Ship — 08:00–11:30
 
-- [ ] **P** Record video 2–3 min + backup take; unlisted link tested logged out
+- [x] **P** Record video 2–3 min + backup take; unlisted link tested logged out. Video recorded (MB, Mon 26 Oct).
 - [ ] **P** Final deck → PDF
 - [ ] **P** Submit by **11:30**; open every link in a private window
 
@@ -99,3 +99,4 @@ Exit: margin call, default, liquidation in the UI.
 - **Sun 16:35** — Plan update: Spiko (≈$1.78B on Stellar, #1 issuer, DefiLlama 25 Oct) goes next to BENJI in the pitch. DECISIONS #24 compliance-agnostic core (SEP-41 only; the contract already uses only `token::Client`), #25 per-asset NAV staleness ≈96h for weekends, #26 launch haircuts. New tasks: per-asset staleness (I), permissioned-token test (C), stale-liquidate decision (T). Deck is 11 slides (docs/pitch-deck.md); numbers in docs/numbers.md. #19 margin-call UI merged.
 - **Sun 17:00** — Issue #20 on `simon/safo-collateral`: tSAFO collateral #2 (`contracts/spiko-mock`, `test_spiko.rs`, 139 tests green). Found that Spiko's mainnet tokens have 5 decimals, not 7, so the contract now reads the token's `decimals()` (DECISIONS #28). deploy.sh, nav-keeper, keeper/seed/onboard and the app (asset picker, per-asset NAV, haircut, balances) cover tSAFO. Dry-run deploy + take/repay/liquidate on throwaway testnet keys passed. tSAFO goes live on the app's deployment with the #18 redeploy.
 - **Sun 18:00** — Testnet redeployed from main 8760ed7 (PR #25 in): oracle `CAQK3QD4…`, repo `CCFP3L7T…`, tSAFO `CA75VXSU…`, so tSAFO collateral is live (`set_asset` 3000 bps; repo contract, liquidator and demo wallets on the tSAFO allowlist). Reseeded: tBENJI offers 2 (7 d) and 3 (30 d), tSAFO offer 4 (7 d) open; repo 1 (tBENJI, 3 d) and repo 2 (tSAFO, 30 d, 143.62 tSAFO, auto-repay) taken.
+- **Mon 06:50 WET** — Checked against main 96d4d61. PRs #33–#36 merged; attack fixes A1–A8 merged and redeployed (repo `CDMLJAW5…`, oracle `CBMVY3VX…`, tSAFO `CBZOHBJ6…`); take-twice test + DECISIONS #34 (liquidate blocked on stale NAV, Open is empty); live feed shown in the app. 242 tests green. Demo video recorded. Open: PR #51 (issue #41), issues #37 and #38, NAV-side fix branches in QA, G5 copy pass, mentor round 1 (Monday morning), submission answers after it. Details: top of [DEVS.md](DEVS.md).
