@@ -9,7 +9,7 @@ Fixed-term, fixed-rate USDC loans against tokenized money-market funds, priced o
 
 Built at HackMeridian 2026 (Lisbon, 25–26 Oct) · Genesis category · Stellar Unlocked + Stellar Composed.
 
-Live: [landing](https://caravel-repo.pages.dev/) · [app on testnet](https://caravel-repo.pages.dev/app/) · Five-minute intro: [INTRO.md](INTRO.md) · Design rulings: [DECISIONS.md](DECISIONS.md) · Mechanics spec: [docs/mechanics.md](docs/mechanics.md) · Collateral research: [docs/collateral-research.md](docs/collateral-research.md) · Design system: [design/](design/README.md) · App: [app/](app/README.md) · Scripts and keeper: [scripts/](scripts/README.md)
+Live: [landing](https://caravel-repo.pages.dev/) · [app on testnet](https://caravel-repo.pages.dev/app/) · Five-minute intro: [INTRO.md](INTRO.md) · Design rulings: [DECISIONS.md](DECISIONS.md) · Audits: [docs/audits/](docs/audits/README.md) · Mechanics spec: [docs/mechanics.md](docs/mechanics.md) · Collateral research: [docs/collateral-research.md](docs/collateral-research.md) · Design system: [design/](design/README.md) · App: [app/](app/README.md) · Scripts and keeper: [scripts/](scripts/README.md)
 
 ## Problem
 
@@ -325,6 +325,15 @@ The Raven audit (26 Oct 2026) fixed its demo-blocking findings on testnet (DECIS
 - **R13 Test depth** (CT-04, CT-05, CT-06, CT-07, CT-08; C10). Property tests on `math.rs`, a cargo-fuzz value path, keeper `plan()` table tests and a quickstart job, tests on the real oracle contract, exact auth-tree asserts, spiko-mock event asserts.
 - **R14 Client and RPC robustness** (D-05, D-06, D-07, D-08, D-09, D-10, DW-07, DW-08, DW-09, DW-10, AS-08; C4). Keeper retries on 429/503 and isolates each repo's failure (D-05), batches repo reads (D-06), reads balances over RPC (D-07), keeps a per-network config (D-08), checks RPC lag (D-09) and polls for the whole timebound (D-10); the app shows desk progress and the liquidation price (DW-07), takes fees from `getFeeStats` (DW-08), restores archived entries (DW-09) and loads the wallet kit from JSR (DW-10); onboarding accepts C-addresses (AS-08).
 - **R15 Testnet mock hygiene** (STD-06, STD-07, OZ-07 TTL half, AS-07 mock half). Resolution-aligned mock timestamps, TTL bumps on spiko-mock reads and a longer instance TTL, a distribution account and `stellar.toml` for the mock issuer. A tSAFO redeploy resets its allowlist (`TSAFO_HOLDERS`).
+
+## Audits
+
+Two internal reviews, published with the status of every finding (fixed with its commit, partly fixed, roadmap, won't fix or open), checked against main. Index, method and counts: [docs/audits/](docs/audits/README.md).
+
+- **Stellar Raven audit** (26 Oct 2026, commit 6827168): ten areas, each against a [Stellar Raven](https://raven.stellar.org) playbook. 89 findings (84 unique; High 4): 52 fixed, 10 partly fixed, 25 roadmap (R10-R15 above), 2 won't fix. [Contract security](docs/audits/contract-security.md) · [Upgrade and admin keys](docs/audits/upgrade-admin.md) · [Assets, SAC and trustlines](docs/audits/assets-sac.md) · [OpenZeppelin patterns](docs/audits/openzeppelin-patterns.md) · [Testing](docs/audits/contract-testing.md) · [SEP/CAP standards](docs/audits/standards-seps.md) · [dApp and wallet UX](docs/audits/dapp-wallet.md) · [Chain data and RPC](docs/audits/data-rpc.md) · [Ecosystem prior art](docs/audits/ecosystem-prior-art.md) · [Landing and docs claims](docs/audits/content-claims.md)
+- **NAV risk review** (26 Oct 2026): five ways the fund price can hurt a lender or borrower, each reproduced, fixed and merged; four residuals listed. [nav-risk-review.md](docs/audits/nav-risk-review.md)
+
+These are our own reviews; a third-party audit is still outstanding ([docs/mainnet-readiness.md](docs/mainnet-readiness.md)).
 
 ## Built during HackMeridian
 
