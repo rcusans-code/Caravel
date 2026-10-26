@@ -65,3 +65,4 @@ One source per figure, **DefiLlama RWA**, read on **25 Oct 2026**. Put the date 
 - T-bill floor 3.87% (USDXX 7-day SEC yield, 23 Oct): [BlackRock](https://www.blackrock.com/cash/en-us/products/329365/circle-reserve-fund)
 - Blend Fixed pool USDC supply 6.69% (6 Oct, DefiLlama via [WhaleHub](https://whalehub.io/blog/best-lending-protocols-stellar))
 - More with quotes: [collateral-research.md](collateral-research.md), [research/](research/)
+- Competitor lending terms (Aave Horizon, Morpho, XOXNO, Blend, Templar, Flux, Fed discount window, tri-party repo), read 26 Oct 2026, and the NAV / FX history behind every haircut, margin trigger, NAV band, discount and fee: [config-tuning.md](config-tuning.md) (raw rows in [research/config-tuning/competitor-terms.json](research/config-tuning/competitor-terms.json)). Quote risk numbers from there, not from older slides.
