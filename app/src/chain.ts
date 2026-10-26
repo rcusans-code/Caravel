@@ -1,12 +1,14 @@
-import { Address, Asset as ClassicAsset, BASE_FEE, Operation, TransactionBuilder, rpc, scValToNative } from "@stellar/stellar-sdk";
+import { Address, Asset as ClassicAsset, BASE_FEE, Operation, TransactionBuilder, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { Client as RepoClient } from "caravel-repo";
 import { Client as OracleClient } from "caravel-oracle";
 import type { contract } from "caravel-repo";
 import { emitPhase } from "./txphase";
 import { big, contractDataKey, dataKey, normRepo, server, simulateView } from "./book";
 import type { Repo, Status } from "./book";
+import { toReading, type Asset, type FeedReading } from "./sep40";
 import {
   HORIZON_URL,
+  LIVE_FEED,
   NETWORK_PASSPHRASE,
   ORACLE_ID,
   REPO_ID,
@@ -30,6 +32,7 @@ import {
 // The order book reads live in book.ts (shared with the landing page's live deals).
 export { getBook, getCounters, server } from "./book";
 export type { Offer, Repo, Status } from "./book";
+export type { FeedReading } from "./sep40";
 
 // --- types (normalised from on-chain structs, contracts/repo/src/types.rs) ----
 
@@ -159,6 +162,26 @@ export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {
   const p = last.result;
   if (!p) return null;
   return { price: big(p.price), decimals: Number(dec.result), timestamp: big(p.timestamp) };
+}
+
+const sep40AssetScVal = (a: Asset): xdr.ScVal =>
+  "Stellar" in a
+    ? xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("Stellar"), new Address(a.Stellar).toScVal()])
+    : xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("Other"), xdr.ScVal.scvSymbol(a.Other)]);
+
+/**
+ * The live reference feed (config LIVE_FEED): SEP-40 `lastprice` + `decimals`,
+ * the two calls the repo contract makes on its own oracle, simulated with no
+ * wallet. Throws when the feed is not configured or the RPC read fails; null
+ * when the feed has no price for the asset.
+ */
+export async function getLiveFeed(): Promise<FeedReading | null> {
+  if (!LIVE_FEED) throw new Error("Live feed not configured (LIVE_ORACLE_ID / LIVE_ORACLE_ASSET in .env)");
+  const [last, dec] = await Promise.all([
+    simulateView<{ price: bigint; timestamp: bigint } | null>(LIVE_FEED.oracle, "lastprice", sep40AssetScVal(LIVE_FEED.asset)),
+    simulateView<number>(LIVE_FEED.oracle, "decimals"),
+  ]);
+  return toReading(last, dec);
 }
 
 // --- balances (classic trustlines, via Horizon) -------------------------------

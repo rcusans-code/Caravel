@@ -46,7 +46,7 @@ Takes need a NAV younger than 180 s: on sim-server the `caravel-nav-keeper` user
 
 | Tab | Who | Calls |
 |---|---|---|
-| (header) | anyone | XLM / USDC / tBENJI balances (Horizon), tBENJI NAV + feed timestamp + fresh/stale (`oracle.lastprice`) |
+| (header) | anyone | XLM / USDC / tBENJI balances (Horizon), tBENJI NAV + feed timestamp + fresh/stale (`oracle.lastprice`); next to it the live SEP-40 feed (`LIVE_ORACLE_ID` / `LIVE_ORACLE_ASSET` from the repo-root `.env`, `lastprice` + `decimals` by simulation), reference only, not used by the contract |
 | Offers | borrower | Offers board read from ledger entries; Take shows debt and collateral at the current NAV and haircut, then `take_offer` and a DvP receipt |
 | Lend | lender | `create_offer` (amount, term in demo days, APR, collateral asset) with interest and fee preview; `cancel_offer` for your open offers |
 | My positions | borrower / lender | Repo cards: status pill, collateral cover vs the margin-call line, maturity countdown, `repay` with a DvP receipt. Repaid and Liquidated repos are hidden behind "Show closed (N)" and shown muted when on; Defaulted repos stay visible with an "Awaiting liquidation" note. Liquidator desk: `default`, `liquidate` |
@@ -60,12 +60,13 @@ Every confirmed transaction shows a TxHash chip linked to stellar.expert.
 
 ## Files
 
-- `src/config.ts`: IDs and accounts from `deployments/testnet.json`, demo key gate
+- `src/config.ts`: IDs and accounts from `deployments/testnet.json`, demo key gate, live reference feed (`LIVE_FEED`)
+- `src/sep40.ts`: SEP-40 asset parsing and reading normalisation for the live feed (pure, unit-tested)
 - `src/chain.ts`: reads (RPC, Horizon) and writes through the generated bindings (`caravel-repo`, `caravel-oracle`)
 - `src/wallet.ts`: Wallets Kit signer and demo signer, same `Signer` shape
 - `src/format.ts`: 7-decimal units and the contract math (interest, required collateral) with the same rounding as `math.rs`
 - `src/ui.tsx`: TxHash, StatusPill, Alert, Field, DvpReceipt from `design/components`
-- `vite.config.ts`: demo key injection, and makes `../packages/*` use the app's copy of `@stellar/stellar-sdk`
+- `vite.config.ts`: demo key and live-feed id injection, and makes `../packages/*` use the app's copy of `@stellar/stellar-sdk`
 
 ## Demo notes
 

@@ -1,6 +1,7 @@
 // Deployment facts come from the public deployments/testnet.json that
 // scripts/deploy.sh writes; nothing here is hand-copied.
 import deployment from "../../deployments/testnet.json";
+import { parseAsset, type Asset } from "./sep40";
 
 export const NETWORK = deployment.network; // "testnet"
 export const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
@@ -48,6 +49,21 @@ export const assetBySac = (sac: string): Token =>
 
 export const ACCOUNTS = deployment.accounts;
 export const ORACLE_DECIMALS = deployment.oracle.decimals;
+
+/**
+ * Live SEP-40 feed shown next to the mock NAV, for reference only: the repo
+ * contract never reads it. Public ids, injected at build time from the repo-root
+ * .env LIVE_ORACLE_ID / LIVE_ORACLE_ASSET (the keeper's `npm run feeds` reads
+ * the same two). null when unset or unparseable; the UI then says unavailable.
+ */
+declare const __LIVE_FEED__: { oracle: string; asset: string } | null;
+export const LIVE_FEED: { oracle: string; asset: Asset } | null = (() => {
+  try {
+    return __LIVE_FEED__ ? { oracle: __LIVE_FEED__.oracle, asset: parseAsset(__LIVE_FEED__.asset) } : null;
+  } catch {
+    return null;
+  }
+})();
 
 export type DemoRole = "lender" | "borrower" | "liquidator" | "admin";
 export const DEMO_ROLES: DemoRole[] = ["lender", "borrower", "liquidator", "admin"];
