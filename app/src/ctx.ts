@@ -1,7 +1,7 @@
 import { DEMO_ENABLED } from "./config";
 import type { AssetConfig, Balances, InKindClaim, Nav, ProtocolConfig } from "./chain";
 import type { Leg, Stamp, TxState } from "./ui";
-import type { NavHealth, PricePoint } from "./gates";
+import type { BandCandidate, NavHealth, PricePoint } from "./gates";
 import type { Signer } from "./wallet";
 
 /** `hash`: the tx this flash is about, linked under the text (Raven DW-02/DW-03), on success and on failure. */
@@ -21,6 +21,8 @@ export interface Ctx {
   navs: Record<string, Nav | null>;
   /** Oracle `prices(asset, 20)` per collateral, newest first; null = not read. */
   histories: Record<string, PricePoint[] | null>;
+  /** Repo `band_candidate` per collateral (band settle path); null = none. */
+  candidates: Record<string, BandCandidate | null>;
   /** Debt of live repos per collateral token (#32); null = contract has no open_debt(). */
   openDebt: Record<string, bigint | null>;
   /** NAV state for this collateral as the contract would see it. */

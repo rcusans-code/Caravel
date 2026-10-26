@@ -7,7 +7,7 @@ import { explain } from "./errors";
 import { Alert, TxHash, type TxState } from "./ui";
 import { onPhase } from "./txphase";
 import { txHashOf } from "./txerror";
-import { collateralBlock, ledgerNow, navHealth, navHoldText, type PricePoint } from "./gates";
+import { collateralBlock, ledgerNow, navHealth, navHoldText, type BandCandidate, type PricePoint } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 import { demoTab, parseHash, shownTab, toHash, type Route, type Tab } from "./route";
 import type { Ctx, Flash } from "./ctx";
@@ -35,6 +35,8 @@ export default function App() {
   const [live, setLive] = useState<FeedReading | null | Error | undefined>(undefined);
   // The feed's last 20 prices per collateral (oracle `prices`), for the NAV band check (#31).
   const [histories, setHistories] = useState<Record<string, PricePoint[] | null>>({});
+  // The repo's band settle level per collateral (band_candidate); null = none / contract without the view.
+  const [candidates, setCandidates] = useState<Record<string, BandCandidate | null>>({});
   // Latest ledger close time and the browser second it was read: `now` is ledger time.
   const [ledger, setLedger] = useState<{ closeTime: number; at: number } | null>(null);
   // Debt of live repos per collateral token, counted against max_open_debt (#32).
@@ -78,13 +80,14 @@ export default function App() {
     // Read apart from the book: a failing reference feed must not flag testnet as down.
     chain.getLiveFeed().then(setLive, (e) => setLive(e instanceof Error ? e : new Error(String(e))));
     try {
-      const [n, book, d, h] = await Promise.all([
+      const [n, book, d, h, bc] = await Promise.all([
         Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))),
         chain.getBook(),
         Promise.all(COLLATERAL.map((a) => chain.getOpenDebt(a.sac))),
         // Band and clock reads never block the board: on failure the app falls
         // back to the last price only and the browser clock.
         Promise.all(COLLATERAL.map((a) => chain.getNavHistory(a.sac).catch(() => null))),
+        Promise.all(COLLATERAL.map((a) => chain.getBandCandidate(a.sac))),
         chain
           .getLedgerTime()
           .then((closeTime) => setLedger({ closeTime, at: nowSecs() }))
@@ -92,6 +95,7 @@ export default function App() {
       ]);
       setNavs(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, n[i]])));
       setHistories(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, h[i]])));
+      setCandidates(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, bc[i]])));
       setOpenDebt(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, d[i]])));
       setOffers(book.offers);
       setRepos(book.repos);
@@ -256,7 +260,9 @@ export default function App() {
   // NAV state per asset, in the contract's order: no price, future-dated,
   // stale (#25, per asset; getAssetConfig falls back to config().max_nav_age_secs
   // on contracts deployed before it), outside the sanity band (#31).
-  const health = (sac: string) => navHealth(navs[sac] ?? null, histories[sac] ?? null, assets[sac] ?? null, now);
+  // The settle path (band_candidate held band_settle_secs) passes a level the window still refuses.
+  const health = (sac: string) =>
+    navHealth(navs[sac] ?? null, histories[sac] ?? null, assets[sac] ?? null, now, candidates[sac] ?? null);
   const isAdmin = isAdminNow(signer, config);
   const tab = shownTab(route, isAdmin);
   // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
@@ -275,6 +281,7 @@ export default function App() {
     assets,
     navs,
     histories,
+    candidates,
     openDebt,
     health,
     balances,

@@ -21,7 +21,7 @@ import {
   USDC,
 } from "./config";
 import { horizonToUnits } from "./format";
-import { NAV_BAND_RECORDS, type PricePoint } from "./gates";
+import { NAV_BAND_RECORDS, type BandCandidate, type PricePoint } from "./gates";
 import { padAssembled } from "./resources";
 import type { Signer } from "./wallet";
 import {
@@ -69,6 +69,8 @@ export interface AssetConfig {
   /** Optional hard NAV bounds in the oracle feed's scale (#31); null = unset. */
   nav_floor: bigint | null;
   nav_ceiling: bigint | null;
+  /** Band settle time (side band-real-move): a new level accepted once it has stood this long; null = contract without it. */
+  band_settle_secs: bigint | null;
 }
 
 export interface Nav {
@@ -132,6 +134,7 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     max_nav_move_bps?: unknown;
     nav_floor?: unknown;
     nav_ceiling?: unknown;
+    band_settle_secs?: unknown;
   };
   try {
     a = await simulateView(REPO_ID, "asset", new Address(sac).toScVal());
@@ -152,6 +155,7 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     // Option<i128>: None decodes as null (absent on a pre-#31 contract).
     nav_floor: a.nav_floor == null ? null : big(a.nav_floor),
     nav_ceiling: a.nav_ceiling == null ? null : big(a.nav_ceiling),
+    band_settle_secs: a.band_settle_secs == null ? null : big(a.band_settle_secs),
   };
 }
 
@@ -198,6 +202,20 @@ export async function getLiveFeed(): Promise<FeedReading | null> {
 export async function getNavHistory(sac: string = TBENJI_SAC): Promise<PricePoint[]> {
   const r = (await readOracle.prices({ asset: oracleAsset(sac), records: NAV_BAND_RECORDS })).result;
   return (r ?? []).map((p) => ({ price: big(p.price), timestamp: big(p.timestamp) }));
+}
+
+/**
+ * The repo's band settle level for `sac` (`band_candidate`, side
+ * band-real-move): what `check_band`'s settle path compares against. null
+ * when none is stored or the contract predates the view (window roll only).
+ */
+export async function getBandCandidate(sac: string = TBENJI_SAC): Promise<BandCandidate | null> {
+  try {
+    const c = await simulateView<{ price: unknown; since: unknown } | null>(REPO_ID, "band_candidate", new Address(sac).toScVal());
+    return c ? { price: big(c.price), since: big(c.since) } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

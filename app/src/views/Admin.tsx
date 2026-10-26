@@ -18,9 +18,17 @@ export function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
   const v = value ?? current;
   const decimals = nav?.decimals ?? 14;
   const scaledV = BigInt(Math.round(v * 10_000)) * 10n ** BigInt(decimals - 4);
-  // After the push the band window is this price plus the 19 newest records (#31).
+  // After the push the band window is this price plus the 19 newest records (#31);
+  // the pushed record counts toward the settle path's records since the level started.
   const willHold =
-    asset && value !== null ? !checkBand(scaledV, (ctx.histories[sac] ?? []).slice(0, 19), asset).ok : false;
+    asset && value !== null
+      ? !checkBand(
+          scaledV,
+          [{ price: scaledV, timestamp: BigInt(Math.floor(ctx.now)) }, ...(ctx.histories[sac] ?? []).slice(0, 19)],
+          asset,
+          { candidate: ctx.candidates[sac] ?? null, now: ctx.now },
+        ).ok
+      : false;
 
   const push = async () => {
     if (!signer) return;
