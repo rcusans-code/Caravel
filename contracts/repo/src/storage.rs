@@ -6,7 +6,9 @@
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::{AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo};
+use crate::types::{
+    Asset, AssetConfig, BandCandidate, Config, Offer, Pause, PendingAsset, PendingPause, Repo,
+};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
 
@@ -42,6 +44,9 @@ pub enum DataKey {
     /// Admin change waiting out the timelock (#33). At most one per asset.
     PendingAsset(Address),
     PendingPause(Address),
+    /// NAV level `note_nav` watched stand, per oracle asset (side
+    /// band-real-move). Kept apart from `Asset` so `set_asset` never resets it.
+    BandCandidate(Asset),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -142,6 +147,20 @@ pub fn remove_pending_pause(env: &Env, asset: &Address) {
     env.storage()
         .instance()
         .remove(&DataKey::PendingPause(asset.clone()));
+}
+
+// --- NAV band settle clock (side band-real-move) -----------------------------
+
+pub fn read_band_candidate(env: &Env, asset: &Asset) -> Option<BandCandidate> {
+    env.storage()
+        .instance()
+        .get(&DataKey::BandCandidate(asset.clone()))
+}
+
+pub fn write_band_candidate(env: &Env, asset: &Asset, candidate: &BandCandidate) {
+    env.storage()
+        .instance()
+        .set(&DataKey::BandCandidate(asset.clone()), candidate);
 }
 
 // --- exposure (#32) ---------------------------------------------------------

@@ -63,6 +63,8 @@ NAV_MOVE_BPS="${NAV_MOVE_BPS:-2500}"             # tBENJI NAV sanity band; demo 
 SAFO_NAV_MOVE_BPS="${SAFO_NAV_MOVE_BPS:-$NAV_MOVE_BPS}" # tSAFO NAV sanity band (#31)
 MAX_OPEN_DEBT="${MAX_OPEN_DEBT:-100000}"          # tBENJI exposure cap, whole USDC (#32)
 SAFO_MAX_OPEN_DEBT="${SAFO_MAX_OPEN_DEBT:-50000}" # tSAFO exposure cap, whole USDC (#32)
+BAND_SETTLE_SECS="${BAND_SETTLE_SECS:-1200}"      # tBENJI: a NAV past the band is accepted after it stood 20 min (prod 86400)
+SAFO_BAND_SETTLE_SECS="${SAFO_BAND_SETTLE_SECS:-$BAND_SETTLE_SECS}" # tSAFO band settle time
 ORACLE_DECIMALS=14                               # same as Reflector
 ORACLE_RESOLUTION=60
 ORACLE_BASE='{"Other":"USD"}'
@@ -265,8 +267,8 @@ PY
     as_admin --id "$REPO_ID" -- set_asset --asset "$token" --config "$want" >/dev/null
   fi
 }
-ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"margin_trigger_bps\":$MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\"}"
-TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"margin_trigger_bps\":$SAFO_MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\"}"
+ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"margin_trigger_bps\":$MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\",\"band_settle_secs\":$BAND_SETTLE_SECS}"
+TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"margin_trigger_bps\":$SAFO_MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\",\"band_settle_secs\":$SAFO_BAND_SETTLE_SECS}"
 ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 

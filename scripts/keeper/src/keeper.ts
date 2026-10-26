@@ -25,6 +25,7 @@ import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, outcomeOf, ste
 import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
 import { onceExitCode } from "./once.js";
 import { setNav } from "./set-nav.js";
+import { type BandCandidate, noteNeeded, noteUnsupported } from "./settleclock.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
 interface Repo {
@@ -123,6 +124,48 @@ const navAcks = (): Set<bigint> => {
 
 /** NAV jump state of one asset this tick: why NAV-driven actions are held, or null. */
 type Guard = { why: string; kind: string } | null;
+
+const levelSeen = new Map<string, string>(); // asset id -> last logged note_nav state
+
+/**
+ * Band settle clock (side band-real-move): the repo accepts a NAV outside the
+ * #31 window once its level stood `band_settle_secs`, timed from the first
+ * `note_nav` that saw it. Simulates `note_nav` per asset and sends it only
+ * when the level would change, so a quiet feed costs nothing.
+ */
+async function noteNavs(cfg: Cfg) {
+  for (const a of ASSETS) {
+    const id = new Address(a.id).toScVal();
+    let state: string;
+    let line: string | null = null;
+    try {
+      const sim = await view<BandCandidate>(REPO_ID, "note_nav", [id]);
+      const stored = await view<BandCandidate | null>(REPO_ID, "band_candidate", [id]);
+      if (!noteNeeded(stored, sim)) {
+        state = `level ${sim.price} since ${sim.since}`;
+      } else {
+        const { hash } = await send(signer, REPO_ID, "note_nav", [id]);
+        state = `noted ${sim.price}`;
+        line = `nav-level    ${a.label} level ${fmt(sim.price, cfg.decimals)} noted: band settle clock started  ${txLink(hash)}`;
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (e instanceof DryRun) {
+        state = "dry-run";
+      } else if (e instanceof ContractError && e.code === Err.NoPrice) {
+        state = "no-price";
+      } else if (noteUnsupported(msg)) {
+        state = "unsupported";
+        line = `nav-level    ${a.label} note_nav not on the deployed contract (redeploy from main): band settle clock off, window roll only`;
+      } else {
+        state = "failed";
+        fail(`note_nav ${a.label} FAILED: ${msg}`);
+      }
+    }
+    if (line && levelSeen.get(a.id) !== state) log(line);
+    levelSeen.set(a.id, state);
+  }
+}
 
 /** Read prices(asset, 20) and decide the hold; a failed read holds (fail closed). */
 async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): Promise<Guard> {
@@ -274,6 +317,7 @@ async function tick(cfg: Cfg) {
   }
 
   await issuerWatch();
+  await noteNavs(cfg);
 
   // NAV jump hold per asset, read once per tick.
   const acks = navAcks();

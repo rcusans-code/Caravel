@@ -19,6 +19,20 @@ pub struct AssetConfigured {
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
+    pub band_settle_secs: u64,
+}
+
+/// `note_nav` started the band settle clock on a new NAV level (side
+/// band-real-move). Unless the level moves again, a price within the band of
+/// `price` is accepted from `since + band_settle_secs` even if the feed's
+/// window still disagrees: the guardian's window to pause a bad push.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavLevelNoted {
+    #[topic]
+    pub oracle_asset: crate::types::Asset,
+    pub price: i128,
+    pub since: u64,
 }
 
 /// Admin set an asset's pause switches (DECISIONS.md #30).
@@ -46,6 +60,7 @@ pub struct AssetChangeProposed {
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
+    pub band_settle_secs: u64,
 }
 
 /// Admin queued a pause change behind the timelock (DECISIONS.md #33).

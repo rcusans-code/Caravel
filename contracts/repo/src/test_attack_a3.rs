@@ -53,6 +53,7 @@ fn asset_cfg(token: &Address, haircut_bps: u32, margin_trigger_bps: u32) -> Asse
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: crate::test::SETTLE_SECS,
     }
 }
 
@@ -268,6 +269,7 @@ fn a3_raising_the_trigger_tightens_lowering_loosens() {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: crate::test::SETTLE_SECS,
     };
     assert_eq!(
         w.env.events().all().filter_by_contract(&w.repo.address),
