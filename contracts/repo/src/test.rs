@@ -3493,3 +3493,112 @@ fn qa_execute_exactly_at_eta_and_reproposal_restarts_clock() {
     w.repo.execute_asset(&w.tbenji);
     assert_eq!(w.tbenji_config().haircut_bps, 250);
 }
+
+#[test]
+fn execute_window_closes_at_eta_plus_timelock() {
+    // Issue #41: a proposal executes from eta through eta + timelock_secs
+    // inclusive; later it has expired and must be proposed again.
+    let w = world();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    let eta = w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(eta + TIMELOCK + 1);
+    assert_eq!(
+        w.repo.try_execute_asset(&w.tbenji),
+        Err(Ok(Error::ProposalExpired))
+    );
+    assert_eq!(w.tbenji_config().haircut_bps, 300);
+    // Still visible (and cancellable) until replaced or cancelled.
+    assert_eq!(w.repo.pending_asset(&w.tbenji).map(|p| p.eta), Some(eta));
+
+    // Re-proposing opens a fresh window; its last second still executes.
+    let eta2 = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(eta2, eta + 2 * TIMELOCK + 1);
+    w.set_time(eta2 + TIMELOCK);
+    w.repo.execute_asset(&w.tbenji);
+    assert_eq!(w.tbenji_config().haircut_bps, 250);
+    assert_eq!(w.repo.pending_asset(&w.tbenji), None);
+
+    // Same window for a pause change.
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(eta + TIMELOCK + 1);
+    assert_eq!(
+        w.repo.try_execute_pause(&w.tbenji),
+        Err(Ok(Error::ProposalExpired))
+    );
+    assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+    w.repo.cancel_pause(&w.guardian(), &w.tbenji);
+    assert_eq!(w.repo.pending_pause(&w.tbenji), None);
+
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    w.set_time(eta + TIMELOCK);
+    w.repo.execute_pause(&w.tbenji);
+    assert_eq!(w.repo.pause(&w.tbenji), Pause::default());
+}
+
+#[test]
+fn reproposal_emits_cancel_for_the_replaced_proposal() {
+    // Issue #41: replacing a pending proposal emits the same
+    // ProposalCancelled as an explicit cancel (by = admin), then the new
+    // proposal's event.
+    let w = world();
+    let addr = &w.repo.address;
+    let admin = w.admin();
+    let mut c = w.tbenji_config();
+    c.haircut_bps = 250;
+    w.repo.propose_asset(&w.tbenji, &c);
+    w.set_time(NOW + TIMELOCK / 2);
+    c.haircut_bps = 260;
+    let eta = w.repo.propose_asset(&w.tbenji, &c);
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalCancelled {
+                asset: w.tbenji.clone(),
+                kind: soroban_sdk::symbol_short!("asset"),
+                by: admin.clone(),
+            }
+            .to_xdr(&w.env, addr),
+            events::AssetChangeProposed {
+                asset: w.tbenji.clone(),
+                eta,
+                haircut_bps: 260,
+                margin_trigger_bps: TRIGGER_BPS,
+                enabled: true,
+                max_nav_age_secs: DEMO_NAV_AGE,
+                max_nav_move_bps: WIDE_BAND_BPS,
+                nav_floor: None,
+                nav_ceiling: None,
+                max_open_debt: NO_CAP,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
+    assert_eq!(
+        w.repo.pending_asset(&w.tbenji),
+        Some(PendingAsset { config: c, eta })
+    );
+
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    let eta = w.repo.propose_pause(&w.tbenji, &Pause::default());
+    assert_eq!(
+        w.events(),
+        [
+            events::ProposalCancelled {
+                asset: w.tbenji.clone(),
+                kind: soroban_sdk::symbol_short!("pause"),
+                by: admin,
+            }
+            .to_xdr(&w.env, addr),
+            events::PauseChangeProposed {
+                asset: w.tbenji.clone(),
+                eta,
+                no_new_repos: false,
+                no_seize: false,
+            }
+            .to_xdr(&w.env, addr),
+        ]
+    );
+}

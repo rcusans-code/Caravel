@@ -44,4 +44,7 @@ pub enum Error {
     NotAdminOrGuardian = 23,
     /// `claim` by an address with no parked USDC payout.
     NothingToClaim = 24,
+    /// `execute_*` after the proposal's window closed (`eta + timelock_secs`):
+    /// propose it again (#33, issue #41).
+    ProposalExpired = 25,
 }
