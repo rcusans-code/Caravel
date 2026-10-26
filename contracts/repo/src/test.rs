@@ -31,6 +31,17 @@ pub(crate) const TRIGGER_BPS: u32 = 200;
 /// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
+/// Whitelists `who` the only way the contract allows (Raven UA-03):
+/// `propose_liquidator`, wait out the timelock, `execute_liquidator`. The
+/// ledger clock is put back afterwards, so setup code keeps its timeline.
+pub(crate) fn whitelist(env: &Env, repo: &CaravelRepoClient<'_>, who: &Address) {
+    let now = env.ledger().timestamp();
+    let eta = repo.propose_liquidator(who);
+    env.ledger().set_timestamp(eta);
+    repo.execute_liquidator(who);
+    env.ledger().set_timestamp(now);
+}
+
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
         admin: Address::generate(env),
@@ -210,7 +221,7 @@ fn admin_manages_liquidator_whitelist() {
     let liquidator = Address::generate(&env);
 
     assert!(!client.is_liquidator(&liquidator));
-    client.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &client, &liquidator);
     assert!(client.is_liquidator(&liquidator));
     client.set_liquidator(&liquidator, &false);
     assert!(!client.is_liquidator(&liquidator));
@@ -278,7 +289,7 @@ fn world<'a>() -> World<'a> {
     StellarAssetClient::new(&env, &usdc).mint(&borrower, &(100 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(2_000 * UNIT));
     let liquidator = Address::generate(&env);
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     StellarAssetClient::new(&env, &usdc).mint(&liquidator, &(2_000 * UNIT));
 
     World {
@@ -3091,6 +3102,26 @@ fn cancel_works_for_admin_and_guardian_only() {
         Err(Ok(Error::NoProposal))
     );
     assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
+}
+
+/// Raven audit CT-01: deleting the `require_auth` in `admin_or_guardian`
+/// used to leave every repo test green, because the cancel tests only check
+/// the caller's identity. With nobody signing, naming the admin or the
+/// guardian as `caller` is refused and both proposals stay pending.
+#[test]
+fn audit_cancel_requires_caller_signature() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    // Nobody signs, caller = admin / guardian address: refused.
+    w.env.set_auths(&[]);
+    assert!(w.repo.try_cancel_asset(&w.admin(), &w.tbenji).is_err());
+    assert!(w.repo.try_cancel_pause(&w.guardian(), &w.tbenji).is_err());
+    assert!(w.repo.pending_asset(&w.tbenji).is_some());
+    assert!(w.repo.pending_pause(&w.tbenji).is_some());
 }
 
 #[test]

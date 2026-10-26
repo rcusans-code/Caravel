@@ -12,6 +12,8 @@ test("codes match contracts/repo/src/errors.rs", () => {
   assert.equal(Err.AutoRepayFailed, 16);
   assert.equal(Err.Paused, 17);
   assert.equal(Err.NavOutOfBand, 18);
+  assert.equal(Err.ProposalExpired, 26);
+  assert.equal(Err.VetoSpent, 27);
 });
 
 test("NotDue (15) is pending like NotDefaultable (12): ledger clock lag, not a failure", () => {

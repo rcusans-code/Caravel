@@ -29,6 +29,7 @@ const REPO_ERRORS: Record<number, string> = {
   24: "Nothing to claim: no USDC payout or parked collateral is waiting for this account.",
   25: "The in-kind claim is not open yet: it opens once the collateral's NAV has been stale for 7 contract days past its maximum age. While the NAV is fresh, a liquidator sells the collateral instead.",
   26: "This pending change expired: its execute window closed. Propose it again.",
+  27: "The guardian already vetoed this exact change once; only the admin can cancel it now.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

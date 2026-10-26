@@ -78,7 +78,7 @@ fn world<'a>() -> W<'a> {
     usdc_admin.mint(&borrower, &(2_100 * UNIT));
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
 
     W {
         usdc: TokenClient::new(&env, &usdc),
@@ -128,7 +128,7 @@ fn exp_borrower_self_liquidates_at_discount() {
     let nav = ONE * 95 / 100;
     let repo_id = w.defaulted(nav);
     // Even whitelisted, the borrower is not a liquidator of its own repo.
-    w.repo.set_liquidator(&w.borrower, &true);
+    crate::test::whitelist(&w.env, &w.repo, &w.borrower);
 
     let usdc_before = w.usdc.balance(&w.borrower);
     let coll_before = w.tbenji_token.balance(&w.borrower);

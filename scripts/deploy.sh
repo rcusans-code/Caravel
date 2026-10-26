@@ -20,7 +20,7 @@
 #
 # Idempotent: an existing ORACLE_ID / REPO_ID from .env is kept when its
 # on-chain wasm matches the fresh build; otherwise a new contract is deployed.
-# Admin steps (price, set_asset, set_liquidator, issuer authorization) are
+# Admin steps (price, set_asset, the liquidator whitelist, issuer authorization) are
 # read first and only sent when the on-chain value differs.
 #
 # Collateral #2 is tSAFO (issue #20): a Spiko-style mock token
@@ -37,8 +37,10 @@
 #
 # Guardian (#33): its own key, not ADMIN. With no GUARDIAN_ADDRESS in .env, the
 # first run that deploys a repo contract generates a funded testnet key and
-# writes GUARDIAN_ADDRESS / GUARDIAN_SECRET to .env. Config has no setter, so a
-# reused repo keeps its on-chain guardian until the next redeploy.
+# writes GUARDIAN_ADDRESS / GUARDIAN_SECRET to .env. A reused repo keeps its
+# on-chain guardian; rotating it on-chain (propose_guardian / execute_guardian,
+# Raven R6) without updating .env makes the next run see a config mismatch and
+# redeploy.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -304,11 +306,28 @@ ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 
 # --- 5. liquidator whitelist ---------------------------------------------------
+# Additions are timelocked (Raven R6, UA-03): propose_liquidator, wait out
+# timelock_secs (120 s on testnet), then execute_liquidator. A re-run reuses a
+# proposal still inside its window instead of restarting the clock.
 if [[ "$(view --id "$REPO_ID" -- is_liquidator --who "$LIQUIDATOR_ADDRESS")" == true ]]; then
   log "liquidator already whitelisted"
 else
-  log "set_liquidator $LIQUIDATOR_ADDRESS"
-  as_admin --id "$REPO_ID" -- set_liquidator --liquidator "$LIQUIDATOR_ADDRESS" --allowed true >/dev/null
+  ETA=$(view --id "$REPO_ID" -- pending_liquidator --who "$LIQUIDATOR_ADDRESS" 2>/dev/null | tr -d '"' || true)
+  if ! [[ "$ETA" =~ ^[0-9]+$ ]] || (( $(date +%s) + 30 > ETA + TIMELOCK_SECS )); then
+    log "propose_liquidator $LIQUIDATOR_ADDRESS"
+    ETA=$(as_admin --id "$REPO_ID" -- propose_liquidator --liquidator "$LIQUIDATOR_ADDRESS" | tr -d '"')
+  fi
+  [[ "$ETA" =~ ^[0-9]+$ ]] || die "propose_liquidator returned no eta"
+  WAIT=$(( ETA - $(date +%s) + 6 ))   # ledger time trails the wall clock a little
+  if (( WAIT > 0 )); then log "waiting ${WAIT}s for the liquidator timelock (eta $ETA)"; sleep "$WAIT"; fi
+  for try in 1 2 3 4 5 6; do
+    as_admin --id "$REPO_ID" -- execute_liquidator --liquidator "$LIQUIDATOR_ADDRESS" >/dev/null && break
+    (( try < 6 )) || die "execute_liquidator failed 6 times (Error #21 = ledger clock still before eta $ETA)"
+    sleep 5
+  done
+  [[ "$(view --id "$REPO_ID" -- is_liquidator --who "$LIQUIDATOR_ADDRESS")" == true ]] \
+    || die "liquidator not whitelisted after execute_liquidator"
+  log "liquidator whitelisted after the timelock"
 fi
 
 # --- 5b. treasury can receive USDC ----------------------------------------------
