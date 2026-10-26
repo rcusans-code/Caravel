@@ -4,8 +4,8 @@
   "horizonUrl": "https://horizon-testnet.stellar.org",
   "deployedAt": "2026-10-26T07:22:39Z",
   "contracts": {
-    "repo": "CAUXSFOLHKHIVYB75JZVQPOSNIEWMUZ6GRSC7XSXCX5SKFC7DYC5CND5",
-    "oracle": "CBMVY3VXOU3KZR7FFTIDNGQZ4T7HC7JQBGHAOQBCKHOHZOQNR6QHIIWW",
+    "repo": "CD4Q2QTOIRJOUPKK46N5MZMTRQXZVOO6N5FRXHK3BEBBPDSXQNQMK6YN",
+    "oracle": "CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR",
     "usdc": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
     "tbenji": "CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX",
     "tsafo": "CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2"
@@ -26,7 +26,7 @@
   "config": {
     "admin": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
     "usdc": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
-    "oracle": "CBMVY3VXOU3KZR7FFTIDNGQZ4T7HC7JQBGHAOQBCKHOHZOQNR6QHIIWW",
+    "oracle": "CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR",
     "treasury": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
     "fee_bps": 1000,
     "liquidation_discount_bps": 100,
@@ -47,7 +47,8 @@
     "max_nav_move_bps": 2500,
     "nav_floor": null,
     "nav_ceiling": null,
-    "max_open_debt": "1000000000000"
+    "max_open_debt": "1000000000000",
+    "band_settle_secs": 1200
   },
   "tsafoAsset": {
     "oracle_asset": {
@@ -60,7 +61,8 @@
     "max_nav_move_bps": 2500,
     "nav_floor": null,
     "nav_ceiling": null,
-    "max_open_debt": "500000000000"
+    "max_open_debt": "500000000000",
+    "band_settle_secs": 1200
   },
   "tsafo": {
     "symbol": "tSAFO",
