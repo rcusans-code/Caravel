@@ -515,3 +515,24 @@ fn outage_future_skew_edge_matches_fresh_nav() {
     );
     assert_eq!(w.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
 }
+
+/// QA variant: the fallback clock lasts only while the feed has no usable
+/// timestamp. A price `<= 0` after the default, then a real price returns
+/// before the fallback edge: the claim follows the new price's clock (closed
+/// one second past the old fallback edge) and the sale goes ahead instead.
+#[test]
+fn outage_fallback_ends_when_a_usable_price_returns() {
+    let (w, repo_id) = w_defaulted();
+    w.set_nav(0, MATURED);
+    let back = FALLBACK_EDGE - 10;
+    w.t(back);
+    w.set_nav(ONE, back);
+    w.t(FALLBACK_EDGE + 1);
+    assert_eq!(
+        w.repo.try_claim_in_kind(&repo_id),
+        Err(Ok(Error::NoNavOutage))
+    );
+    w.repo.liquidate(&w.liquidator, &repo_id);
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Liquidated);
+    assert_eq!(w.repo.open_debt(&w.tbenji), 0);
+}
