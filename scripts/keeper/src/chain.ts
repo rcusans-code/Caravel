@@ -10,6 +10,7 @@ import {
   Contract,
   Keypair,
   Networks,
+  SorobanDataBuilder,
   TransactionBuilder,
   nativeToScVal,
   rpc,
@@ -17,6 +18,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { errName, txFailReason } from "./errors.js";
+import { padWrites } from "./headroom.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const ENV_FILE = process.env.ENV_FILE ?? path.join(ROOT, ".env");
@@ -36,6 +38,8 @@ export const PASSPHRASE = NETWORK === "testnet" ? Networks.TESTNET : env("NETWOR
 export const server = new rpc.Server(env("RPC_URL", "https://soroban-testnet.stellar.org"));
 // Testnet inclusion fees spike; pay up so keeper txs are not dropped.
 const INCLUSION_FEE = process.env.INCLUSION_FEE ?? String(Number(BASE_FEE) * 1000);
+// NO_WRITE_PAD=1 sends the bare simulated resources (only to reproduce the under-count).
+const NO_PAD = process.env.NO_WRITE_PAD === "1";
 
 export const txLink = (hash: string) => `https://stellar.expert/explorer/${NETWORK}/tx/${hash}`;
 
@@ -121,6 +125,9 @@ async function invokeOnce(
   const tx = await build(signer.publicKey(), contractId, method, args);
   const sim = await server.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
+  // Simulation under-counts write bytes when a token try_call is rolled back
+  // (parked payout, failed auto-repay pull): send with headroom (headroom.ts).
+  if (rpc.Api.isSimulationSuccess(sim) && !NO_PAD) sim.transactionData = new SorobanDataBuilder(padWrites(sim.transactionData.build()));
   const prepared = rpc.assembleTransaction(tx, sim).build();
   prepared.sign(signer);
   const sent = await server.sendTransaction(prepared);

@@ -188,6 +188,21 @@ Both keepers write an `ALERT …` line to their journal and run `ALERT_CMD "<mes
 
 Under `--once` every stuck state alerts and exits 1 at once; a failed action exits 1 without an ALERT. `caravel-alert.sh` always logs to the journal (`journalctl --user -t caravel-alert`); it also sends to Telegram when `~/.config/caravel/alert.env` (chmod 600, never in the repo) sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Test it with `~/.local/lib/caravel/caravel-alert.sh "test"`.
 
+## Under-simulated write bytes (RESOURCE_LIMIT_EXCEEDED)
+
+Symptom: a tx passes simulation, then lands `FAILED` with `txFailed/invokeHostFunctionResourceLimitExceeded`; the tx's diagnostic events say `operation byte-write resources exceeds amount specified, <needed>, <declared>`.
+
+Cause: when a token call inside the contract fails and is rolled back (`try_transfer_from` in the auto-repay pull, `try_transfer` in `push_or_park`), an entry that call touched (e.g. the borrower's `Allowance`, or the contract's own collateral `Balance`) stays in the read-write footprint but ends the tx unchanged. Simulation leaves those bytes out of `writeBytes`; on chain the host counts every existing read-write entry. The gap is exactly the size of those entries. Measured on testnet (CBWTB23F, 26 Oct 2026):
+
+| Call | Path | Simulated | Needed | Gap |
+|---|---|---|---|---|
+| `default` (repo 3) | auto-repay on, borrower has no USDC trustline: pull fails | 660 | 956 | 296 = `Allowance` entry |
+| `claim_in_kind` (CD4Q2QTO repo 2) | lender cannot hold tBENJI: push parked | 3,024 | 3,248 | 224 = contract tBENJI `Balance` |
+| `repay` (repo 1) | lender has no USDC trustline: lender leg parked | 3,688 | lands | none (contract USDC balance changes anyway) |
+| `liquidate` (repo 3) | borrower has no USDC trustline: surplus parked | 3,808 | lands | none |
+
+So a parked USDC leg alone is safe (the contract's USDC balance is written anyway); the rollback of an entry nothing else writes is what breaks. A frozen (de-authorized but existing) recipient trustline probably adds its own size the same way (not testable here: Circle's USDC cannot be frozen by us). Fix: the keeper (`keeper/src/headroom.ts`) and the app (`padWrites` in `app/src/chain.ts`) add 2,048 write bytes and 0.02 XLM resource fee to every write before signing. Only the write-byte share is kept (the padded `default` cost 0.0011 XLM in total); the rest is refunded. To reproduce the under-count, run a keeper CLI with `NO_WRITE_PAD=1`. If a future path needs more than 2,048 extra bytes, raise both numbers together.
+
 ## Issuer pause or de-allowlist: guardian runbook
 
 The contract cannot stop an issuer from blocking its own token (DECISIONS #24). Two cases, both alerted by the keeper:
