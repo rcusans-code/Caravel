@@ -6,6 +6,10 @@ import { BPS, fmtAmount, fmtPct, fmtTerm, interest as calcInterest, parseAmount,
 import { Field, TxHash, TxProgress } from "../ui";
 import { CONNECT, type Ctx } from "../ctx";
 
+/** Full 7-decimal USDC, trailing zeros trimmed to 2 dp. Rounding each figure to 2 dp separately
+ *  made the summary not add up (0.25 interest − 0.02 fee shown beside 250.22, not 250.23). */
+const fmtExact = (v: bigint) => fmtAmount(v, 7).replace(/(\.\d\d\d*?)0+$/, "$1");
+
 export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   const { config, signer, balances, busy } = ctx;
   const [amount, setAmount] = useState("50.00");
@@ -96,15 +100,15 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
           <dl className="cv-terms">
             <div>
               <dt>Interest</dt>
-              <dd>{fmtAmount(int)} USDC</dd>
+              <dd>{fmtExact(int)} USDC</dd>
             </div>
             <div>
               <dt>Protocol fee</dt>
-              <dd>{fmtAmount(fee)} USDC</dd>
+              <dd>{fmtExact(fee)} USDC</dd>
             </div>
             <div>
               <dt>You receive</dt>
-              <dd>{principal ? fmtAmount(principal + int - fee) : "—"} USDC</dd>
+              <dd>{principal ? fmtExact(principal + int - fee) : "—"} USDC</dd>
             </div>
           </dl>
           <button
@@ -165,6 +169,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                       <button
                         type="button"
                         className="cv-btn cv-btn--secondary cv-btn--sm"
+                        aria-label={`Cancel offer #${o.id}`}
                         disabled={!!busy}
                         aria-busy={busy === `cancel-${o.id}` ? "true" : undefined}
                         onClick={async () => {
@@ -172,7 +177,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                           if (out) setCancelled({ id: o.id, hash: out.hash });
                         }}
                       >
-                        {busy === `cancel-${o.id}` ? "Signing…" : "Cancel offer"}
+                        {busy === `cancel-${o.id}` ? "Signing…" : "Cancel"}
                       </button>
                     </td>
                   </tr>

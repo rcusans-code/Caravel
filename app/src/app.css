@@ -125,7 +125,8 @@ body {
   gap: var(--space-6);
   align-items: start;
 }
-@media (max-width: 860px) {
+/* Stack below ~1040px: narrower than that, the 5fr column cannot hold the open-offers table. */
+@media (max-width: 1040px) {
   .app-lend__grid { grid-template-columns: 1fr; }
 }
 /* Compact lend form: fields two by two, summary and the button on one row. */
@@ -138,6 +139,11 @@ body {
 .app-lend__foot { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); }
 .app-lend__foot .cv-terms { flex: 1 1 280px; min-width: 0; }
 @media (max-width: 560px) { .app-lend__fields { grid-template-columns: minmax(0, 1fr); } }
+/* "Your open offers" sits in the narrow 5fr column: tighter cell padding so all six columns,
+   the Cancel button included, fit at 1280px (the wrap's scrollbar is overlay-only on many systems). */
+.app-lend .cv-table th, .app-lend .cv-table td { padding-left: var(--space-2); padding-right: var(--space-2); }
+.app-lend .cv-table th:first-child, .app-lend .cv-table td:first-child { padding-left: var(--space-3); }
+.app-lend .cv-table th:last-child, .app-lend .cv-table td:last-child { padding-right: var(--space-3); }
 .app-select {
   flex: 1;
   border: 0;
