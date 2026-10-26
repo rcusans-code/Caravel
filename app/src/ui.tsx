@@ -260,3 +260,17 @@ export function DvpReceipt({
 export function Busy({ busy, idle, children }: { busy: string | null; idle: string; children?: ReactNode }) {
   return <>{busy ?? children ?? idle}</>;
 }
+
+/** Plain-language line + this: the technical detail opens on hover or keyboard focus. */
+export function Tip({ children }: { children: ReactNode }) {
+  return (
+    <span className="app-tip">
+      <button type="button" className="app-tip__btn" aria-label="More info">
+        i
+      </button>
+      <span className="app-tip__pop" role="tooltip">
+        {children}
+      </span>
+    </span>
+  );
+}
