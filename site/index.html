@@ -214,13 +214,29 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 @keyframes cv-flash{0%,80%{opacity:.2}100%{opacity:1}}
 }
 .hdr-dot{box-shadow:0 0 0 3px rgba(79,122,69,.18)}
-@media (max-width:1180px){.hdr-stat{display:none !important}.navrow{margin-left:auto}}
+.navlink,.head-cta{white-space:nowrap}.head-cta{flex:none}
+@media (max-width:1240px){.hdr-stat{display:none !important}.navrow{margin-left:auto}}
 @media (max-width:900px){.hero-img{height:420px}.hero-sea{animation:none}.hero-card{position:static !important;margin:-60px auto 0 !important}.harbor-img{animation:none}.chain{grid-template-columns:1fr;gap:10px}.arrow{height:24px;width:3px;margin:0 auto 8px}.arrow::after{right:-6.5px;top:auto;bottom:-10px;border:8px solid transparent;border-top:12px solid var(--line-strong);border-bottom:0}.risk-arrow::after{border-top-color:var(--brand)}.deck .arrow{background:#8f6c1f;transform:none !important;animation:none !important}.deck .arrow::after{border-left-color:transparent;border-right:8px solid transparent;border-top-color:#8f6c1f}.deck .risk-arrow{background:var(--brand)}.deck .risk-arrow::after{border-left-color:transparent;border-top-color:var(--brand)}.chain .box{text-align:center}.navrow{display:none !important}}
 @media (max-width:900px){.head-cta{margin-left:auto}.hero-band{margin-top:8px}.hero-card-wrap{position:relative !important;inset:auto !important;padding-bottom:48px}.hero-card{position:static !important;margin:-96px auto 0 !important;width:100% !important;max-width:400px !important;box-sizing:border-box}}
 @media (max-width:900px){#who .wrap,.deck-grid{grid-template-columns:1fr !important}}
 @media (max-width:640px){.wrap{padding-left:16px;padding-right:16px}.row{grid-template-columns:1fr !important;gap:4px !important}.panel{padding:24px !important}.head-cta{height:40px;padding:0 14px;font-size:13px}.sticky img{height:36px !important}
 .tiers thead{display:none}.tiers,.tiers tbody,.tiers tr,.tiers td{display:block;width:100%;box-sizing:border-box}.tiers tr{padding:14px 16px;border-bottom:1px solid var(--line)}.tiers td{border:0 !important;padding:3px 0 !important;text-align:left !important;white-space:normal !important;display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px}.tiers td::before{content:attr(data-label);font-family:var(--font-sans);font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-subtle);padding-top:2px}
 .cv-table-wrap{overflow:visible}.cv-dvp__foot{flex-wrap:wrap;gap:8px}}
+/* Compact section menu for phones and tablets, where .navrow is hidden (≤900px). */
+.navmenu{display:none}
+.hdr-row{position:relative}
+.navmenu summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:1px solid var(--line-control);background:var(--surface);font:500 14px/1 var(--font-sans);color:var(--ink)}
+.navmenu summary::-webkit-details-marker{display:none}
+.navmenu summary::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+.navmenu[open] summary{border-color:var(--primary);color:var(--primary)}
+.navmenu[open] summary::after{transform:translateY(2px) rotate(-135deg)}
+.navmenu summary:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.navmenu nav{position:absolute;right:32px;top:100%;z-index:30;min-width:240px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-strong);box-shadow:4px 4px 0 -1px var(--surface),4px 4px 0 0 var(--line-strong)}
+.navmenu nav a{padding:12px 16px;color:var(--ink);text-decoration:none;font-size:15px;border-bottom:1px solid var(--line)}
+.navmenu nav a:last-child{border-bottom:0}
+.navmenu nav a:hover,.navmenu nav a:focus-visible{background:var(--primary-soft);color:var(--primary)}
+@media (max-width:900px){.navmenu{display:block;margin-left:auto}.navmenu ~ .head-cta{margin-left:0}}
+@media (max-width:640px){.hdr-row{gap:12px !important}.navmenu nav{left:16px;right:16px;min-width:0}}
 @media (prefers-reduced-motion:reduce){.ticker-run,.hero-sea,.hero-ripples .rp,.dvp-swap .flow{animation:none !important}.hero-field{display:none}.hero-img,.harbor-img,.prog,.step,.leg-a,.leg-b,.flash,.w,.link-in,.spot path,.spot circle,.spot line{animation:none !important;stroke-dashoffset:0 !important}.uline{animation:none;stroke-dashoffset:0}.lift,.navlink{transition:none}.lift:hover{transform:none}}
 </style>
 </head>
@@ -228,12 +244,12 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div style="background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 16px; line-height: 1.55;">
 
 <header class="sticky" style="border-bottom: 1px solid var(--line-strong);">
-<div class="wrap" style="padding-top: 12px; padding-bottom: 12px; display: flex; align-items: center; gap: 32px;">
+<div class="wrap hdr-row" style="padding-top: 12px; padding-bottom: 12px; display: flex; align-items: center; gap: 32px;">
 <a href="#top" style="display: flex; align-items: center; text-decoration: none;"><img src="assets/626df8e05b68b37cc37013ab02455d50.svg" alt="Caravel" style="height: 46px; width: auto; display: block;"></a>
 <div class="hdr-stat" aria-label="Testnet status" style="margin-right: auto; display: flex; align-items: center; gap: 0; border: 1px solid var(--line-strong); background: var(--surface); font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); white-space: nowrap;">
 <span style="display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-right: 1px solid var(--line);"><span aria-hidden="true" class="hdr-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #4f7a45;"></span>Live on testnet</span>
 <span style="padding: 7px 12px; border-right: 1px solid var(--line);">Fund NAV <b style="color: var(--ink); font-weight: 500;"><span data-live="nav">1.0004</span></b></span>
-<span style="padding: 7px 12px;" title="USDXX 7-day SEC yield, 23 Oct 2026, used as a proxy for the US T-bill yield">US T-bill yield (USDXX proxy) <b style="color: var(--ink); font-weight: 500;">3.87%</b></span>
+<span style="padding: 7px 12px;" title="US T-bill yield: USDXX 7-day SEC yield, 23 Oct 2026, used as a proxy">T-bill <b style="color: var(--ink); font-weight: 500;">3.87%</b></span>
 </div>
 <nav aria-label="Main" class="navrow" style="display: flex; gap: 28px; font-size: 15px; font-weight: 500;">
 <a href="#insight" class="navlink">Why it matters</a>
@@ -242,6 +258,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <a href="#risk" class="navlink">Risk</a>
 <a href="#faq" class="navlink">FAQ</a>
 </nav>
+<details class="navmenu"><summary>Menu</summary><nav aria-label="Main"><a href="#insight">Why it matters</a><a href="#how">How it works</a><a href="#collateral">Collateral</a><a href="#risk">Risk</a><a href="#faq">FAQ</a></nav></details>
 <a href="#launch" class="cv-btn cv-btn--primary head-cta" style="text-decoration: none;">Try the demo</a>
 </div>
 </header>
@@ -261,7 +278,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="hero-sea"><img class="hero-img" src="assets/1a575fc7ce5802555b9cf85f6d8d508b.jpg" alt="Engraving of a caravel with the Cross of the Order of Christ on its mainsail, sailing at dusk toward a guiding star"><svg class="cv-defs" width="0" height="0" aria-hidden="true"><filter id="cv-water" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" x="0" y="0" width="300" height="240" baseFrequency="0.01333 0.075" numOctaves="2" seed="7" stitchTiles="stitch" result="n0"></feTurbulence><feTile in="n0" result="n"></feTile><feDisplacementMap in="SourceGraphic" in2="n" scale="9" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap></filter></svg><div class="hero-field" aria-hidden="true"><div class="hero-flow"><img class="hero-shimmer" src="assets/1a575fc7ce5802555b9cf85f6d8d508b.jpg" alt=""></div></div><svg class="hero-ripples" aria-hidden="true" viewBox="0 0 400 60" preserveAspectRatio="none" fill="none" stroke="#4a3b2f" stroke-linecap="round"><path class="rp rp0" d="M20 12 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1" opacity="0.5"></path><path class="rp rp1" d="M150 10 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1" opacity="0.45"></path><path class="rp rp2" d="M260 14 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1" opacity="0.5"></path><path class="rp rp0" d="M60 24 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.1" opacity="0.55"></path><path class="rp rp1" d="M200 22 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.1" opacity="0.6"></path><path class="rp rp2" d="M310 26 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1" opacity="0.5"></path><path class="rp rp0" d="M10 36 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.2" opacity="0.55"></path><path class="rp rp1" d="M130 38 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.2" opacity="0.6"></path><path class="rp rp2" d="M250 40 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.2" opacity="0.55"></path><path class="rp rp0" d="M80 50 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.3" opacity="0.5"></path><path class="rp rp1" d="M220 52 q12 -3 24 0 t24 0 t24 0 t24 0" stroke-width="1.3" opacity="0.55"></path></svg></div>
 <div class="wrap hero-card-wrap" style="position: absolute; inset: 0; pointer-events: none;">
 <article class="cv-card hero-card" style="position: absolute; left: 32px; bottom: 80px; width: 420px; padding: 24px; max-width: calc(100% - 64px); gap: 12px; pointer-events: auto; text-align: left;">
-<div class="cv-card__head"><span class="cv-eyebrow">Sample loan #014</span><span class="cv-pill cv-pill--open">Open</span></div>
+<div class="cv-card__head"><span class="cv-eyebrow">Sample agreement #014</span><span class="cv-pill cv-pill--open">Open</span></div>
 <div><span class="cv-figure-xl">970.00</span><span class="cv-unit">USDC</span></div>
 <div style="display: flex; align-items: baseline; gap: 10px;"><span class="cv-apr">5.20% fixed</span><span style="font-family: var(--font-mono); font-size: 13px; color: var(--ink-muted);">1.33% over T-bills</span></div>
 <div class="cv-health">
@@ -375,8 +392,8 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 </div>
 <div class="wrap" style="padding-bottom: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 24px;">
 <div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$3.03B</span><span style="font-size: 15px; color: var(--ink-muted);">in tokenized real-world assets on Stellar. Only $133K of it works in DeFi.<sup><a href="#src-1">1</a></sup></span></div>
-<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$1.97B</span><span style="font-size: 15px; color: var(--ink-muted);">in Spiko's nine Treasury and money-market funds, the largest RWA issuer on Stellar ($308M in T-bill funds eligible at launch; SAFO after due diligence). No lender here accepts them.<sup><a href="#src-3">3</a></sup></span></div>
-<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1; color: var(--brand);">0</span><span style="font-size: 15px; color: var(--ink-muted);">lending contracts hold any of the $434.7M in Franklin Templeton's BENJI fund on Stellar<sup><a href="#src-2">2</a></sup></span></div>
+<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1;">$1.97B</span><span style="font-size: 15px; color: var(--ink-muted);">in Spiko's nine Treasury and money-market funds, the largest RWA issuer on Stellar ($308M in T-bill funds eligible at launch; SAFO after due diligence). No lender here accepts them.<sup><a href="#src-2">2</a></sup></span></div>
+<div class="cv-layer lift" style="background: var(--surface); border: 1px solid var(--line-strong); padding: 24px; display: flex; flex-direction: column; gap: 8px;"><span style="font-family: var(--font-mono); font-size: 48px; font-weight: 500; line-height: 1; color: var(--brand);">0</span><span style="font-size: 15px; color: var(--ink-muted);">lending contracts hold any of the $434.7M in Franklin Templeton's BENJI fund on Stellar<sup><a href="#src-3">3</a></sup></span></div>
 </div>
 <p class="wrap" style="margin: 0 auto; padding-top: 8px; padding-bottom: 16px; font-size: 12px; color: var(--ink-subtle); text-align: center;">As of 25 Oct 2026. Sources are listed at the foot of the page.</p>
 <img class="moored" src="assets/2bdf2e53d894078bc39bfbcbce2a1450.jpg" alt="Woodblock-style waves with a fleet of caravels moored at anchor, sails furled">
@@ -395,7 +412,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="arrow risk-arrow link-in"></div>
 <div class="box" style="font-size: 14px;">Circle Reserve Fund</div>
 <div class="arrow link-in"></div>
-<div class="box" style="font-size: 14px; background: var(--primary-soft); border-color: var(--primary); box-shadow: 4px 4px 0 -1px var(--primary-soft), 4px 4px 0 0 var(--primary);">T-bills + repo</div>
+<div class="box" style="font-size: 14px; background: var(--primary-soft); border-color: var(--primary); box-shadow: 4px 4px 0 -1px var(--primary-soft), 4px 4px 0 0 var(--primary);">T-bills + repurchase agreements</div>
 </div>
 <div class="chain">
 <div class="box"><b style="font-family: var(--font-mono); font-size: 14px;">BENJI</b></div>
@@ -406,7 +423,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 </div>
 <span style="font-size: 13px; color: #3f342c;"><span style="display: inline-block; width: 18px; height: 2px; background: var(--brand); vertical-align: middle; margin-right: 8px;"></span>Where the risk sits: freezes, approved-holder rules, business-day redemption.</span>
 </div>
-<p class="lede">So lending against them should work the way bank repo desks have for decades: <b style="color: var(--ink); font-weight: 600; box-shadow: inset 0 -0.35em 0 rgba(212,175,90,.45);">a fixed term, a daily price check and time to top up</b>, not an automatic sell-off triggered in seconds.</p>
+<p class="lede">So lending against them should work the way bank repurchase desks have for decades: <b style="color: var(--ink); font-weight: 600; box-shadow: inset 0 -0.35em 0 rgba(212,175,90,.45);">a fixed term, a daily price check and time to top up</b>, not an automatic sell-off triggered in seconds.</p>
 </div>
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 28px; align-self: stretch; align-items: stretch;">
 <div class="cv-card brass cmp" style="background: var(--surface-sunken);">
@@ -415,7 +432,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="cmp-waves" aria-hidden="true"></div>
 </div>
 <div class="cv-card cv-card--featured brass cmp">
-<div class="cmp-head"><span class="cv-eyebrow" style="color: var(--gold-ink);">With Caravel</span><h3 class="cmp-title">Fixed-term repo</h3></div>
+<div class="cmp-head"><span class="cv-eyebrow" style="color: var(--gold-ink);">With Caravel</span><h3 class="cmp-title">Fixed-term repurchase agreement</h3></div>
 <ul class="cmp-list cmp-yes"><li>Priced at the start, at each daily check and at maturity</li><li>No margin call on an outdated price</li><li>A margin call and time to top up always come before default</li><li>Fixed rate, fixed term, one amount due</li></ul>
 <div class="cmp-waves cmp-waves--b" aria-hidden="true"></div>
 </div>
@@ -577,7 +594,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <h2 id="coll-h" class="h2"><span class="w" style="--i: 0;">Collateral</span> <span class="w" style="--i: 1;">discounts</span> <span class="w" style="--i: 2;">based</span> <span class="w" style="--i: 3;">on</span> <span class="w" style="--i: 4;">real</span> <span class="w" style="--i: 5;">risk,</span> <span class="w" style="--i: 6;">not</span> <span class="w" style="--i: 7;">labels.</span></h2>
 <p class="lede" style="max-width: 70ch;">Each asset has a minimum haircut set in the contract. Lenders can't go below it, and an asset's haircut can change without redeploying anything.</p>
 </div>
-<p class="coll-note">Launch haircuts for a 7-day term. The testnet demo uses tBENJI, a test version of Franklin Templeton's BENJI fund.</p>
+<p class="coll-note">Launch haircuts for a 7-day term. The testnet demo uses tBENJI and tSAFO (a test Spiko token, held at a 30% demo haircut until due diligence).</p>
 </div>
 <div class="cv-table-wrap"><table class="cv-table tiers" style="font-size: 15px;">
 <thead><tr><th>Asset</th><th>Underlying assets</th><th>Main risk</th><th class="r">Haircut</th></tr></thead>
@@ -670,8 +687,8 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <span class="foot-h" style="margin: 0;">Sources</span>
 <ol style="margin: 0; padding-left: 18px; font-size: 12px; color: #b4a797; display: grid; gap: 4px;">
 <li id="src-1">RWA Active AUM and DeFi Active TVL on Stellar, 25 Oct 2026: <a href="https://defillama.com/rwa/chain/stellar">DefiLlama RWA</a></li>
-<li id="src-2">BENJI on Stellar, 25 Oct 2026: <a href="https://defillama.com/rwa/asset/BENJI">DefiLlama RWA</a>; contract holders: <a href="https://horizon.stellar.org/assets?asset_code=BENJI&amp;asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5">Stellar Horizon</a></li>
-<li id="src-3">Spiko on Stellar, 25 Oct 2026: DefiLlama RWA <a href="https://defillama.com/rwa/chain/stellar">issuer total</a>, <a href="https://defillama.com/rwa/asset/eurSAFO">eurSAFO</a>, <a href="https://defillama.com/rwa/asset/EUTBL">EUTBL</a>, <a href="https://defillama.com/rwa/asset/USTBL">USTBL</a>; lender markets: <a href="https://whalehub.io/blog/spiko-stellar">WhaleHub</a></li>
+<li id="src-2">Spiko on Stellar, 25 Oct 2026: DefiLlama RWA <a href="https://defillama.com/rwa/chain/stellar">issuer total</a>, <a href="https://defillama.com/rwa/asset/eurSAFO">eurSAFO</a>, <a href="https://defillama.com/rwa/asset/EUTBL">EUTBL</a>, <a href="https://defillama.com/rwa/asset/USTBL">USTBL</a>; lender markets: <a href="https://whalehub.io/blog/spiko-stellar">WhaleHub</a></li>
+<li id="src-3">BENJI on Stellar, 25 Oct 2026: <a href="https://defillama.com/rwa/asset/BENJI">DefiLlama RWA</a>; contract holders: <a href="https://horizon.stellar.org/assets?asset_code=BENJI&amp;asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5">Stellar Horizon</a></li>
 <li id="src-4">USDXX 7-day SEC yield, 23 Oct 2026: <a href="https://www.blackrock.com/cash/en-us/products/329365/circle-reserve-fund">BlackRock, Circle Reserve Fund</a></li>
 <li id="src-5">Blend Fixed pool USDC supply APY, 26 Oct 2026 (30-day mean 6.71%): <a href="https://defillama.com/yields/pool/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf">DefiLlama yields</a>; new borrowing in that pool paused since 8 Oct: <a href="https://whalehub.io/blog/best-lending-protocols-stellar">WhaleHub</a></li>
 </ol>
