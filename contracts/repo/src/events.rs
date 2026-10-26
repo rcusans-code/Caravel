@@ -224,6 +224,36 @@ pub struct Claimed {
     pub amount: i128,
 }
 
+/// NAV outage fallback: the lender took a Defaulted repo's collateral in
+/// kind (no sale, no fee, no borrower surplus). The repo is `Liquidated`.
+/// `parked` = the token refused the push to the lender (permissioned token,
+/// frozen trustline); it waits for `claim_collateral`. `nav_timestamp` is
+/// the stale NAV the outage was measured from.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimedInKind {
+    #[topic]
+    pub repo_id: u64,
+    #[topic]
+    pub lender: Address,
+    pub collateral_asset: Address,
+    pub collateral_amount: i128,
+    pub parked: bool,
+    pub nav_timestamp: u64,
+}
+
+/// `who` collected its parked collateral of `collateral_asset`, sent to `to`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollateralClaimed {
+    #[topic]
+    pub who: Address,
+    #[topic]
+    pub collateral_asset: Address,
+    pub to: Address,
+    pub amount: i128,
+}
+
 /// Liquidation proceeds did not cover what the lender was owed
 /// (DECISIONS.md #4). `amount` is the lender's unpaid balance.
 #[contractevent]

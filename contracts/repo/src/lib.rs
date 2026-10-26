@@ -3,13 +3,16 @@
 //! Caravel: fixed-term, fixed-rate USDC repo against tokenized Treasuries.
 //!
 //! State machine: Open → MarginCall → Open (top-up) | Repaid | Defaulted → Liquidated,
-//! and Defaulted → Repaid while no liquidation has landed.
+//! and Defaulted → Repaid while no liquidation has landed. Defaulted →
+//! Liquidated is a sale (`liquidate`, fresh NAV) or, after a NAV outage,
+//! the lender's in-kind claim (`claim_in_kind`).
 //! An opted-in repo settles as Repaid instead of Defaulted when its USDC
 //! allowance covers the debt (auto-repay, DECISIONS.md #27).
 
 mod autorepay;
 mod errors;
 mod events;
+mod inkind;
 mod margin;
 pub mod math;
 mod oracle;
@@ -31,6 +34,8 @@ mod test_attack_a3;
 mod test_attack_a4;
 #[cfg(test)]
 mod test_attack_a8;
+#[cfg(test)]
+mod test_nav_outage;
 #[cfg(test)]
 mod test_spiko;
 
@@ -113,6 +118,14 @@ impl CaravelRepo {
         storage::read_claimable(&env, &who)
     }
 
+    /// Collateral of `asset` parked for `who` because an in-kind claim could
+    /// not push it (permissioned token refused, frozen trustline);
+    /// `claim_collateral` pays it out. 0 if none.
+    pub fn claimable_collateral(env: Env, who: Address, asset: Address) -> i128 {
+        storage::extend_instance(&env);
+        storage::read_claimable_collateral(&env, &who, &asset)
+    }
+
     // --- anyone owed a parked payout --------------------------------------
 
     /// Pays `who` its whole parked USDC balance and returns the amount.
@@ -130,6 +143,35 @@ impl CaravelRepo {
         let usdc = storage::read_config(&env).usdc;
         token::Client::new(&env, &usdc).transfer(&env.current_contract_address(), &who, &amount);
         events::Claimed { who, amount }.publish(&env);
+        Ok(amount)
+    }
+
+    /// Sends `who`'s whole parked balance of collateral `asset` to `to` and
+    /// returns the amount. `who` signs; `to` may differ, so a lender a
+    /// permissioned token never admits can route it to an admitted custody
+    /// account. `NothingToClaim` if nothing is parked; if the token still
+    /// refuses `to`, the call reverts and the balance stays parked.
+    pub fn claim_collateral(
+        env: Env,
+        who: Address,
+        asset: Address,
+        to: Address,
+    ) -> Result<i128, Error> {
+        who.require_auth();
+        let amount = storage::read_claimable_collateral(&env, &who, &asset);
+        if amount <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+        storage::remove_claimable_collateral(&env, &who, &asset);
+        storage::extend_instance(&env);
+        token::Client::new(&env, &asset).transfer(&env.current_contract_address(), &to, &amount);
+        events::CollateralClaimed {
+            who,
+            collateral_asset: asset,
+            to,
+            amount,
+        }
+        .publish(&env);
         Ok(amount)
     }
 
@@ -737,6 +779,9 @@ impl CaravelRepo {
     /// liquidator pays the proceeds into the contract; a lender, treasury or
     /// borrower payout that fails (frozen account) is parked for `claim` and
     /// the liquidation still lands.
+    ///
+    /// A stale NAV stays blocking however long the outage lasts; the lender's
+    /// way out of a long outage is `claim_in_kind`.
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -809,6 +854,61 @@ impl CaravelRepo {
             .publish(&env);
         }
         Ok(())
+    }
+
+    // --- lender, NAV outage fallback --------------------------------------
+
+    /// The lender takes a Defaulted repo's whole collateral in kind once the
+    /// asset's NAV has been stale for more than `inkind::NAV_OUTAGE_DAYS`
+    /// days (`day_secs` each) past `max_nav_age_secs`; `liquidate` stays
+    /// blocked on a stale NAV. No sale: no fee, no borrower surplus, the
+    /// whole debt leaves `open_debt` and the repo is `Liquidated`
+    /// (`ClaimedInKind` event). If the token refuses the push to the lender
+    /// (permissioned token, frozen trustline) the collateral is parked for
+    /// `claim_collateral` and the claim still lands. Returns the collateral
+    /// amount. Lender signs.
+    ///
+    /// `InvalidStatus` unless Defaulted, `Paused` under `no_seize` (#30),
+    /// `NoNavOutage` while the NAV is fresh or not stale long enough,
+    /// `NoPrice` if the feed has no price. Until the claim lands the borrower
+    /// can still `repay`, which needs no NAV.
+    pub fn claim_in_kind(env: Env, repo_id: u64) -> Result<i128, Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if repo.status != Status::Defaulted {
+            return Err(Error::InvalidStatus);
+        }
+        repo.lender.require_auth();
+        seize_allowed(&env, &repo.collateral_asset)?;
+        let asset =
+            storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
+        let config = storage::read_config(&env);
+        let nav_timestamp = inkind::nav_outage(&env, &config, &asset)?;
+
+        repo.status = Status::Liquidated;
+        storage::write_repo(&env, &repo);
+        storage::release_open_debt(
+            &env,
+            &repo.collateral_asset,
+            repo.principal.saturating_add(repo.interest),
+        );
+        storage::extend_instance(&env);
+
+        let pushed = inkind::push_or_park(
+            &env,
+            &repo.collateral_asset,
+            &repo.lender,
+            repo.collateral_amount,
+        );
+        events::ClaimedInKind {
+            repo_id,
+            lender: repo.lender,
+            collateral_asset: repo.collateral_asset,
+            collateral_amount: repo.collateral_amount,
+            parked: !pushed,
+            nav_timestamp,
+        }
+        .publish(&env);
+        Ok(repo.collateral_amount)
     }
 }
 
