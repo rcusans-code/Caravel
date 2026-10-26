@@ -292,7 +292,7 @@ async function submit<R>(tx: contract.AssembledTransaction<R>): Promise<TxOutcom
   if (sim && rpc.Api.isSimulationError(sim as rpc.Api.SimulateTransactionResponse)) {
     throw new Error((sim as rpc.Api.SimulateTransactionErrorResponse).error);
   }
-  return sendAssembled(tx as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
+  return sendAssembled(padWrites(tx) as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
 }
 
 function unwrapResult<T>(r: unknown): T {
@@ -451,16 +451,20 @@ export async function claim(signer: Signer): Promise<TxOutcome<bigint>> {
  */
 export async function claimInKind(signer: Signer, repoId: bigint): Promise<TxOutcome<bigint>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
-  const out = await submit(padWrites(await c.claim_in_kind({ repo_id: repoId })));
+  const out = await submit(await c.claim_in_kind({ repo_id: repoId }));
   return { hash: out.hash, value: big(unwrapResult(out.value)) };
 }
 
 /**
- * Adds write-byte and fee headroom to a simulated tx. When a token refuses
- * a push inside `try_transfer` (the parked path), testnet simulation
- * under-counts write bytes (repo #2 on CD4Q2QTO: simulated 3,024, needed
- * 3,248), so the tx fails on chain with RESOURCE_LIMIT_EXCEEDED. Unused
- * refundable fee comes back. sign() rebuilds from this cached transactionData.
+ * Adds write-byte and fee headroom to every simulated write (submit). When a
+ * token call fails inside `try_transfer`/`try_transfer_from` and is rolled
+ * back (a parked payout, a failed auto-repay pull), testnet simulation
+ * under-counts write bytes, so the tx fails on chain with
+ * RESOURCE_LIMIT_EXCEEDED (claim_in_kind: simulated 3,024, needed 3,248).
+ * Same numbers as the keeper's scripts/keeper/src/headroom.ts; runbook:
+ * scripts/README.md "Under-simulated write bytes". Only the write-byte share
+ * of the extra fee is kept; the refundable rest comes back. sign() rebuilds
+ * from this cached transactionData.
  */
 function padWrites<R>(tx: contract.AssembledTransaction<R>, bytes = 2048, fee = 200_000n): contract.AssembledTransaction<R> {
   const sim = tx.simulation;
