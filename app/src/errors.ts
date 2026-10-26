@@ -28,6 +28,7 @@ const REPO_ERRORS: Record<number, string> = {
   23: "Only the admin or the guardian can cancel a pending change.",
   24: "Nothing to claim: no USDC payout or parked collateral is waiting for this account.",
   25: "The in-kind claim is not open yet: it opens once the collateral's NAV has been stale for 7 contract days past its maximum age. While the NAV is fresh, a liquidator sells the collateral instead.",
+  26: "This pending change expired: its execute window closed. Propose it again.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

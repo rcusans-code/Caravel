@@ -85,7 +85,8 @@ pub struct ProposalExecuted {
     pub kind: Symbol,
 }
 
-/// A proposal was dropped: cancelled by admin or guardian, or superseded
+/// A proposal was dropped: cancelled by admin or guardian, replaced by a
+/// new proposal of the same kind (`by` = admin, issue #41), or superseded
 /// by an instant change to the same asset (`by` made that change).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
