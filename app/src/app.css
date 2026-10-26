@@ -199,6 +199,15 @@ td.app-empty { padding: var(--space-4) var(--space-3); }
 .app-flashable { padding: 0 4px; margin: 0 -4px; }
 .cv-table td.r .cv-skel { margin-left: auto; }
 
+/* Warning hints on a card (grace over, wallet short): margin colour, not muted. */
+.app-hint--warn { color: var(--margin); }
+/* Health scale under the bar: ends and the 100% tick labelled. */
+.app-health__scale span:nth-child(2) { color: var(--ink); }
+/* Liquidator desk row actions: one gap, no inline margins. */
+.app-desk__acts { justify-content: flex-end; flex-wrap: nowrap; gap: var(--space-2); }
+/* Receipt foot: tx chip, "View Agreement #001 →" and Dismiss. */
+.app-dvp__acts { gap: var(--space-2) var(--space-3); }
+.app-dvp__link { font-size: 13px; font-weight: 500; }
 /* Margin call: add-collateral form inside a position card. */
 .app-topup { border-top: 1px solid var(--line); padding-top: var(--space-3); }
 

@@ -10,7 +10,8 @@ import type { Signer } from "./wallet";
  * Write errors render under their own button instead (ui.tsx TxSlot) wherever a slot is on screen.
  */
 export type Flash = { tone: "info" | "error" | "margin"; title: string; body: string; hash?: string | null; read?: boolean } | null;
-export type Receipt = { left: Leg; right: Leg; sentence: string; hash: string; stamp?: Stamp } | null;
+/** `link`: where the result now lives ("View Agreement #001 →"), in the receipt foot. */
+export type Receipt = { left: Leg; right: Leg; sentence: string; hash: string; stamp?: Stamp; link?: { href: string; label: string } } | null;
 export const CONNECT = DEMO_ENABLED ? "Connect a wallet or pick a demo account" : "Connect a wallet";
 
 export interface Ctx {

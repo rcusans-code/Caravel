@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
-import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtPct, parseAmount, requiredCollateral } from "../format";
-import { Alert, DvpReceipt, Field, Skel, StatusPill, Tip, TxHash, TxProgress, useFlash } from "../ui";
+import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtOwed, fmtPct, idRef, parseAmount, requiredCollateral } from "../format";
+import { Alert, DvpReceipt, Field, Skel, StatusPill, Tip, TxHash, TxSlot, displayState, useFlash } from "../ui";
 import { NAV_OUTAGE_DAYS, collateralBlock, fmtDuration, inKindWindow, navBlock, topUpHoldText, usdcBlock } from "../gates";
 import { CONNECT, type Ctx, type Receipt } from "../ctx";
 
@@ -18,11 +18,13 @@ export function PositionsView({
   repos: Repo[];
   liquidatorOk: boolean;
   loaded: boolean;
-  /** Repo to scroll to, from #repo/<id>. */
+  /** Agreement to scroll to, from #repo/<id>. */
   linked: bigint | null;
 }) {
   const { signer, config } = ctx;
   const [receipt, setReceipt] = useState<Receipt>(null);
+  // The agreement a repay just settled stays on screen (muted) until its receipt is dismissed.
+  const [settled, setSettled] = useState<bigint | null>(null);
   const [notice, setNotice] = useState<{ text: string; hash: string } | null>(null);
   const [showClosed, setShowClosed] = useState(false);
   const mine = signer ? repos.filter((r) => r.borrower === signer.address || r.lender === signer.address) : [];
@@ -43,37 +45,201 @@ export function PositionsView({
   const live = (r: Repo) => r.status === "Open" || r.status === "MarginCall";
   // Closed = settled with nothing left to do (Repaid, Liquidated). Defaulted stays: the lender is still waiting on liquidation.
   const closedCount = mine.filter(isClosed).length;
-  const shown = showClosed ? mine : mine.filter((r) => !isClosed(r));
+  const shown = showClosed ? mine : mine.filter((r) => !isClosed(r) || r.id === settled);
   // One primary button per view: a margin call's Top up outranks every Repay.
   const anyMarginCall = mine.some((r) => r.status === "MarginCall" && r.borrower === signer?.address);
   const firstRepayable = anyMarginCall ? undefined : mine.find((r) => (live(r) || r.status === "Defaulted") && r.borrower === signer?.address)?.id;
   const showDesk = !!signer && (liquidatorOk || roleOf(signer.address) === "liquidator");
+  // A liquidator with no agreements of its own opens on the desk, not on an empty list.
+  const deskFirst = showDesk && loaded && mine.length === 0;
+  const demo = signer?.kind === "demo";
+  const daySecs = config ? Number(config.day_secs) : 60;
+  const deskRepos = repos.filter((r) => r.status !== "Repaid" && r.status !== "Liquidated");
+
+  const desk = showDesk && config && (
+    <div className="cv-stack">
+      <h2 className="heading">Liquidator desk</h2>
+      <span className="small app-muted">
+        Once a loan is {String(config.grace_secs)} s overdue, anyone can mark it defaulted. Approved liquidators can then buy its
+        collateral at a {fmtPct(config.liquidation_discount_bps, 1)} discount.
+        <Tip>
+          Price paid = NAV × (1 − {fmtPct(config.liquidation_discount_bps, 1)}). The lender is repaid first; anything left goes back to
+          the borrower.
+        </Tip>
+      </span>
+      <div className="cv-table-wrap">
+        <table className="cv-table">
+          <thead>
+            <tr>
+              <th>Agreement</th>
+              <th className="r">Debt</th>
+              <th className="r">Collateral</th>
+              <th className="r">Matures</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {deskRepos.length === 0 && (
+              <tr>
+                <td colSpan={6} className="app-empty">
+                  No open agreements to watch.
+                </td>
+              </tr>
+            )}
+            {deskRepos.map((r) => {
+              const token = assetBySac(r.collateral_asset);
+              const rNav = ctx.navs[r.collateral_asset] ?? null;
+              // check_margin, liquidate and a missed-call default all need a NAV the contract accepts.
+              const rBlock = navBlock(token.code, ctx.health(r.collateral_asset), ctx.assets[r.collateral_asset] ?? null);
+              const graceEnd = Number(r.maturity_ts + config.grace_secs);
+              const marginMissed = r.status === "MarginCall" && r.margin_call_deadline !== null && ctx.now > Number(r.margin_call_deadline);
+              const matured = ctx.now > graceEnd;
+              const defaultable = live(r) && (matured || marginMissed);
+              // Maturity defaults never read the NAV; a missed-call default re-checks it (#20).
+              const defaultBlock = defaultable && !matured ? rBlock : null;
+              // The contract wants now > grace end (or > the margin deadline): the first second it accepts.
+              const defaultAt = Math.min(graceEnd + 1, r.status === "MarginCall" && r.margin_call_deadline !== null ? Number(r.margin_call_deadline) + 1 : Infinity);
+              const toMaturity = Number(r.maturity_ts) - ctx.now;
+              const ref = idRef(r.id);
+              return (
+                <tr key={String(r.id)}>
+                  <td className="cv-num">{ref}</td>
+                  <td className="r cv-num">{fmtOwed(r.principal + r.interest, r.interest)}</td>
+                  <td className="r cv-num">
+                    {fmtAmount(r.collateral_amount, 2, token.decimals)}
+                    <span className="cv-unit">{token.code}</span>
+                  </td>
+                  <td className="r cv-num">
+                    {toMaturity > 0
+                      ? fmtCountdown(toMaturity, daySecs)
+                      : matured
+                        ? `Overdue ${fmtCountdown(ctx.now - graceEnd, daySecs)}`
+                        : `Grace ${fmtCountdown(graceEnd - ctx.now, daySecs)}`}
+                  </td>
+                  <td>
+                    <StatusPill status={displayState(r, config.grace_secs, ctx.now)} />
+                  </td>
+                  <td className="r">
+                    <span className="cv-row app-desk__acts">
+                      {r.status === "Open" && (
+                        <button
+                          type="button"
+                          className="cv-btn cv-btn--secondary cv-btn--sm"
+                          disabled={!!ctx.busy || !!rBlock || !ctx.approved}
+                          title={rBlock ?? "Raise a margin call if cover is below 100%"}
+                          onClick={async () => {
+                            const out = await ctx.run(`check-${r.id}`, `Agreement ${ref} not checked`, () => chain.checkMargin(signer!, r.id));
+                            if (out)
+                              setNotice({
+                                text: out.value === "MarginCall" ? `Margin call raised on Agreement ${ref}` : `Agreement ${ref} is above the margin line`,
+                                hash: out.hash,
+                              });
+                          }}
+                        >
+                          {ctx.busy === `check-${r.id}` ? "Checking" : "Check margin"}
+                        </button>
+                      )}
+                      {live(r) && !defaultable && (
+                        <span className="small app-muted" data-hint="defaultable-in">
+                          Defaultable in {fmtCountdown(defaultAt - ctx.now, daySecs)}
+                        </span>
+                      )}
+                      {live(r) && defaultable && (
+                        <button
+                          type="button"
+                          className="cv-btn cv-btn--danger cv-btn--sm"
+                          disabled={!!defaultBlock || !!ctx.busy || !ctx.approved}
+                          title={defaultBlock ?? ""}
+                          onClick={async () => {
+                            const out = await ctx.run(`default-${r.id}`, `Agreement ${ref} not defaulted`, () => chain.declareDefault(signer!, r.id));
+                            if (out)
+                              setNotice({
+                                text: out.value === "Open" ? `Agreement ${ref} margin call cleared: NAV back above the margin line` : `Agreement ${ref} defaulted`,
+                                hash: out.hash,
+                              });
+                          }}
+                        >
+                          Declare default
+                        </button>
+                      )}
+                      {r.status === "Defaulted" && (
+                        <button
+                          type="button"
+                          className="cv-btn cv-btn--danger cv-btn--sm"
+                          disabled={!liquidatorOk || !!ctx.busy || !!rBlock || !ctx.canHold(r.collateral_asset)}
+                          title={rBlock ?? (token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : "")}
+                          onClick={async () => {
+                            const out = await ctx.run(`liq-${r.id}`, `Agreement ${ref} not liquidated`, () => chain.liquidate(signer!, r.id));
+                            if (out)
+                              setReceipt({
+                                left: { eyebrow: "Liquidator delivers", amount: rNav ? fmtAmount((collateralValue(r.collateral_amount, rNav.price, collateralDecimals(rNav.decimals, token.decimals)) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: "USDC", hint: "to lender, fee, borrower" },
+                                right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount, 2, token.decimals), unit: token.code, hint: `from Agreement ${ref}` },
+                                sentence: `Agreement ${ref} liquidated in one transaction`,
+                                hash: out.hash,
+                                stamp: { word: "Liquidated", sub: `Agreement ${ref}` },
+                              });
+                          }}
+                        >
+                          Liquidate
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <TxSlot tx={ctx.tx} keys={deskRepos.flatMap((r) => [`check-${r.id}`, `default-${r.id}`, `liq-${r.id}`])} demo={demo} dismiss={ctx.dismissTx} />
+    </div>
+  );
 
   return (
     <section className="app-section">
       <div className="app-section__head">
-        <h1 className="title">My positions</h1>
-        <span className="small app-muted">Loans you have borrowed or lent.</span>
-        {closedCount > 0 && (
-          <button
-            type="button"
-            className={`cv-btn cv-btn--secondary cv-btn--sm app-section__toggle${showClosed ? " is-active" : ""}`}
-            aria-pressed={showClosed}
-            onClick={() => setShowClosed((v) => !v)}
-          >
-            {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
-          </button>
-        )}
+        <div className="app-section__titlerow">
+          <h1 className="title">My positions</h1>
+          {closedCount > 0 && (
+            <button
+              type="button"
+              className={`cv-btn cv-btn--secondary cv-btn--sm app-section__toggle${showClosed ? " is-active" : ""}`}
+              aria-pressed={showClosed}
+              onClick={() => setShowClosed((v) => !v)}
+            >
+              {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
+            </button>
+          )}
+        </div>
+        <span className="small app-muted">Repurchase agreements you have borrowed or lent.</span>
       </div>
-      {receipt && <DvpReceipt {...receipt} />}
+      {receipt && (
+        <DvpReceipt
+          {...receipt}
+          onDismiss={() => {
+            setReceipt(null);
+            setSettled(null);
+          }}
+        />
+      )}
       {notice && (
         <p className="cv-row small">
           {notice.text} <TxHash kind="TX" value={notice.hash} />
         </p>
       )}
-      {!signer && <p className="app-empty">{CONNECT} to see positions.</p>}
-      {signer && !loaded && (
-        <div className="app-cards" aria-busy="true" aria-label="Loading repos">
+      {deskFirst && desk}
+      {!signer && <p className="app-empty">{CONNECT} to see your positions.</p>}
+      {signer && !loaded && ctx.readError && (
+        <p className="app-empty app-retry">
+          Could not load your positions.
+          <button type="button" className="cv-btn cv-btn--secondary cv-btn--sm" onClick={ctx.retry}>
+            Retry
+          </button>
+        </p>
+      )}
+      {signer && !loaded && !ctx.readError && (
+        <div className="app-cards" aria-busy="true" aria-label="Loading repurchase agreements">
           <div className="cv-card">
             <div className="cv-card__head"><Skel kind="short" /><Skel w={60} h={22} /></div>
             <Skel kind="figure" />
@@ -83,140 +249,35 @@ export function PositionsView({
         </div>
       )}
       {signer && loaded && linked !== null && !linkedRepo && (
-        <Alert tone="info" title={`Repo #${String(linked).padStart(3, "0")} is not one of yours`}>
-          The linked repo is not borrowed or lent by the connected account.
+        <Alert tone="info" title={`Agreement ${idRef(linked)} is not one of yours`}>
+          The linked repurchase agreement is not borrowed or lent by the connected account.
         </Alert>
       )}
-      {signer && loaded && mine.length === 0 && <p className="app-empty">No repos for this account yet.</p>}
-      {signer && loaded && mine.length > 0 && shown.length === 0 && <p className="app-empty">No open repos. Closed repos are hidden.</p>}
-      <div className="app-cards">
-        {config &&
-          shown.map((r) => (
-            <PositionCard
-              key={String(r.id)}
-              ctx={ctx}
-              repo={r}
-              primary={r.id === firstRepayable}
-              linked={r.id === linked}
-              onRepaid={(rec) => {
-                setNotice(null);
-                setReceipt(rec);
-              }}
-            />
-          ))}
-      </div>
-
-      {showDesk && config && (
-        <div className="cv-stack">
-          <h2 className="heading">Liquidator desk</h2>
-          <span className="small app-muted">
-            Once a loan is {String(config.grace_secs)} s overdue, anyone can mark it defaulted. Approved liquidators can then buy its
-            collateral at a {fmtPct(config.liquidation_discount_bps, 1)} discount.
-            <Tip>
-              Price paid = NAV × (1 − {fmtPct(config.liquidation_discount_bps, 1)}). The lender is repaid first; anything left goes back to
-              the borrower.
-            </Tip>
-          </span>
-          <div className="cv-table-wrap">
-            <table className="cv-table">
-              <thead>
-                <tr>
-                  <th>Repo</th>
-                  <th className="r">Debt</th>
-                  <th className="r">Collateral</th>
-                  <th className="r">Matures</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {repos.filter((r) => r.status !== "Repaid" && r.status !== "Liquidated").map((r) => {
-                  const token = assetBySac(r.collateral_asset);
-                  const rNav = ctx.navs[r.collateral_asset] ?? null;
-                  // check_margin, liquidate and a missed-call default all need a NAV the contract accepts.
-                  const rBlock = navBlock(token.code, ctx.health(r.collateral_asset), ctx.assets[r.collateral_asset] ?? null);
-                  const marginMissed = r.status === "MarginCall" && r.margin_call_deadline !== null && ctx.now > Number(r.margin_call_deadline);
-                  const matured = ctx.now > Number(r.maturity_ts + config.grace_secs);
-                  const defaultable = live(r) && (matured || marginMissed);
-                  // Maturity defaults never read the NAV; a missed-call default re-checks it (#20).
-                  const defaultBlock = defaultable && !matured ? rBlock : null;
-                  return (
-                    <tr key={String(r.id)}>
-                      <td className="cv-num">#{String(r.id).padStart(3, "0")}</td>
-                      <td className="r cv-num">{fmtAmount(r.principal + r.interest)}</td>
-                      <td className="r cv-num">{fmtAmount(r.collateral_amount, 2, token.decimals)} {token.code}</td>
-                      <td className="r cv-num">{fmtCountdown(Number(r.maturity_ts) - ctx.now, 60)}</td>
-                      <td>
-                        <StatusPill status={r.status} />
-                      </td>
-                      <td className="r">
-                        {r.status === "Open" && (
-                          <button
-                            type="button"
-                            className="cv-btn cv-btn--secondary cv-btn--sm"
-                            style={{ marginRight: 8 }}
-                            disabled={!!ctx.busy || !!rBlock || !ctx.approved}
-                            title={rBlock ?? "Raise a margin call if cover is below 100%"}
-                            onClick={async () => {
-                              const out = await ctx.run(`check-${r.id}`, `Repo #${r.id} not checked`, () => chain.checkMargin(signer!, r.id));
-                              if (out)
-                                setNotice({
-                                  text: out.value === "MarginCall" ? `Margin call raised on Repo #${r.id}` : `Repo #${r.id} is above the margin line`,
-                                  hash: out.hash,
-                                });
-                            }}
-                          >
-                            {ctx.busy === `check-${r.id}` ? "Checking" : "Check margin"}
-                          </button>
-                        )}
-                        {live(r) && (
-                          <button
-                            type="button"
-                            className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!defaultable || !!defaultBlock || !!ctx.busy || !ctx.approved}
-                            title={!defaultable ? "Before maturity plus grace, and no missed margin call" : (defaultBlock ?? "")}
-                            onClick={async () => {
-                              const out = await ctx.run(`default-${r.id}`, `Repo #${r.id} not defaulted`, () => chain.declareDefault(signer!, r.id));
-                              if (out)
-                                setNotice({
-                                  text: out.value === "Open" ? `Repo #${r.id} margin call cleared: NAV back above the margin line` : `Repo #${r.id} defaulted`,
-                                  hash: out.hash,
-                                });
-                            }}
-                          >
-                            Declare default
-                          </button>
-                        )}
-                        {r.status === "Defaulted" && (
-                          <button
-                            type="button"
-                            className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!liquidatorOk || !!ctx.busy || !!rBlock || !ctx.canHold(r.collateral_asset)}
-                            title={rBlock ?? (token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : "")}
-                            onClick={async () => {
-                              const out = await ctx.run(`liq-${r.id}`, `Repo #${r.id} not liquidated`, () => chain.liquidate(signer!, r.id));
-                              if (out)
-                                setReceipt({
-                                  left: { eyebrow: "Liquidator delivers", amount: rNav ? fmtAmount((collateralValue(r.collateral_amount, rNav.price, collateralDecimals(rNav.decimals, token.decimals)) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: "USDC", hint: "to lender, fee, borrower" },
-                                  right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount, 2, token.decimals), unit: token.code, hint: `from Repo #${r.id}` },
-                                  sentence: `Repo #${r.id} liquidated in one transaction`,
-                                  hash: out.hash,
-                                  stamp: { word: "Liquidated", sub: `Repo ${String(r.id).padStart(3, "0")}` },
-                                });
-                            }}
-                          >
-                            Liquidate
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {signer && loaded && mine.length === 0 && !deskFirst && <p className="app-empty">No repurchase agreements for this account yet.</p>}
+      {signer && loaded && mine.length > 0 && shown.length === 0 && (
+        <p className="app-empty">No open repurchase agreements. Closed ones are hidden.</p>
+      )}
+      {shown.length > 0 && (
+        <div className="app-cards">
+          {config &&
+            shown.map((r) => (
+              <PositionCard
+                key={String(r.id)}
+                ctx={ctx}
+                repo={r}
+                primary={r.id === firstRepayable}
+                linked={r.id === linked}
+                onRepaid={(rec) => {
+                  setNotice(null);
+                  setReceipt(rec);
+                  setSettled(r.id);
+                }}
+              />
+            ))}
         </div>
       )}
+
+      {!deskFirst && desk}
     </section>
   );
 }
@@ -254,6 +315,10 @@ function PositionCard({
   const held = balances ? chain.holding(balances, repo.collateral_asset).amount : null;
   const side = signer?.address === repo.borrower ? "borrowed" : "lent";
   const debt = repo.principal + repo.interest;
+  // 4 dp when the interest is under 0.01 USDC, so a small loan's debt does not read as the principal.
+  const owed = fmtOwed(debt, repo.interest);
+  const ref = idRef(repo.id);
+  const agreement = `Agreement ${ref}`;
   // Cover vs the asset's margin-call line (DECISIONS.md #14, #26); a pre-#26
   // contract triggers on the liquidation discount.
   const assetTriggerBps = ctx.assets[repo.collateral_asset]?.margin_trigger_bps ?? config?.liquidation_discount_bps ?? null;
@@ -271,6 +336,7 @@ function PositionCard({
   }, [nav, dec, debt, repo]);
   const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
+  const slot = (key: string) => <TxSlot tx={ctx.tx} keys={[key]} demo={signer?.kind === "demo"} dismiss={ctx.dismissTx} />;
   // NAV outage fallback (#38): liquidate needs a fresh NAV; after 7 stale days the lender may take the collateral in kind.
   const assetCfg = ctx.assets[repo.collateral_asset] ?? null;
   const win = repo.status === "Defaulted" ? inKindWindow(nav, assetCfg, config.day_secs, now) : null;
@@ -308,12 +374,12 @@ function PositionCard({
 
   const doTopUp = async () => {
     if (!signer || topUpAmount === null || topUpErr) return;
-    const out = await ctx.run(`topup-${repo.id}`, `Repo #${repo.id} not topped up`, () => chain.topUp(signer, repo.id, topUpAmount));
+    const out = await ctx.run(`topup-${repo.id}`, `${agreement} not topped up`, () => chain.topUp(signer, repo.id, topUpAmount));
     if (out) {
       setTopUpInput(null);
       ctx.setFlash({
         tone: "info",
-        title: `Topped up Repo #${String(repo.id).padStart(3, "0")}`,
+        title: `Topped up ${agreement}`,
         body: `Added ${amt(topUpAmount)} ${token.code}. ${inMarginCall ? (topUpHold ?? "The margin call clears once collateral is back at the initial margin.") : ""}`,
         hash: out.hash,
       });
@@ -328,22 +394,22 @@ function PositionCard({
     if (out)
       ctx.setFlash({
         tone: "info",
-        title: `Auto-repay ${enabled ? "on" : "off"} for Repo #${String(repo.id).padStart(3, "0")}`,
-        body: enabled ? `At maturity ${fmtAmount(debt)} USDC is pulled from this wallet.` : "Repay by hand before maturity plus grace.",
+        title: `Auto-repay ${enabled ? "on" : "off"} for ${agreement}`,
+        body: enabled ? `At maturity ${owed} USDC is pulled from this wallet.` : "Repay by hand before maturity plus grace.",
         hash: out.hash,
       });
   };
 
   const doDeclareDefault = async () => {
     if (!signer) return;
-    const out = await ctx.run(`declare-${repo.id}`, `Repo #${repo.id} not defaulted`, () => chain.declareDefaultPastGrace(signer, repo));
+    const out = await ctx.run(`declare-${repo.id}`, `${agreement} not defaulted`, () => chain.declareDefaultPastGrace(signer, repo));
     if (out)
       ctx.setFlash({
         tone: "info",
-        title: out.value === "Repaid" ? `Repo #${String(repo.id).padStart(3, "0")} repaid` : `Repo #${String(repo.id).padStart(3, "0")} defaulted`,
+        title: out.value === "Repaid" ? `${agreement} repaid` : `${agreement} defaulted`,
         body:
           out.value === "Repaid"
-            ? `The borrower had auto-repay on: it pulled ${fmtAmount(debt)} USDC from them and your loan is repaid.`
+            ? `The borrower had auto-repay on: it pulled ${owed} USDC from them and your loan is repaid.`
             : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
         hash: out.hash,
       });
@@ -351,31 +417,31 @@ function PositionCard({
 
   const doClaimInKind = async () => {
     if (!signer) return;
-    const out = await ctx.run(`inkind-${repo.id}`, `Repo #${repo.id} not claimed in kind`, () => chain.claimInKind(signer, repo.id));
+    const out = await ctx.run(`inkind-${repo.id}`, `${agreement} not claimed in kind`, () => chain.claimInKind(signer, repo.id));
     if (!out) return;
     // The claim lands even when the token refuses the push: then it is parked for claim_collateral.
     const parkedNow = (await chain.getClaimableCollateral(signer.address).catch(() => ({}) as Record<string, bigint>))[repo.collateral_asset] ?? 0n;
     ctx.setFlash({
       tone: "info",
-      title: `Repo #${String(repo.id).padStart(3, "0")} claimed in kind`,
+      title: `${agreement} claimed in kind`,
       body:
         parkedNow > 0n
           ? `${amt(out.value)} ${token.code} is yours, but ${token.code} refused the transfer to this account, so the contract parked it: claim it above, to this account or to a custody account. The debt is closed.`
-          : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${fmtAmount(debt)} USDC debt is closed.`,
+          : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${owed} USDC debt is closed.`,
       hash: out.hash,
     });
   };
 
   const doRepay = async () => {
     if (!signer) return;
-    const out = await ctx.run(`repay-${repo.id}`, `Repo #${repo.id} not repaid`, () => chain.repay(signer, repo.id));
+    const out = await ctx.run(`repay-${repo.id}`, `${agreement} not repaid`, () => chain.repay(signer, repo.id));
     if (out)
       onRepaid({
-        left: { eyebrow: "Borrower delivers", amount: fmtAmount(debt), unit: "USDC", hint: "principal plus interest" },
-        right: { eyebrow: "Borrower receives", amount: amt(repo.collateral_amount), unit: token.code, hint: `from Repo #${repo.id}` },
-        sentence: `Repo #${repo.id} repaid. Settled atomically in one transaction`,
+        left: { eyebrow: "Borrower delivers", amount: owed, unit: "USDC", hint: `${fmtAmount(repo.principal)} principal + ${fmtOwed(repo.interest, repo.interest)} interest` },
+        right: { eyebrow: "Borrower receives", amount: amt(repo.collateral_amount), unit: token.code, hint: `from ${agreement}` },
+        sentence: `${agreement} repaid. Settled atomically in one transaction`,
         hash: out.hash,
-        stamp: { word: "Repaid", sub: fmtAmount(debt), repaid: true },
+        stamp: { word: "Repaid", sub: owed, repaid: true },
       });
   };
 
@@ -386,24 +452,24 @@ function PositionCard({
     >
       <div className="cv-card__head">
         <span className="cv-eyebrow">
-          <a href={`#repo/${repo.id}`} className="app-idlink" title="Link to this repo">
-            Repo #{String(repo.id).padStart(3, "0")}
+          <a href={`#repo/${repo.id}`} className="app-idlink" title="Link to this agreement">
+            {agreement}
           </a>{" "}
           · {side}
         </span>
-        <StatusPill status={repo.status} />
+        <StatusPill status={displayState(repo, config.grace_secs, now)} />
       </div>
       {live && (inMarginCall || breached) && (
-        <Alert tone="margin" title={inMarginCall ? `Margin call on Repo #${String(repo.id).padStart(3, "0")}` : "Below the margin-call line"}>
+        <Alert tone="margin" title={inMarginCall ? `Margin call on ${agreement}` : "Below the margin-call line"}>
           {`Collateral cover is ${cover !== null ? cover.toFixed(1) : "—"}%. `}
           {side === "borrowed"
             ? topUpNeed !== null && topUpNeed > 0n
               ? inMarginCall
-                ? `Add ${amt(topUpNeed)} ${token.code}${toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the repo can be defaulted.`
+                ? `Add ${amt(topUpNeed)} ${token.code}${toDeadline !== null ? ` within ${fmtCountdown(Math.max(0, toDeadline), Number(config.day_secs))}` : ""} or the agreement can be defaulted.`
                 : `Add ${amt(topUpNeed)} ${token.code} now to stay clear of a margin call.`
               : "Repay, or wait for the next NAV."
             : inMarginCall
-              ? "The borrower has until the deadline to add collateral; after it, anyone can default the repo."
+              ? "The borrower has until the deadline to add collateral; after it, anyone can default the agreement."
               : "A margin call can be raised on the next check."}
           {inMarginCall && side === "borrowed" && topUpHold && <span data-hint="topup-hold"> {topUpHold}</span>}
           {inMarginCall && side !== "borrowed" && defaultHold && (
@@ -414,8 +480,8 @@ function PositionCard({
       {repo.status === "Defaulted" && !outageOpen && !outageWaiting && (
         <Alert tone="info" title="Awaiting liquidation">
           {side === "lent"
-            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt. Until then the borrower can still repay you in full.`
-            : `This repo was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${fmtAmount(debt)} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
+            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${owed} USDC debt. Until then the borrower can still repay you in full.`
+            : `This agreement was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${owed} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
         </Alert>
       )}
       {outageWaiting && (
@@ -434,18 +500,24 @@ function PositionCard({
             : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it back.`}
         </Alert>
       )}
-        <div>
+      <div>
         <span className="cv-figure-xl">{fmtAmount(repo.principal)}</span>
         <span className="cv-unit">USDC</span>
       </div>
-      <dl className="cv-terms">
+      <dl className="cv-terms cv-terms--fit">
         <div>
           <dt>Debt</dt>
-          <dd>{fmtAmount(debt)} USDC</dd>
+          <dd>
+            {owed}
+            <span className="cv-unit">USDC</span>
+          </dd>
         </div>
         <div>
           <dt>Collateral</dt>
-          <dd>{amt(repo.collateral_amount)} {token.code}</dd>
+          <dd>
+            {amt(repo.collateral_amount)}
+            <span className="cv-unit">{token.code}</span>
+          </dd>
         </div>
         <div>
           <dt>Haircut</dt>
@@ -453,18 +525,22 @@ function PositionCard({
         </div>
       </dl>
       {live && (
-        <div className={`cv-health${repo.status === "MarginCall" ? " cv-health--margin" : ""}`}>
+        // Below 100% the bar turns margin-coloured even before a keeper raises the call.
+        <div className={`cv-health${inMarginCall || breached ? " cv-health--margin" : ""}`}>
           <div className="cv-health__legend">
-            <span>Collateral cover</span>
+            <span>
+              Collateral cover at NAV <span className="cv-num">{nav ? fmtNav(nav.price, nav.decimals) : "—"}</span>
+            </span>
             <span className="cv-num app-flashable" ref={coverRef}>{cover !== null ? `${cover.toFixed(1)}%` : "—"}</span>
           </div>
           <div className="cv-health__bar" role="meter" aria-valuemin={90} aria-valuemax={110} aria-valuenow={cover ?? undefined} aria-label="Collateral cover">
             <div className="cv-health__fill" style={{ width: `${fill}%` }} />
             <div className="cv-health__mark" style={{ left: "50%" }} />
           </div>
-          <div className="cv-health__legend">
-            <span>Margin call at 100%</span>
-            <span>NAV {nav ? fmtNav(nav.price, nav.decimals) : "—"}</span>
+          <div className="cv-health__legend app-health__scale" aria-hidden="true">
+            <span>90%</span>
+            <span>Margin call 100%</span>
+            <span>110%</span>
           </div>
         </div>
       )}
@@ -501,7 +577,7 @@ function PositionCard({
             type="button"
             className="cv-btn cv-btn--secondary cv-btn--sm"
             disabled={!!busy}
-            title="Sends default: if the borrower opted in to auto-repay it pulls the debt first, else the repo is marked defaulted for liquidation"
+            title="Sends default: if the borrower opted in to auto-repay it pulls the debt first, else the agreement is marked defaulted for liquidation"
             onClick={doDeclareDefault}
             data-action="declare-default"
           >
@@ -513,7 +589,7 @@ function PositionCard({
             type="button"
             className="cv-btn cv-btn--primary cv-btn--sm"
             disabled={!!busy}
-            title={`Sends claim_in_kind: the ${token.code} comes to you and the repo closes as Liquidated`}
+            title={`Sends claim_in_kind: the ${token.code} comes to you and the agreement closes as Liquidated`}
             onClick={doClaimInKind}
             data-action="claim-in-kind"
           >
@@ -521,11 +597,11 @@ function PositionCard({
           </button>
         )}
       </div>
-      {ctx.tx?.key === `inkind-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {ctx.tx?.key === `declare-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {slot(`inkind-${repo.id}`)}
+      {slot(`repay-${repo.id}`)}
+      {slot(`declare-${repo.id}`)}
       {pastGrace && side === "borrowed" && (
-        <p className="cv-field__hint" data-hint="grace-over">
+        <p className="cv-field__hint app-hint--warn" data-hint="grace-over">
           Grace is over. Repay now to keep your collateral.
         </p>
       )}
@@ -569,16 +645,16 @@ function PositionCard({
           >
             {busy === `topup-${repo.id}` ? "Topping up" : "Top up"}
           </button>
-          {ctx.tx?.key === `topup-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+          {slot(`topup-${repo.id}`)}
         </form>
       )}
       {canRepay && (
-        <p className="cv-field__hint">
+        <p className={`cv-field__hint${frozen || short ? " app-hint--warn" : ""}`}>
           {frozen
             ? frozen
             : short
-            ? `Repay needs ${fmtAmount(debt)} USDC; you hold ${fmtAmount(balances!.usdc!)} USDC.`
-            : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
+            ? `Repay needs ${owed} USDC; you hold ${fmtAmount(balances!.usdc!)} USDC.`
+            : `Repay ${owed} USDC to close ${agreement} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
         </p>
       )}
       {live && canRepay && (
@@ -590,20 +666,20 @@ function PositionCard({
           hint={
             repo.auto_repay
               ? short
-                ? `On, but this wallet is short: hold ${fmtAmount(debt)} USDC by maturity or the repo defaults.`
-                : `On: at maturity ${fmtAmount(debt)} USDC is pulled from this wallet and your ${token.code} comes back.`
+                ? `On, but this wallet is short: hold ${owed} USDC by maturity or the agreement defaults.`
+                : `On: at maturity ${owed} USDC is pulled from this wallet and your ${token.code} comes back.`
               : `Off: if you do not repay by maturity plus ${String(config.grace_secs)} s grace, your ${token.code} is sold at NAV − ${fmtPct(config.liquidation_discount_bps, 1)}.`
           }
         />
       )}
-      {ctx.tx?.key === `auto-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+      {slot(`auto-${repo.id}`)}
       {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config, claimedInKind)}</p>}
       {repo.status === "Liquidated" && side === "lent" && <p className="cv-field__hint">{lenderLiquidated(repo, config, claimedInKind)}</p>}
     </article>
   );
 }
 
-/** What a settled repo meant for the borrower, so a closed card never just says "Closed". `k` = its ClaimedInKind event, if any. */
+/** What a settled agreement meant for the borrower, so a closed card never just says "Closed". `k` = its ClaimedInKind event, if any. */
 const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindClaim | null) => string>> = {
   Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount, 2, assetBySac(r.collateral_asset).decimals)} ${assetBySac(r.collateral_asset).code} returned to this wallet.`,
   Liquidated: (r, c, k) =>
@@ -614,7 +690,7 @@ const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindCla
       : `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
 };
 
-/** The lender's line on a Liquidated repo: sold for USDC, or taken in kind (#38). */
+/** The lender's line on a Liquidated agreement: sold for USDC, or taken in kind (#38). */
 function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim | null): string {
   const t = assetBySac(r.collateral_asset);
   if (k === null) return "Liquidated: the borrower did not repay in time.";

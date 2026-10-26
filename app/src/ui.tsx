@@ -291,12 +291,17 @@ export function DvpReceipt({
   sentence,
   hash,
   stamp,
+  link,
+  onDismiss,
 }: {
   left: Leg;
   right: Leg;
   sentence: string;
   hash: string;
   stamp?: Stamp;
+  /** Where the result now lives, e.g. the new agreement's card. */
+  link?: { href: string; label: string };
+  onDismiss?: () => void;
 }) {
   const leg = (l: Leg) => (
     <div className="cv-dvp__leg">
@@ -319,7 +324,19 @@ export function DvpReceipt({
       {leg(right)}
       <div className="cv-dvp__foot">
         <span>{sentence}</span>
-        <TxHash kind="TX" value={hash} />
+        <span className="cv-row app-dvp__acts">
+          <TxHash kind="TX" value={hash} />
+          {link && (
+            <a href={link.href} className="app-dvp__link" data-testid="receipt-link">
+              {link.label}
+            </a>
+          )}
+          {onDismiss && (
+            <button type="button" className="cv-btn cv-btn--quiet cv-btn--sm" onClick={onDismiss}>
+              Dismiss
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );

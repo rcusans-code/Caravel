@@ -63,6 +63,12 @@ export function fmtCountdown(secs: number, daySecs: number): string {
   return `${pad(secs / 60)}:${pad(secs % 60)}`;
 }
 
+/** One id format for offers and agreements, app and landing: #003. */
+export const idRef = (id: bigint | number) => `#${String(id).padStart(3, "0")}`;
+
+/** An amount owed: 4 dp when the interest in it is under 0.01 USDC, so a small loan's interest never rounds away. */
+export const fmtOwed = (v: bigint, interestAmt: bigint) => fmtAmount(v, interestAmt < 100_000n ? 4 : 2);
+
 export const short = (s: string, n = 4) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
 
 // --- contract math (math.rs) -------------------------------------------------
