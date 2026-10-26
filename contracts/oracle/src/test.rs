@@ -231,7 +231,32 @@ fn set_admin_hands_over_control() {
     s.env.mock_all_auths();
     let new_admin = Address::generate(&s.env);
     s.client.set_admin(&new_admin);
+    // The current admin signed the handover (checked right after the call).
+    assert_eq!(s.env.auths()[0].0, s.admin);
     assert_eq!(s.client.admin(), new_admin);
     s.client.set_price(&s.tbenji, &ONE);
     assert_eq!(s.env.auths()[0].0, new_admin);
+}
+
+/// Raven audit CT-01: deleting `set_admin`'s `require_auth` used to leave
+/// every oracle test green. Without the current admin's signature the
+/// handover is refused, even when the would-be admin signs.
+#[test]
+fn audit_set_admin_requires_current_admin_auth() {
+    let s = setup();
+    let thief = Address::generate(&s.env);
+    // Nobody signs: refused.
+    assert!(s.client.try_set_admin(&thief).is_err());
+    // Only the would-be admin signs: refused.
+    s.env.mock_auths(&[MockAuth {
+        address: &thief,
+        invoke: &MockAuthInvoke {
+            contract: &s.client.address,
+            fn_name: "set_admin",
+            args: (&thief,).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.client.try_set_admin(&thief).is_err());
+    assert_eq!(s.client.admin(), s.admin);
 }
