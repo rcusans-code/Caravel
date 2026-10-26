@@ -289,13 +289,13 @@ npm run build:public              # production build, demo signer off, secrets c
 <!-- testnet-ids:start: written by scripts/readme-ids.py from deployments/testnet.json; edits here are overwritten -->
 | Contract | ID |
 |---|---|
-| Repo (Caravel) | [`CCLJQE4O6EZX3IRLPNDTEP63VAEME2J77AXH7J4LRSOFP7CAY2X3XRVC`](https://stellar.expert/explorer/testnet/contract/CCLJQE4O6EZX3IRLPNDTEP63VAEME2J77AXH7J4LRSOFP7CAY2X3XRVC) |
+| Repo (Caravel) | [`CBPMOBTTYFPQ2C2GWVXZ3T3CJP3G6H3AJT6ZATBSE3CINWYIZ23HR6CY`](https://stellar.expert/explorer/testnet/contract/CBPMOBTTYFPQ2C2GWVXZ3T3CJP3G6H3AJT6ZATBSE3CINWYIZ23HR6CY) |
 | Price feed (mock SEP-40) | [`CBCPI32GGRYTJPJLWRUKQJKKALXUY236WHFQ5JCN442ZS43CD2VG7R6V`](https://stellar.expert/explorer/testnet/contract/CBCPI32GGRYTJPJLWRUKQJKKALXUY236WHFQ5JCN442ZS43CD2VG7R6V) |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
 | tSAFO (Spiko-style mock, 5 decimals) | [`CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2`](https://stellar.expert/explorer/testnet/contract/CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2) |
 
-Deployed 2026-10-26T09:58:27Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
+Deployed 2026-10-26T10:19:22Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
 <!-- testnet-ids:end -->
 
 ## Risks and limits

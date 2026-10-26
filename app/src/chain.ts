@@ -22,6 +22,7 @@ import {
 } from "./config";
 import { horizonToUnits } from "./format";
 import { NAV_BAND_RECORDS, type PricePoint } from "./gates";
+import { padAssembled } from "./resources";
 import type { Signer } from "./wallet";
 import {
   SIGN_TIMEOUT_MS,
@@ -292,7 +293,11 @@ async function submit<R>(tx: contract.AssembledTransaction<R>): Promise<TxOutcom
   if (sim && rpc.Api.isSimulationError(sim as rpc.Api.SimulateTransactionResponse)) {
     throw new Error((sim as rpc.Api.SimulateTransactionErrorResponse).error);
   }
-  return sendAssembled(padWrites(tx) as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
+  // Declare padded resources, not the simulated ones: simulation under-counts
+  // a try_ sub-call that writes and rolls back. Same two layers as the keeper's
+  // invokeOnce: padWrites (headroom) first, then padAssembled (resources.ts).
+  const padded = padAssembled(padWrites(tx));
+  return sendAssembled(padded as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
 }
 
 function unwrapResult<T>(r: unknown): T {

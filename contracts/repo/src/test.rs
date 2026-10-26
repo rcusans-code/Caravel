@@ -1178,6 +1178,55 @@ fn short_borrower_still_defaults() {
     assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
 }
 
+/// Ledger entries the last invocation wrote (its read-write footprint).
+fn last_write_entries(w: &World) -> u32 {
+    w.env.cost_estimate().resources().write_entries
+}
+
+/// Write entries of a plain (no auto-repay) maturity default: the baseline a
+/// short auto-repay borrower's default must match.
+fn plain_default_write_entries() -> u32 {
+    let w = world();
+    let repo_id = w.take();
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    last_write_entries(&w)
+}
+
+#[test]
+fn short_borrower_default_makes_no_pull() {
+    // Testnet repo 5: a failed `transfer_from` inside `default` still put the
+    // borrower's Allowance entry in the write footprint, and the network
+    // charged write bytes simulation did not count, so every `default` tx
+    // failed. A short balance must be read first, with no pull attempted.
+    let w = world();
+    let repo_id = w.take_auto();
+    let spend = w.usdc.balance(&w.borrower) - (DEBT - 1);
+    w.usdc
+        .transfer(&w.borrower, Address::generate(&w.env), &spend);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(last_write_entries(&w), plain_default_write_entries());
+    assert_eq!(w.allowance(), DEBT);
+    assert_eq!(w.usdc.balance(&w.borrower), DEBT - 1);
+}
+
+#[test]
+fn short_allowance_default_makes_no_pull() {
+    // Balance covers the debt, but the borrower cut the allowance below it.
+    let w = world();
+    let repo_id = w.take_auto();
+    let live_until = w.env.ledger().sequence() + 100_000;
+    w.usdc
+        .approve(&w.borrower, &w.repo.address, &(DEBT - 1), &live_until);
+    assert!(w.usdc.balance(&w.borrower) >= DEBT);
+    w.set_time(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(last_write_entries(&w), plain_default_write_entries());
+    assert_eq!(w.allowance(), DEBT - 1);
+    assert_eq!(w.tbenji_token.balance(&w.repo.address), TAKE_COLLATERAL);
+}
+
 #[test]
 fn auto_repay_instead_of_missed_margin_call_default() {
     let w = world();
