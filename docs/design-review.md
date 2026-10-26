@@ -189,7 +189,7 @@ Team decisions (section 7): F-20 maintenance trigger, F-21 production discount, 
 - v1 quote (§4.10): "A fixed price at NAV makes the lender's recovery deterministic, and it removes DEX price manipulation (A1)."
 - Scenario: print NAV 0.90 with a fresh timestamp. Anyone calls `check_margin` → MarginCall; after the window anyone calls `default`; a colluding whitelisted liquidator pays 1,031.9163961 × 0.90 × 0.98 = 910.1502613 USDC for shares worth 1,031.92 at the real $1.00 (+121.77). The lender receives 910.15, a loss of 90.71 against terms. The demo shows an admin slider doing step one, and the same admin key sets the oracle address and the whitelist.
 - Severity: Critical in production, trust assumption on testnet. Fix: DOC before submission; CONTRACT (per-asset NAV bounds) after.
-- Verdict: accepted. Reason: recomputed. On testnet this is a stated trust assumption, not a bug; the README must name it as one: oracle admin and liquidator whitelist are one key, target is split keys and a timelock. Bound shape (from F-39): a "max move per print" bound is wrong for this asset; for a stable fund accept only a band (0.995–1.005), and treat a print below the band as "disable new takes", not as a top-up request; for an accumulating fund reject any decrease. Deploy script should already use separate oracle-admin and whitelist-admin keys.
+- Verdict: accepted. Reason: recomputed. On testnet this is a stated trust assumption, not a bug; the README must name it as one: oracle admin and liquidator whitelist are one key, target is split keys and a timelock. Bound shape (from F-39): a "max move per print" bound is wrong for this asset; for a stable fund accept only a band (0.995–1.005), and treat a print below the band as "disable new takes", not as a top-up request; for an accumulating fund reject any decrease. Status (Raven UA-08, 26 Oct 2026): the deploy script still uses one admin key for both the oracle and the whitelist; liquidator additions are timelocked since Raven R6 (DECISIONS #47); the feeder-key split is roadmap R10.
 - v2 applies: §4.14, §12, §13. README: Risks and limits, Architecture. DECISIONS: none now (row 2 unchanged); risk register gains a row.
 
 <a id="f-09"></a>
@@ -604,7 +604,7 @@ Row 4 gives the lender all proceeds whenever proceeds < debt. Between P + I − 
 | Risk | Sev | Mitigation / fallback | Owner | Check by |
 |---|---|---|---|---|
 | Issuer must authorize a contract address as holder of record ([F-13](#f-13)) | High | State it in the README as the central assumption, with the Aave Horizon precedent; the testnet uses a team-issued tBENJI; ask the issuer | P | Mon 06:00 |
-| Oracle admin and liquidator whitelist are one key ([F-08](#f-08)) | High in production, stated assumption on testnet | README names it; deploy script uses separate oracle-admin and whitelist-admin keys; split keys, timelock and typed NAV bounds on the roadmap | I | Mon 06:00 |
+| Oracle admin and liquidator whitelist are one key ([F-08](#f-08)) | High in production, stated assumption on testnet | README names it; on testnet one admin key holds both (Raven UA-08); whitelist additions timelocked since Raven R6 (DECISIONS #47); NAV band and settle time (#31, #41); feeder-key split and multisig on the roadmap (R10) | I | Mon 06:00 |
 | No liquidator shows up, so a defaulted repo waits ([F-27](#f-27)) | Med | README names it and lists the liquidator count; lender `claim_in_kind` and a debt-sized sale on the roadmap | C / P | Mon 06:00 |
 
 Owner letters follow TASKS.md. Severity, owner and check-by are proposals.

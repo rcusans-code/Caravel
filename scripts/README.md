@@ -286,6 +286,33 @@ What this does not undo:
 
 Tested on testnet by simulation only (`--send=no`, nothing sent): steps 1 and 2 (disable) simulate successfully against repo `CAPUQPL7…` / oracle `CBKUZDTH…` (deployed from main f07a8bf), 25 Oct 2026. The one-record-per-slot oracle (no `set_price_at`) is covered by `contracts/repo/src/test_feed_rewrite.rs`.
 
+## Emergency key rotation (testnet)
+
+The tracked `.env` holds the testnet admin, guardian, issuer, liquidator and keeper keys on purpose, so anyone who reads the repo can sign as them (README Risks "Public testnet keys", Raven AS-01 / UA-04; keys move out of git at the first post-judging redeploy, roadmap R10). If one is abused, take the account back with one transaction, no redeploy: add a signer only you hold and set the old master key's weight to 0. The contracts store addresses, not keys, so `config()`, the contract IDs, the app and the other keys stay as they are.
+
+```sh
+cd ~/src/caravel && set -a && . ./.env && set +a
+ROLE=ISSUER                                   # or ADMIN, GUARDIAN, LIQUIDATOR, KEEPER
+stellar keys generate caravel-${ROLE,,}-signer   # local keystore only, never in .env or git
+NEW=$(stellar keys address caravel-${ROLE,,}-signer)
+OLD=${ROLE}_SECRET
+stellar tx new set-options --network testnet --source-account "${!OLD}" \
+  --signer $NEW --signer-weight 1 --master-weight 0 \
+  --low-threshold 1 --med-threshold 1 --high-threshold 1
+```
+
+The old key signs its own lock-out (fee only). If that fails with `tx_bad_auth`, someone rotated the account first and it is lost: for the guardian, the admin replaces it (`propose_guardian`, then `execute_guardian` after `timelock_secs`); for the admin or issuer, redeploy with new keys.
+
+After the rotation the `<ROLE>_SECRET` in `.env` no longer signs. Act as the role with its address as the source and the new key as the signer, e.g. `stellar contract invoke --network testnet --source-account $ISSUER_ADDRESS --sign-with-key caravel-issuer-signer --id $TSAFO_ID -- set_whitelisted …`. What stops until then, per role:
+
+- **ISSUER** (tBENJI issuer, tSAFO admin): `onboard.sh` and `deploy.sh` steps 6b–7. The keepers do not use it. Rotate this one first: it can claw back or freeze the tBENJI the repo contract holds.
+- **GUARDIAN**: no script or keeper signs with it, only the runbooks above (add `--sign-with-key`). Safe to rotate any time.
+- **ADMIN**: nav-keeper and `keeper --refresh-nav` sign `set_price` with it, so the NAV goes stale within `max_nav_age_secs` (180 s) and takes, margin calls and liquidations stop (repay and top-up still work). Also `deploy.sh`, `onboard.sh` and `winddown.sh`. Before rotating, move the oracle to a feeder key (oracle `set_admin`, then `accept_admin` by the new key) or plan to post NAV by hand.
+- **LIQUIDATOR**: the keeper's `liquidate` fails. The quicker fix for an abused liquidator key is admin `set_liquidator --allowed false` (instant); adding it back is timelocked.
+- **KEEPER**: the keeper's `check_margin` / `default` fail; they are permissionless, so set `KEEPER_SECRET` in the keeper's untracked `~/.local/lib/caravel/.env` to a fresh funded key instead.
+
+Tested on testnet with a throwaway account, 26 Oct 2026: the `set-options` above succeeded; the old key then failed `TxBadAuth` on a Soroban call (native SAC `transfer`), and the same call with `--source-account <old address> --sign-with-key <new>` succeeded. Horizon then showed thresholds 1/1/1, the new signer at weight 1 and the master key at 0.
+
 ## `npm run feeds`: mock NAV next to a live SEP-40 feed (#2)
 
 Reads `lastprice(asset)` + `decimals()` (the two calls `contracts/repo/src/oracle.rs` makes) from the mock oracle and from one live Reflector testnet feed, through the same code (`scripts/keeper/src/sep40.ts`). The only difference between the two is the contract ID and asset in `.env`:
