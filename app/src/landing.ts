@@ -20,8 +20,13 @@ const APP_URL = "/app/";
 const TIMEOUT_MS = 5_000;
 const REFRESH_MS = 30_000;
 const TICKER_MAX = 8;
+/** Below this many open offers and live agreements the ticker keeps its labelled sample rows. */
+const TICKER_MIN_LIVE = 3;
 /** Rows per ticker half, so a short book still fills a wide screen before the loop repeats. */
 const TICKER_MIN_ROWS = 6;
+
+/** One id format everywhere (app and landing): #003. */
+const pad = (id: bigint) => String(id).padStart(3, "0");
 
 interface Nav {
   price: bigint;
@@ -127,7 +132,7 @@ interface Row {
 function tickerRows(live: Live): Row[] {
   const { daySecs } = live;
   const offers: Row[] = live.offers.map((o) => ({
-    label: `Offer #${o.id}`,
+    label: `Offer #${pad(o.id)}`,
     amount: `${fmtAmount(o.principal)} USDC`,
     apr: fmtPct(o.apr_bps),
     term: `${termDays(o.term_secs, daySecs)}d · ${assetBySac(o.collateral_asset).code}`,
@@ -135,8 +140,9 @@ function tickerRows(live: Live): Row[] {
     ts: o.created_at,
     id: o.id,
   }));
-  const repos: Row[] = live.repos.map((r) => ({
-    label: `Loan #${r.id}`,
+  // Only what can still be taken or is running: closed agreements (Repaid, Liquidated, Defaulted) stay off the ticker.
+  const repos: Row[] = live.repos.filter((r) => isLive(r.status)).map((r) => ({
+    label: `Agreement #${pad(r.id)}`,
     amount: `${fmtAmount(r.principal)} USDC`,
     apr: fmtPct(repoAprBps(r, daySecs)),
     term: `${termDays(r.maturity_ts - r.start_ts, daySecs)}d · ${assetBySac(r.collateral_asset).code}`,
@@ -185,14 +191,19 @@ function renderTicker(rows: Row[]) {
   const parts = tickerParts();
   if (!parts) return;
   const { run, template } = parts;
+  sampleTicker ??= run.innerHTML;
   const tag = tagCell(template, "● Live on testnet", "#8db57f");
+  tag.dataset.liveRow = "";
   const cells = rows.map((r) => rowCell(template, r));
-  // Repeat a short book so one half stays wide enough; repeats are hidden from screen readers.
+  // A short book repeats as a whole set (never single rows) so one half still fills a wide screen;
+  // repeats are hidden from screen readers.
   const half: HTMLElement[] = [tag, ...cells];
-  for (let i = 0; half.length < TICKER_MIN_ROWS + 1; i++) {
-    const c = cells[i % cells.length].cloneNode(true) as HTMLElement;
-    c.setAttribute("aria-hidden", "true");
-    half.push(c);
+  while (half.length < TICKER_MIN_ROWS + 1) {
+    for (const c of cells) {
+      const r = c.cloneNode(true) as HTMLElement;
+      r.setAttribute("aria-hidden", "true");
+      half.push(r);
+    }
   }
   const copy = document.createElement("div");
   copy.style.display = "contents";
@@ -202,7 +213,12 @@ function renderTicker(rows: Row[]) {
   run.closest("section")?.setAttribute("aria-label", "Latest offers and loans on the Stellar testnet");
 }
 
+/** The page's static sample rows, kept so a book that thins out below TICKER_MIN_LIVE can go back to them. */
+let sampleTicker: string | null = null;
+
 function labelTickerSample() {
+  const shown = document.querySelector<HTMLElement>(".ticker-run");
+  if (shown && sampleTicker !== null && shown.querySelector("[data-live-row]")) shown.innerHTML = sampleTicker;
   const parts = tickerParts();
   if (!parts || parts.run.querySelector("[data-live-tag]")) return;
   const { run, template } = parts;
@@ -243,9 +259,9 @@ function renderHero(live: Live) {
   if (eyebrow) {
     const a = document.createElement("a");
     a.href = APP_URL;
-    a.textContent = `Live loan #${r.id}`;
+    a.textContent = `Live agreement #${pad(r.id)}`;
     a.style.color = "inherit";
-    a.title = "Open this loan's market in the testnet app";
+    a.title = "Open the testnet app";
     eyebrow.replaceChildren(a);
   }
   card.style.cursor = "pointer";
@@ -320,8 +336,11 @@ const key = (rows: Row[]) => JSON.stringify(rows, (_k, v) => (typeof v === "bigi
 
 function render(live: Live) {
   const rows = tickerRows(live);
-  if (!rows.length) throw new Error("the testnet book is empty");
-  if (key(rows) !== shownTicker) {
+  if (rows.length < TICKER_MIN_LIVE) {
+    // A thin book reads as broken when looped: show the labelled sample deals instead.
+    labelTickerSample();
+    shownTicker = "";
+  } else if (key(rows) !== shownTicker) {
     renderTicker(rows);
     shownTicker = key(rows);
   }
@@ -341,6 +360,10 @@ async function refresh() {
     console.info(`Caravel: showing sample deals (${e instanceof Error ? e.message : String(e)})`);
   }
 }
+
+// Compact section menu (site/index.html .navmenu, ≤900px): close it once a section link is picked.
+for (const a of document.querySelectorAll<HTMLAnchorElement>(".navmenu a"))
+  a.addEventListener("click", () => a.closest("details")?.removeAttribute("open"));
 
 void refresh();
 window.setInterval(() => void refresh(), REFRESH_MS);
