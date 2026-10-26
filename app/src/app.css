@@ -119,13 +119,17 @@ body {
 .app-check:has(input:disabled) { cursor: default; opacity: 0.6; }
 .app-empty { color: var(--ink-subtle); padding: var(--space-4); }
 
+/* The offers column never goes below its content width (max-content: table cells don't wrap),
+   so a wide open-offers row (1,000,000.00, 365 days, "Signing…") takes width from the form
+   instead of scrolling the table and hiding the Cancel button; at typical amounts the split
+   stays 7:5. min-content would not do: the scrolling wrap's min-content ignores the table. */
 .app-lend__grid {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  grid-template-columns: minmax(0, 7fr) minmax(max-content, 5fr);
   gap: var(--space-6);
   align-items: start;
 }
-/* Stack below ~1040px: narrower than that, the 5fr column cannot hold the open-offers table. */
+/* Stack below ~1040px: narrower than that, a wide offers column would squeeze the form. */
 @media (max-width: 1040px) {
   .app-lend__grid { grid-template-columns: 1fr; }
 }
