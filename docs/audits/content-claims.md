@@ -97,7 +97,7 @@ Status counts: Fixed 14 · Partly fixed 1 · Roadmap 0 · Won't fix 0 · Open 0.
 - Severity: Medium (reported Low; raised on QA review)
 - Status: Fixed in [d454037](https://github.com/rcusans-code/Caravel/commit/d454037)
 - Location: `site/index.html:545`, `README.md:56`, `README.md:294`
-- Finding: The landing and README quoted "6.69% USDC lending rate on Blend, 6 Oct", 20 days older than every other figure. The footnote said DefiLlama but linked to a secondary page (WhaleHub), and QA found that the same page reports Blend's Fixed V2 pool "on ice" with new borrowing blocked since 8 Oct. The carry pitch quoted a pool its own source reported as frozen to new borrowing, which is why QA raised it.
+- Finding: The landing and README quoted "6.69% USDC lending rate on Blend, 6 Oct", 20 days older than every other figure. The footnote said DefiLlama but linked to a secondary page (WhaleHub), and QA confirmed that the same page reports Blend's Fixed V2 pool "on ice" with new borrowing blocked since 8 Oct. The carry pitch quoted a pool its own source reported as frozen to new borrowing, which is why QA raised it.
 - Fix: re-read on 26 Oct from DefiLlama (supply APY 5.70%, 30-day mean 6.71%). The landing shows "5.70%, USDC supply rate, Blend Fixed pool, 26 Oct; it floats", with the carry note adjusted to about 0.5%; the footnote links the DefiLlama pool page and the WhaleHub note on paused borrowing. The README says "Blend's Fixed pool paid 5.70% on 26 Oct per DefiLlama, and has blocked new borrowing since 8 Oct". Check: `git grep -n '6.69%' ba3c054 -- site/index.html README.md` finds nothing.
 
 ### L3: "Under a cent" stated as an absolute
