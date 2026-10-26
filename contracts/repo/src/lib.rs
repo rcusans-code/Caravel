@@ -37,6 +37,8 @@ mod test_attack_a8;
 #[cfg(test)]
 mod test_nav_outage;
 #[cfg(test)]
+mod test_band_real_move;
+#[cfg(test)]
 mod test_feed_rewrite;
 #[cfg(test)]
 mod test_spiko;
@@ -45,8 +47,8 @@ use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
 
 pub use errors::Error;
 pub use types::{
-    Asset, AssetConfig, Config, DefaultReason, Offer, Pause, PendingAsset, PendingPause, Repo,
-    Status,
+    Asset, AssetConfig, BandCandidate, Config, DefaultReason, Offer, Pause, PendingAsset,
+    PendingPause, Repo, Status,
 };
 
 #[contract]
@@ -128,6 +130,32 @@ impl CaravelRepo {
         storage::read_claimable_collateral(&env, &who, &asset)
     }
 
+    /// The NAV level the repo has watched stand for `asset`'s oracle asset
+    /// and since when (side band-real-move), if `note_nav` ever ran.
+    pub fn band_candidate(env: Env, asset: Address) -> Result<Option<BandCandidate>, Error> {
+        storage::extend_instance(&env);
+        let config = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
+        Ok(storage::read_band_candidate(&env, &config.oracle_asset))
+    }
+
+    // --- anyone: NAV band settle clock (side band-real-move) --------------
+
+    /// Starts or keeps the band settle clock for collateral `asset`. Anyone
+    /// can call it; keeper and nav-keeper call it every tick. If the latest
+    /// NAV (or a feed record since the clock started) has moved more than
+    /// `max_nav_move_bps` from the stored level, the level restarts at the
+    /// latest NAV with `since` = ledger now (`NavLevelNoted`); else nothing
+    /// changes. A latest NAV outside the #31 window is then accepted by
+    /// `take_offer`, `check_margin`, `default`, `liquidate` and `top_up`
+    /// once the level has stood `band_settle_secs`. Returns the level in
+    /// force. Errors: `AssetNotSupported`, `NoPrice`.
+    pub fn note_nav(env: Env, asset: Address) -> Result<BandCandidate, Error> {
+        let asset = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
+        let config = storage::read_config(&env);
+        storage::extend_instance(&env);
+        oracle::note_nav(&env, &config, &asset)
+    }
+
     // --- anyone owed a parked payout --------------------------------------
 
     /// Pays `who` its whole parked USDC balance and returns the amount.
@@ -198,7 +226,8 @@ impl CaravelRepo {
     /// Instant only for a first listing (no offer can exist on an unlisted
     /// asset) or a change that only tightens (#33: disable, raise the
     /// haircut or the margin trigger, lower the NAV age or the cap, narrow
-    /// the NAV band). Anything
+    /// the NAV band, raise `band_settle_secs`). Requires
+    /// `band_settle_secs > 0`. Anything
     /// that loosens fails with `Loosens`: use `propose_asset`. An instant
     /// change drops a pending proposal for the asset, so it cannot undo the
     /// change later.
@@ -233,7 +262,7 @@ impl CaravelRepo {
 
     /// The guardian's instant `set_asset` on a listed asset: disable it,
     /// raise the haircut or the margin trigger, lower the NAV age or the cap,
-    /// narrow the NAV band. Fails with
+    /// narrow the NAV band, raise `band_settle_secs`. Fails with
     /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
@@ -286,6 +315,7 @@ impl CaravelRepo {
             nav_floor: config.nav_floor,
             nav_ceiling: config.nav_ceiling,
             max_open_debt: config.max_open_debt,
+            band_settle_secs: config.band_settle_secs,
         }
         .publish(&env);
         Ok(eta)
@@ -940,6 +970,7 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
         || config.max_nav_age_secs == 0
         || !band_ok(config)
         || config.max_open_debt < 0
+        || config.band_settle_secs == 0
     {
         return Err(Error::InvalidConfig);
     }
@@ -948,7 +979,7 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
 
 /// True when `new` adds no risk over `old`: same oracle mapping, not
 /// re-enabled, haircut and margin trigger (#26) not lower, NAV age and cap
-/// not higher, NAV band (#31) not wider.
+/// not higher, NAV band (#31) not wider, band settle time not shorter.
 fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
     new.oracle_asset == old.oracle_asset
         && (old.enabled || !new.enabled)
@@ -956,6 +987,7 @@ fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
         && new.margin_trigger_bps >= old.margin_trigger_bps
         && new.max_nav_age_secs <= old.max_nav_age_secs
         && new.max_open_debt <= old.max_open_debt
+        && new.band_settle_secs >= old.band_settle_secs
         && band_tightens(old, new)
 }
 
@@ -1006,6 +1038,7 @@ fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
         nav_floor: config.nav_floor,
         nav_ceiling: config.nav_ceiling,
         max_open_debt: config.max_open_debt,
+        band_settle_secs: config.band_settle_secs,
     }
     .publish(env);
 }

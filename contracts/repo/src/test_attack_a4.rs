@@ -48,6 +48,7 @@ fn asset_cfg(token: &Address, max_nav_move_bps: u32) -> AssetConfig {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: crate::test::SETTLE_SECS,
     }
 }
 

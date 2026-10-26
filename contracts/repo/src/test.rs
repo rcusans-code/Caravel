@@ -19,6 +19,8 @@ pub(crate) const DEMO_NAV_AGE: u64 = 180;
 /// NAV sanity band (#31) for tests about other rules: 100%, so NAV moves the
 /// tests make on purpose never trip it. Band tests set their own.
 pub(crate) const WIDE_BAND_BPS: u32 = 10_000;
+/// Demo band settle time (side band-real-move): 20 min.
+pub(crate) const SETTLE_SECS: u64 = 1_200;
 /// No exposure cap in play (#32); the cap tests set their own.
 pub(crate) const NO_CAP: i128 = i128::MAX;
 /// Margin trigger (#26) on the liquidation-discount line (200), the lowest
@@ -95,6 +97,7 @@ fn admin_configures_assets() {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: SETTLE_SECS,
     };
 
     client.set_asset(&token, &config);
@@ -108,6 +111,7 @@ fn admin_configures_assets() {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: SETTLE_SECS,
     };
     assert_eq!(
         env.events().all().filter_by_contract(&client.address),
@@ -139,6 +143,7 @@ fn set_asset_requires_haircut_above_liquidation_discount() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         };
         assert_eq!(
             client.try_set_asset(&token, &config),
@@ -165,6 +170,7 @@ fn set_asset_rejects_zero_max_nav_age() {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: SETTLE_SECS,
     };
     assert_eq!(
         client.try_set_asset(&token, &config),
@@ -191,6 +197,7 @@ fn set_asset_requires_admin_auth() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
 }
@@ -261,6 +268,7 @@ fn world<'a>() -> World<'a> {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
 
@@ -417,6 +425,7 @@ fn create_offer_rejects_missing_or_disabled_asset() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
     assert_eq!(
@@ -703,6 +712,7 @@ fn take_offer_rejects_asset_disabled_after_offer() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
     assert_eq!(
@@ -806,6 +816,7 @@ fn retiering_asset_does_not_touch_live_repo() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
     assert_eq!(w.repo.repo(&repo_id), opened_repo(&w));
@@ -1464,6 +1475,7 @@ fn liquidate_works_on_disabled_asset() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         },
     );
     w.set_nav(ONE, MATURED);
@@ -2003,6 +2015,7 @@ impl World<'_> {
                 nav_floor: None,
                 nav_ceiling: None,
                 max_open_debt: NO_CAP,
+                band_settle_secs: SETTLE_SECS,
             },
         );
         StellarAssetClient::new(&self.env, &token).mint(&self.borrower, &(3_000 * UNIT));
@@ -2372,6 +2385,7 @@ impl World<'_> {
             nav_floor,
             nav_ceiling,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         });
     }
 
@@ -2459,6 +2473,7 @@ fn set_asset_validates_nav_band() {
             nav_floor: floor,
             nav_ceiling: ceiling,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         };
         assert_eq!(
             w.repo.try_set_asset(&w.tbenji, &config),
@@ -2639,6 +2654,7 @@ impl World<'_> {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: cap,
+            band_settle_secs: SETTLE_SECS,
         });
     }
 
@@ -2707,6 +2723,7 @@ fn set_asset_rejects_negative_cap() {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: -1,
+        band_settle_secs: SETTLE_SECS,
     };
     assert_eq!(
         w.repo.try_set_asset(&w.tbenji, &config),
@@ -3099,6 +3116,7 @@ fn propose_execute_cancel_emit_events() {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: SETTLE_SECS,
         }
         .to_xdr(&w.env, addr)]
     );
@@ -3123,6 +3141,7 @@ fn propose_execute_cancel_emit_events() {
                 nav_floor: None,
                 nav_ceiling: None,
                 max_open_debt: NO_CAP,
+                band_settle_secs: SETTLE_SECS,
             }
             .to_xdr(&w.env, addr),
         ]
@@ -3180,6 +3199,7 @@ fn propose_execute_cancel_emit_events() {
                 nav_floor: None,
                 nav_ceiling: None,
                 max_open_debt: NO_CAP - 1,
+                band_settle_secs: SETTLE_SECS,
             }
             .to_xdr(&w.env, addr),
         ]

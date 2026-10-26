@@ -64,6 +64,14 @@
                   "map": [
                     {
                       "key": {
+                        "symbol": "band_settle_secs"
+                      },
+                      "val": {
+                        "u64": "1200"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "enabled"
                       },
                       "val": {
@@ -291,6 +299,14 @@
                 },
                 {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "band_settle_secs"
+                      },
+                      "val": {
+                        "u64": "1200"
+                      }
+                    },
                     {
                       "key": {
                         "symbol": "enabled"
@@ -1223,6 +1239,14 @@
                         "map": [
                           {
                             "key": {
+                              "symbol": "band_settle_secs"
+                            },
+                            "val": {
+                              "u64": "1200"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "enabled"
                             },
                             "val": {
@@ -1312,6 +1336,14 @@
                       },
                       "val": {
                         "map": [
+                          {
+                            "key": {
+                              "symbol": "band_settle_secs"
+                            },
+                            "val": {
+                              "u64": "1200"
+                            }
+                          },
                           {
                             "key": {
                               "symbol": "enabled"

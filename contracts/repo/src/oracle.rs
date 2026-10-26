@@ -10,8 +10,8 @@ use soroban_sdk::{contractclient, contracttype, token, Address, Env, Vec};
 
 use crate::{
     errors::Error,
-    math,
-    types::{Asset, AssetConfig, Config},
+    events, math, storage,
+    types::{Asset, AssetConfig, BandCandidate, Config},
 };
 
 /// One price point, same shape as Reflector's, so the mock and live feeds
@@ -109,6 +109,16 @@ pub fn fresh_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<(i128, 
 /// cannot flush them faster (nav-review side feed-rewrite). Reflector keeps
 /// one record per resolution period too.
 ///
+/// A real move past the band (side band-real-move) is accepted sooner,
+/// without waiting for the window to roll: once the repo's own
+/// [`BandCandidate`] (set by [`note_nav`]) has stood
+/// `asset.band_settle_secs` of ledger time, a latest NAV within the band of
+/// the candidate passes, provided every record stamped at or after the
+/// candidate's `since` is within the band of it too (the level held
+/// throughout) and the latest NAV is within the band of each of those
+/// records as well (no ~2× band jump across the level in one push).
+/// Floor and ceiling still apply first.
+///
 /// With a single record (no history) only `nav_floor` / `nav_ceiling` apply.
 /// Records `<= 0` are skipped (no price, not a reference). Reads storage
 /// only; writes nothing.
@@ -118,15 +128,112 @@ pub fn check_band(env: &Env, cfg: &Config, asset: &AssetConfig, price: i128) -> 
     {
         return Err(Error::NavOutOfBand);
     }
-    let history = PriceFeedClient::new(env, &cfg.oracle)
-        .prices(&asset.oracle_asset, &NAV_BAND_RECORDS)
-        .unwrap_or_else(|| Vec::new(env));
+    let history = band_history(env, cfg, asset);
+    let mut in_window = true;
     for record in history.iter() {
         if record.price > 0 && !within_bps(price, record.price, asset.max_nav_move_bps)? {
-            return Err(Error::NavOutOfBand);
+            in_window = false;
+            break;
         }
     }
-    Ok(())
+    if in_window || settled(env, asset, price, &history)? {
+        return Ok(());
+    }
+    Err(Error::NavOutOfBand)
+}
+
+/// The feed's last [`NAV_BAND_RECORDS`] records for `asset`, newest first.
+fn band_history(env: &Env, cfg: &Config, asset: &AssetConfig) -> Vec<PriceData> {
+    PriceFeedClient::new(env, &cfg.oracle)
+        .prices(&asset.oracle_asset, &NAV_BAND_RECORDS)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// True when `candidate` still describes the level: `price` and every
+/// positive record stamped at or after `candidate.since` are within the
+/// band of it.
+fn level_holds(
+    candidate: &BandCandidate,
+    price: i128,
+    history: &Vec<PriceData>,
+    max_bps: u32,
+) -> Result<bool, Error> {
+    if !within_bps(price, candidate.price, max_bps)? {
+        return Ok(false);
+    }
+    for record in history.iter() {
+        if record.timestamp >= candidate.since
+            && record.price > 0
+            && !within_bps(record.price, candidate.price, max_bps)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The settle path of [`check_band`]: the repo's candidate for this asset
+/// has stood `band_settle_secs`, the level still holds, and `price` is
+/// within the band of every positive record stamped at or after the
+/// candidate's `since` (the window rule, restricted to the records since
+/// the level started). Without the last check, a NAV that drifted to
+/// `level × (1 + band)` could be followed by one push to
+/// `level × (1 − band)`, about twice the band, accepted in the same ledger.
+fn settled(
+    env: &Env,
+    asset: &AssetConfig,
+    price: i128,
+    history: &Vec<PriceData>,
+) -> Result<bool, Error> {
+    let Some(candidate) = storage::read_band_candidate(env, &asset.oracle_asset) else {
+        return Ok(false);
+    };
+    let stood = env.ledger().timestamp().saturating_sub(candidate.since);
+    if stood < asset.band_settle_secs
+        || !level_holds(&candidate, price, history, asset.max_nav_move_bps)?
+    {
+        return Ok(false);
+    }
+    for record in history.iter() {
+        if record.timestamp >= candidate.since
+            && record.price > 0
+            && !within_bps(price, record.price, asset.max_nav_move_bps)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Starts or keeps the band settle clock for `asset` (side band-real-move).
+/// Reads the latest NAV (no staleness check: it only observes) and keeps the
+/// stored [`BandCandidate`] while the level holds ([`level_holds`]);
+/// otherwise stores `{ latest, ledger now }` and emits `NavLevelNoted`.
+/// Returns the candidate in force. Errors: `NoPrice` if the feed has none.
+///
+/// Its own entry point because the calls that fail on the band
+/// (`check_margin`, `liquidate`) return `Err`, which rolls back every write,
+/// so they could never start the clock themselves.
+pub fn note_nav(env: &Env, cfg: &Config, asset: &AssetConfig) -> Result<BandCandidate, Error> {
+    let (price, _, _) = nav(env, cfg, asset)?;
+    let history = band_history(env, cfg, asset);
+    if let Some(candidate) = storage::read_band_candidate(env, &asset.oracle_asset) {
+        if level_holds(&candidate, price, &history, asset.max_nav_move_bps)? {
+            return Ok(candidate);
+        }
+    }
+    let candidate = BandCandidate {
+        price,
+        since: env.ledger().timestamp(),
+    };
+    storage::write_band_candidate(env, &asset.oracle_asset, &candidate);
+    events::NavLevelNoted {
+        oracle_asset: asset.oracle_asset.clone(),
+        price,
+        since: candidate.since,
+    }
+    .publish(env);
+    Ok(candidate)
 }
 
 /// `|price − reference| ≤ reference × max_bps / 10_000`, exact integer math.
@@ -345,6 +452,7 @@ mod test {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: crate::test::SETTLE_SECS,
         };
         Setup {
             env,

@@ -153,9 +153,10 @@ Every state-changing call checks status first and fails with a named error other
 
 | Event | Topics | Data |
 |---|---|---|
-| `AssetConfigured` | asset | haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
+| `AssetConfigured` | asset | haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt, band_settle_secs |
+| `NavLevelNoted` | oracle_asset | price, since (`note_nav` started the band settle clock on a new NAV level) |
 | `PauseSet` | asset | no_new_repos, no_seize |
-| `AssetChangeProposed` | asset | eta, haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt |
+| `AssetChangeProposed` | asset | eta, haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt, band_settle_secs |
 | `PauseChangeProposed` | asset | eta, no_new_repos, no_seize |
 | `ProposalExecuted` | asset, kind (`asset` / `pause`) | — (followed by `AssetConfigured` / `PauseSet`) |
 | `ProposalCancelled` | asset, kind | by (cancelled, or superseded by an instant change) |
@@ -183,7 +184,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Debt is fixed at take.** Early repay pays the same amount.
 - **The haircut is snapshotted at take.** Re-tiering an asset changes new takes only.
 - **No action on an old price.** `take_offer`, `check_margin` and `liquidate` fail on stale NAV, judged against each asset's own `max_nav_age_secs`; `repay` and `top_up` never need a fresh price, so a borrower can always exit.
-- **No action on an implausible price.** The same three calls fail with `NavOutOfBand` when the latest NAV is more than the asset's `max_nav_move_bps` from any of the feed's last 20 records, or outside its optional `nav_floor` / `nav_ceiling` (DECISIONS #31). Re-posting a bad price doesn't hide the jump. `repay` and `top_up` still work.
+- **No action on an implausible price.** The same three calls fail with `NavOutOfBand` when the latest NAV is more than the asset's `max_nav_move_bps` from any of the feed's last 20 records, or outside its optional `nav_floor` / `nav_ceiling` (DECISIONS #31). Re-posting a bad price doesn't hide the jump. `repay` and `top_up` still work. A real move past the band is accepted once its level has stood `band_settle_secs` of ledger time, timed by the repo from the first permissionless `note_nav` that saw it (the keeper calls it each tick), never by feed timestamps; floor and ceiling still apply.
 - **A disabled asset stops new offers and takes, not live repos.** Repay and liquidation still work.
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
 - **A frozen account never traps the other side.** Every USDC payout from a settlement (lender, treasury, borrower surplus) is tried and, if the recipient cannot receive it (Circle freeze, closed trustline), parked in the contract for that recipient's `claim`; the repay, auto-repay or liquidation still lands. Collateral payouts stay direct (DECISIONS #24): an auto-repay that cannot return the collateral refunds the USDC and the repo defaults instead.
@@ -210,6 +211,7 @@ All durations are configuration, so the demo compresses time without touching co
 | `max_nav_age_secs` | per asset | 180 s (tBENJI, 3 demo days) | ~96 h (345,600 s) for a fund that prints NAV on business days only, so Friday's print covers a weekend with no Saturday/Sunday prints |
 | `max_nav_move_bps` | per asset | 2,500 (tBENJI, tSAFO), so the Admin NAV slider still works | BENJI/USTBL/USDY 50, EUTBL 500, CETES 800: above the largest one-day move since 2006 ([DECISIONS #35](DECISIONS.md), [config-tuning.md](docs/config-tuning.md)) |
 | `nav_floor` / `nav_ceiling` | per asset | unset | BENJI 0.90 / 1.10; others unset |
+| `band_settle_secs` | per asset | 1,200 s (20 min; the 60 s feed's 20-record window rolls in 19 min anyway) | 86,400 (24 h): a real move past the band freezes margin calls and liquidation for a day, not 19 days on a daily NAV; the guardian gets that day to pause a bad push. Raising it is instant, lowering it is timelocked |
 | `fee_bps` | global | 1,000 (10% of interest) | 1,000, the same as Aave Horizon's and XOXNO's reserve factor, half of Blend's and Templar's 20% ([config-tuning.md §5](docs/config-tuning.md#5-fee-1000-kept-10-of-interest)); a 0% launch promotion stays a go-to-market option. The fee goes to `treasury`, which production labels a **reserve** (the seed of the insurance fund on the roadmap); the demo uses the admin account |
 | `timelock_secs` | global | 120 (2 demo days) | 172,800 (2 days), so lenders and borrowers see a loosening coming ([DECISIONS #33](DECISIONS.md)) |
 
