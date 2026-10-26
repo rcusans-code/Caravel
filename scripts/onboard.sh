@@ -173,7 +173,7 @@ if [[ -n "${REPO_ID:-}" ]]; then
   if [[ "$c_liq" == yes && $missing == 1 ]]; then
     log "WARN: $ADDR is a whitelisted liquidator but cannot receive every collateral token: those liquidations will fail"
   elif [[ "$c_liq" == NO ]]; then
-    log "to make it a liquidator: admin set_liquidator --liquidator $ADDR --allowed true on $REPO_ID, once every item above is yes and USDC covers the floor"
+    log "to make it a liquidator: admin propose_liquidator --liquidator $ADDR on $REPO_ID, then execute_liquidator after timelock_secs (Raven R6), once every item above is yes and USDC covers the floor"
   fi
   if [[ -n "${LIQUIDATOR:-}" && $missing == 1 ]]; then exit 3; fi
 fi

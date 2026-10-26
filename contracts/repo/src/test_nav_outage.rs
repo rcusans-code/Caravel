@@ -92,7 +92,7 @@ fn world<'a>() -> W<'a> {
     usdc_admin.mint(&borrower, &(100 * UNIT));
     let tbenji_admin = StellarAssetClient::new(&env, &tbenji);
     tbenji_admin.mint(&borrower, &(5_000 * UNIT));
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     usdc_admin.mint(&liquidator, &(2_000 * UNIT));
 
     W {

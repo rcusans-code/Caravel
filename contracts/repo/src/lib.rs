@@ -39,16 +39,22 @@ mod test_band_real_move;
 #[cfg(test)]
 mod test_feed_rewrite;
 #[cfg(test)]
+mod test_governance;
+#[cfg(test)]
 mod test_nav_outage;
 #[cfg(test)]
 mod test_spiko;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
+use soroban_sdk::{
+    contract, contractimpl, panic_with_error, symbol_short, token, Address, Env, IntoVal,
+    TryFromVal, Val,
+};
 
 pub use errors::Error;
+use storage::DataKey;
 pub use types::{
-    Asset, AssetConfig, BandCandidate, Config, DefaultReason, Offer, Pause, PendingAsset,
-    PendingPause, Repo, Status,
+    Asset, AssetConfig, BandCandidate, Config, DefaultReason, Offer, Pause, PendingAdmin,
+    PendingAsset, PendingGuardian, PendingPause, Repo, Roles, Status,
 };
 
 #[contract]
@@ -106,6 +112,31 @@ impl CaravelRepo {
     pub fn pending_pause(env: Env, asset: Address) -> Option<PendingPause> {
         storage::extend_instance(&env);
         storage::read_pending_pause(&env, &asset)
+    }
+
+    /// Admin and guardian in force (always equal to `config()`'s) and any
+    /// handover in flight: `transfer_admin` waiting for `accept_admin`, a
+    /// `propose_guardian` waiting out the timelock (Raven R6).
+    pub fn roles(env: Env) -> Roles {
+        storage::extend_instance(&env);
+        let config = storage::read_config(&env);
+        let admin = storage::read_pending_admin(&env);
+        let guardian = storage::read_pending_guardian(&env);
+        Roles {
+            admin: config.admin,
+            guardian: config.guardian,
+            pending_admin_live_until: admin.as_ref().map(|p| p.live_until_ledger),
+            pending_admin: admin.map(|p| p.admin),
+            pending_guardian_eta: guardian.as_ref().map(|p| p.eta),
+            pending_guardian: guardian.map(|p| p.guardian),
+        }
+    }
+
+    /// The `eta` of a liquidator addition waiting out the timelock, if any
+    /// (Raven UA-03).
+    pub fn pending_liquidator(env: Env, who: Address) -> Option<u64> {
+        storage::extend_instance(&env);
+        storage::read_pending_liquidator(&env, &who)
     }
 
     /// Debt (principal + interest) of live repos on `asset`, the amount
@@ -207,10 +238,222 @@ impl CaravelRepo {
 
     // --- admin ------------------------------------------------------------
 
+    /// Removes `liquidator` from the whitelist at once and drops a pending
+    /// addition for it (`LiquidatorSet { allowed: false }`). Adding is
+    /// timelocked (Raven UA-03): `allowed = true` fails with `Loosens` (20)
+    /// unless `liquidator` is already whitelisted (then a no-op); use
+    /// `propose_liquidator` + `execute_liquidator`. The signature is kept for
+    /// existing clients, so that error is raised as a contract panic.
     pub fn set_liquidator(env: Env, liquidator: Address, allowed: bool) {
-        storage::read_config(&env).admin.require_auth();
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
         storage::extend_instance(&env);
-        storage::set_liquidator(&env, &liquidator, allowed);
+        if allowed {
+            if !storage::is_liquidator(&env, &liquidator) {
+                panic_with_error!(&env, Error::Loosens);
+            }
+            return;
+        }
+        drop_pending_liquidator(&env, &liquidator, &protocol.admin);
+        storage::set_liquidator(&env, &liquidator, false);
+        events::LiquidatorSet {
+            who: liquidator,
+            allowed: false,
+        }
+        .publish(&env);
+    }
+
+    /// Queues `liquidator` for the whitelist; `execute_liquidator` adds it
+    /// in the same window as `execute_asset` (Raven UA-03). A re-proposal
+    /// replaces the pending one and restarts the clock.
+    pub fn propose_liquidator(env: Env, liquidator: Address) -> Result<u64, Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        let eta = eta(&env, &protocol)?;
+        storage::extend_instance(&env);
+        drop_pending_liquidator(&env, &liquidator, &protocol.admin);
+        storage::write_pending_liquidator(&env, &liquidator, eta);
+        events::LiquidatorProposed {
+            who: liquidator,
+            eta,
+        }
+        .publish(&env);
+        Ok(eta)
+    }
+
+    /// Adds the proposed liquidator from its `eta` until
+    /// `eta + timelock_secs` (`TimelockNotDone` before, `ProposalExpired`
+    /// after). Emits `LiquidatorSet { allowed: true }`.
+    pub fn execute_liquidator(env: Env, liquidator: Address) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        let eta = storage::read_pending_liquidator(&env, &liquidator).ok_or(Error::NoProposal)?;
+        check_window(&env, &protocol, eta)?;
+        storage::extend_instance(&env);
+        storage::remove_pending_liquidator(&env, &liquidator);
+        storage::remove_vetoed(&env, &DataKey::VetoedLiquidator(liquidator.clone()));
+        storage::set_liquidator(&env, &liquidator, true);
+        events::LiquidatorSet {
+            who: liquidator,
+            allowed: true,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Drops a pending liquidator addition. The admin any time; the
+    /// guardian once per address (`VetoSpent` on a re-proposal of one it
+    /// already cancelled; Raven R6).
+    pub fn cancel_liquidator(env: Env, caller: Address, liquidator: Address) -> Result<(), Error> {
+        let protocol = admin_or_guardian(&env, &caller)?;
+        let eta = storage::read_pending_liquidator(&env, &liquidator).ok_or(Error::NoProposal)?;
+        if caller != protocol.admin {
+            spend_veto(
+                &env,
+                &protocol,
+                &DataKey::VetoedLiquidator(liquidator.clone()),
+                &true,
+                eta,
+            )?;
+        }
+        storage::extend_instance(&env);
+        drop_pending_liquidator(&env, &liquidator, &caller);
+        Ok(())
+    }
+
+    // --- admin: role rotation (Raven R6) ----------------------------------
+
+    /// Starts handing the admin role to `new_admin`, who must call
+    /// `accept_admin` by ledger `live_until_ledger` (Raven UA-06; pending
+    /// entry in temporary storage, as OpenZeppelin's Ownable does). A new
+    /// call replaces the pending handover; `live_until_ledger = 0` cancels
+    /// it (`NoProposal` if none). `InvalidConfig` if `new_admin` is the
+    /// guardian or the ledger is in the past or beyond the max TTL.
+    pub fn transfer_admin(
+        env: Env,
+        new_admin: Address,
+        live_until_ledger: u32,
+    ) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        storage::extend_instance(&env);
+        if live_until_ledger == 0 {
+            let pending = storage::read_pending_admin(&env).ok_or(Error::NoProposal)?;
+            storage::remove_pending_admin(&env);
+            events::AdminTransferStarted {
+                new_admin: pending.admin,
+                live_until_ledger: 0,
+            }
+            .publish(&env);
+            return Ok(());
+        }
+        let now = env.ledger().sequence();
+        if new_admin == protocol.guardian
+            || live_until_ledger < now
+            || live_until_ledger - now > env.storage().max_ttl()
+        {
+            return Err(Error::InvalidConfig);
+        }
+        storage::write_pending_admin(
+            &env,
+            &PendingAdmin {
+                admin: new_admin.clone(),
+                live_until_ledger,
+            },
+        );
+        events::AdminTransferStarted {
+            new_admin,
+            live_until_ledger,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// The pending admin takes the role (it signs). `NoProposal` if no
+    /// handover is pending or it lapsed; `InvalidConfig` if it has become
+    /// the guardian meanwhile. Emits `AdminSet`.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending = storage::read_pending_admin(&env).ok_or(Error::NoProposal)?;
+        pending.admin.require_auth();
+        let mut protocol = storage::read_config(&env);
+        if pending.admin == protocol.guardian {
+            return Err(Error::InvalidConfig);
+        }
+        storage::extend_instance(&env);
+        storage::remove_pending_admin(&env);
+        let previous = core::mem::replace(&mut protocol.admin, pending.admin.clone());
+        storage::write_config(&env, &protocol);
+        events::AdminSet {
+            admin: pending.admin,
+            previous,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Queues a new guardian behind the timelock (Raven UA-02). Only the
+    /// admin can cancel it (`cancel_guardian`), so a lost or hostile
+    /// guardian is replaced after one timelock. A re-proposal replaces the
+    /// pending one. `InvalidConfig` if `guardian` is the admin.
+    pub fn propose_guardian(env: Env, guardian: Address) -> Result<u64, Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        if guardian == protocol.admin {
+            return Err(Error::InvalidConfig);
+        }
+        let eta = eta(&env, &protocol)?;
+        storage::extend_instance(&env);
+        if let Some(old) = storage::read_pending_guardian(&env) {
+            events::GuardianChangeCancelled {
+                guardian: old.guardian,
+            }
+            .publish(&env);
+        }
+        storage::write_pending_guardian(
+            &env,
+            &PendingGuardian {
+                guardian: guardian.clone(),
+                eta,
+            },
+        );
+        events::GuardianChangeProposed { guardian, eta }.publish(&env);
+        Ok(eta)
+    }
+
+    /// Makes the proposed guardian current, in the same window as
+    /// `execute_asset`. Emits `GuardianSet`.
+    pub fn execute_guardian(env: Env) -> Result<(), Error> {
+        let mut protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        let pending = storage::read_pending_guardian(&env).ok_or(Error::NoProposal)?;
+        check_window(&env, &protocol, pending.eta)?;
+        if pending.guardian == protocol.admin {
+            return Err(Error::InvalidConfig);
+        }
+        storage::extend_instance(&env);
+        storage::remove_pending_guardian(&env);
+        let previous = core::mem::replace(&mut protocol.guardian, pending.guardian.clone());
+        storage::write_config(&env, &protocol);
+        events::GuardianSet {
+            guardian: pending.guardian,
+            previous,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Drops the pending guardian rotation. Admin only.
+    pub fn cancel_guardian(env: Env) -> Result<(), Error> {
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
+        let pending = storage::read_pending_guardian(&env).ok_or(Error::NoProposal)?;
+        storage::extend_instance(&env);
+        storage::remove_pending_guardian(&env);
+        events::GuardianChangeCancelled {
+            guardian: pending.guardian,
+        }
+        .publish(&env);
+        Ok(())
     }
 
     /// Adds or re-tiers a collateral asset (DECISIONS.md #13). Requires
@@ -255,7 +498,7 @@ impl CaravelRepo {
     pub fn set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
-        tighten_pause(&env, &protocol.admin, asset, &pause)
+        tighten_pause(&env, &protocol, false, asset, &pause)
     }
 
     // --- guardian (#33): instant, tighten only ----------------------------
@@ -264,6 +507,10 @@ impl CaravelRepo {
     /// raise the haircut or the margin trigger, lower the NAV age or the cap,
     /// narrow the NAV band, raise `band_settle_secs`. Fails with
     /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
+    /// A real change drops a pending admin proposal for the asset, but
+    /// only once per proposed change (it spends the guardian's veto, see
+    /// `cancel_asset`); re-sending the current config drops nothing (Raven
+    /// R6, UA-02).
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.guardian.require_auth();
@@ -273,16 +520,25 @@ impl CaravelRepo {
             return Err(Error::Loosens);
         }
         storage::extend_instance(&env);
-        drop_pending_asset(&env, &asset, &protocol.guardian);
+        if config != old {
+            if let Some(pending) = storage::read_pending_asset(&env, &asset) {
+                let key = DataKey::VetoedAsset(asset.clone());
+                if spend_veto(&env, &protocol, &key, &pending.config, pending.eta).is_ok() {
+                    drop_pending_asset(&env, &asset, &protocol.guardian);
+                }
+            }
+        }
         apply_asset(&env, asset, &config);
         Ok(())
     }
 
-    /// The guardian's instant `set_pause`: can switch on, never off.
+    /// The guardian's instant `set_pause`: can switch on, never off. Drops
+    /// a pending pause proposal like `guardian_set_asset`: never on a
+    /// no-op re-assert, once per proposed change otherwise.
     pub fn guardian_set_pause(env: Env, asset: Address, pause: Pause) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.guardian.require_auth();
-        tighten_pause(&env, &protocol.guardian, asset, &pause)
+        tighten_pause(&env, &protocol, true, asset, &pause)
     }
 
     // --- admin, timelocked (#33): every change that adds risk -------------
@@ -334,6 +590,7 @@ impl CaravelRepo {
         validate_asset(&protocol, &pending.config)?;
         storage::extend_instance(&env);
         storage::remove_pending_asset(&env, &asset);
+        storage::remove_vetoed(&env, &DataKey::VetoedAsset(asset.clone()));
         events::ProposalExecuted {
             asset: asset.clone(),
             kind: symbol_short!("asset"),
@@ -343,11 +600,18 @@ impl CaravelRepo {
         Ok(())
     }
 
-    /// Drops the pending asset change. Admin or guardian, any time.
+    /// Drops the pending asset change. The admin any time. The guardian
+    /// once per change (Raven R6, UA-02): if the admin proposes the change
+    /// it cancelled again, unchanged, the guardian gets `VetoSpent` and the
+    /// change executes after the timelock unless the admin drops it. So
+    /// the guardian can delay a change by one timelock, never block it for
+    /// good. Cancelling a proposal whose window closed spends nothing.
     pub fn cancel_asset(env: Env, caller: Address, asset: Address) -> Result<(), Error> {
-        admin_or_guardian(&env, &caller)?;
-        if storage::read_pending_asset(&env, &asset).is_none() {
-            return Err(Error::NoProposal);
+        let protocol = admin_or_guardian(&env, &caller)?;
+        let pending = storage::read_pending_asset(&env, &asset).ok_or(Error::NoProposal)?;
+        if caller != protocol.admin {
+            let key = DataKey::VetoedAsset(asset.clone());
+            spend_veto(&env, &protocol, &key, &pending.config, pending.eta)?;
         }
         storage::extend_instance(&env);
         drop_pending_asset(&env, &asset, &caller);
@@ -393,6 +657,7 @@ impl CaravelRepo {
         check_window(&env, &protocol, pending.eta)?;
         storage::extend_instance(&env);
         storage::remove_pending_pause(&env, &asset);
+        storage::remove_vetoed(&env, &DataKey::VetoedPause(asset.clone()));
         events::ProposalExecuted {
             asset: asset.clone(),
             kind: symbol_short!("pause"),
@@ -402,11 +667,14 @@ impl CaravelRepo {
         Ok(())
     }
 
-    /// Drops the pending pause change. Admin or guardian, any time.
+    /// Drops the pending pause change: the admin any time, the guardian
+    /// once per change, as in `cancel_asset` (Raven R6, UA-02).
     pub fn cancel_pause(env: Env, caller: Address, asset: Address) -> Result<(), Error> {
-        admin_or_guardian(&env, &caller)?;
-        if storage::read_pending_pause(&env, &asset).is_none() {
-            return Err(Error::NoProposal);
+        let protocol = admin_or_guardian(&env, &caller)?;
+        let pending = storage::read_pending_pause(&env, &asset).ok_or(Error::NoProposal)?;
+        if caller != protocol.admin {
+            let key = DataKey::VetoedPause(asset.clone());
+            spend_veto(&env, &protocol, &key, &pending.pause, pending.eta)?;
         }
         storage::extend_instance(&env);
         drop_pending_pause(&env, &asset, &caller);
@@ -1017,17 +1285,76 @@ fn pause_tightens(old: &Pause, new: &Pause) -> bool {
     (new.no_new_repos || !old.no_new_repos) && (new.no_seize || !old.no_seize)
 }
 
-fn tighten_pause(env: &Env, by: &Address, asset: Address, pause: &Pause) -> Result<(), Error> {
+/// An instant pause switch-on. The admin's drops its own pending pause
+/// proposal. The guardian's drops it only on a real change and once per
+/// proposed change (`spend_veto`): re-asserting the pause in force must not
+/// cancel the admin's clear (Raven R6, OZ-02 QA path).
+fn tighten_pause(
+    env: &Env,
+    protocol: &Config,
+    by_guardian: bool,
+    asset: Address,
+    pause: &Pause,
+) -> Result<(), Error> {
     if storage::read_asset(env, &asset).is_none() {
         return Err(Error::AssetNotSupported);
     }
-    if !pause_tightens(&storage::read_pause(env, &asset), pause) {
+    let current = storage::read_pause(env, &asset);
+    if !pause_tightens(&current, pause) {
         return Err(Error::Loosens);
     }
     storage::extend_instance(env);
-    drop_pending_pause(env, &asset, by);
+    if !by_guardian {
+        drop_pending_pause(env, &asset, &protocol.admin);
+    } else if current != *pause {
+        if let Some(pending) = storage::read_pending_pause(env, &asset) {
+            let key = DataKey::VetoedPause(asset.clone());
+            if spend_veto(env, protocol, &key, &pending.pause, pending.eta).is_ok() {
+                drop_pending_pause(env, &asset, &protocol.guardian);
+            }
+        }
+    }
     apply_pause(env, asset, pause);
     Ok(())
+}
+
+/// The guardian's veto on one proposed change (Raven R6, UA-02): the first
+/// cancel or supersede of `change` records it under `key`; a second one on
+/// the same change, re-proposed unchanged by the admin, fails with
+/// `VetoSpent`. Without this a guardian could cancel every clear of its
+/// own `no_seize` and freeze seizure for good. A proposal past its window
+/// cannot execute anyway, so dropping it records nothing.
+fn spend_veto<V>(
+    env: &Env,
+    protocol: &Config,
+    key: &DataKey,
+    change: &V,
+    eta: u64,
+) -> Result<(), Error>
+where
+    V: PartialEq + IntoVal<Env, Val> + TryFromVal<Env, Val>,
+{
+    if env.ledger().timestamp() > eta.saturating_add(protocol.timelock_secs) {
+        return Ok(());
+    }
+    if storage::read_vetoed::<V>(env, key).as_ref() == Some(change) {
+        return Err(Error::VetoSpent);
+    }
+    storage::write_vetoed(env, key, change);
+    Ok(())
+}
+
+/// Removes a pending liquidator addition, if any, with a
+/// `LiquidatorProposalCancelled`.
+fn drop_pending_liquidator(env: &Env, who: &Address, by: &Address) {
+    if storage::read_pending_liquidator(env, who).is_some() {
+        storage::remove_pending_liquidator(env, who);
+        events::LiquidatorProposalCancelled {
+            who: who.clone(),
+            by: by.clone(),
+        }
+        .publish(env);
+    }
 }
 
 fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
@@ -1104,13 +1431,14 @@ fn check_window(env: &Env, protocol: &Config, eta: u64) -> Result<(), Error> {
     Ok(())
 }
 
-fn admin_or_guardian(env: &Env, caller: &Address) -> Result<(), Error> {
+/// `caller` signs and holds a role; returns the config it was checked on.
+fn admin_or_guardian(env: &Env, caller: &Address) -> Result<Config, Error> {
     caller.require_auth();
     let protocol = storage::read_config(env);
     if *caller != protocol.admin && *caller != protocol.guardian {
         return Err(Error::NotAdminOrGuardian);
     }
-    Ok(())
+    Ok(protocol)
 }
 
 /// Shortest accepted `timelock_secs`: a loosening must stay visible on-chain

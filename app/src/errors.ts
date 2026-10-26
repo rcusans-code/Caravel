@@ -28,6 +28,7 @@ const REPO_ERRORS: Record<number, string> = {
   23: "Only the admin or the guardian can cancel a pending change.",
   24: "Nothing to claim: no USDC payout is waiting for this account.",
   26: "This pending change expired: its execute window closed. Propose it again.",
+  27: "The guardian already vetoed this exact change once; only the admin can cancel it now.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

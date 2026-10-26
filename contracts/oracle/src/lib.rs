@@ -20,8 +20,8 @@
 //! as Reflector, so NAV math is identical against the mock and a live feed.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
-    Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
+    Env, Symbol, Vec,
 };
 
 #[cfg(test)]
@@ -58,6 +58,37 @@ pub struct PriceData {
 pub enum Error {
     InvalidPrice = 1,
     InvalidConfig = 2,
+    /// `accept_admin` with no handover pending (Raven R6, UA-06).
+    NoPendingAdmin = 3,
+}
+
+/// A price record was written (Raven R6): every `set_price`, so indexers
+/// and the repo's monitors see each push, including in-slot replacements.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PriceSet {
+    #[topic]
+    pub asset: Asset,
+    pub price: i128,
+    pub timestamp: u64,
+}
+
+/// The current admin named `pending` as its successor (`set_admin`); it
+/// takes over only on `accept_admin`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminProposed {
+    #[topic]
+    pub pending: Address,
+}
+
+/// The admin role moved to `admin` (`accept_admin`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminSet {
+    #[topic]
+    pub admin: Address,
+    pub previous: Address,
 }
 
 #[contracttype]
@@ -70,6 +101,8 @@ enum DataKey {
     Assets,
     /// Persistent: `Vec<PriceData>` for one asset, oldest first.
     History(Asset),
+    /// Admin named by `set_admin`, waiting for `accept_admin`.
+    PendingAdmin,
 }
 
 #[contract]
@@ -172,10 +205,45 @@ impl MockOracle {
         read_admin(&env)
     }
 
-    pub fn set_admin(env: Env, new_admin: Address) {
-        read_admin(&env).require_auth();
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+    /// The admin named by `set_admin` and not yet accepted, if any.
+    pub fn pending_admin(env: Env) -> Option<Address> {
         extend_instance(&env);
+        env.storage().instance().get(&DataKey::PendingAdmin)
+    }
+
+    /// Step 1 of 2 (Raven R6, UA-06): the current admin names `new_admin`,
+    /// which takes over only when it calls `accept_admin`, so a mistyped
+    /// address cannot lose the feed. Replaces any pending name; naming the
+    /// current admin cancels the handover. Emits `AdminProposed`.
+    pub fn set_admin(env: Env, new_admin: Address) {
+        let admin = read_admin(&env);
+        admin.require_auth();
+        let s = env.storage().instance();
+        if new_admin == admin {
+            s.remove(&DataKey::PendingAdmin);
+        } else {
+            s.set(&DataKey::PendingAdmin, &new_admin);
+        }
+        extend_instance(&env);
+        AdminProposed { pending: new_admin }.publish(&env);
+    }
+
+    /// Step 2 of 2: the pending admin (it signs) becomes the admin. Emits
+    /// `AdminSet`. `NoPendingAdmin` if `set_admin` named nobody.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let s = env.storage().instance();
+        let pending: Address = s.get(&DataKey::PendingAdmin).ok_or(Error::NoPendingAdmin)?;
+        pending.require_auth();
+        let previous = read_admin(&env);
+        s.set(&DataKey::Admin, &pending);
+        s.remove(&DataKey::PendingAdmin);
+        extend_instance(&env);
+        AdminSet {
+            admin: pending,
+            previous,
+        }
+        .publish(&env);
+        Ok(())
     }
 }
 
@@ -230,6 +298,12 @@ fn write_price(env: &Env, asset: Asset, price: i128) -> Result<(), Error> {
     let timestamp = env.ledger().timestamp();
     let resolution = u64::from(read_resolution(env));
     let rec = PriceData { price, timestamp };
+    PriceSet {
+        asset: asset.clone(),
+        price,
+        timestamp,
+    }
+    .publish(env);
     match history.last() {
         Some(newest) if newest.timestamp / resolution >= timestamp / resolution => {
             history.set(history.len() - 1, rec);

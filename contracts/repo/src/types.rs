@@ -1,6 +1,8 @@
 use soroban_sdk::{contracttype, Address, Symbol};
 
-/// Protocol parameters, set once at deploy. Stored in instance storage.
+/// Protocol parameters, set at deploy. Stored in instance storage. Only
+/// `admin` (`transfer_admin` + `accept_admin`) and `guardian`
+/// (`propose_guardian` + `execute_guardian`) can change later (Raven R6).
 ///
 /// All durations are config so the demo can compress time without touching
 /// contract logic (DECISIONS.md #5).
@@ -27,7 +29,9 @@ pub struct Config {
     pub grace_secs: u64,
     /// Can only make things safer, instantly (DECISIONS.md #33): disable an
     /// asset, raise a haircut, lower a cap or NAV age, narrow the NAV band,
-    /// set pause switches, cancel a pending proposal. It can never loosen anything.
+    /// set pause switches, cancel a pending proposal (once per change, Raven
+    /// R6). It can never loosen anything. The admin rotates it with
+    /// `propose_guardian` / `execute_guardian`, which it cannot cancel.
     pub guardian: Address,
     /// Delay between `propose_*` and `execute_*` for every change that adds
     /// risk (DECISIONS.md #33). 172_800 (2 days) in production, 120 in the
@@ -144,6 +148,41 @@ pub struct PendingPause {
     pub pause: Pause,
     /// `execute_pause` works from this ledger timestamp on.
     pub eta: u64,
+}
+
+/// An admin guardian rotation waiting out the timelock (Raven R6, UA-02).
+/// Only the admin can cancel it; the outgoing guardian cannot.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingGuardian {
+    pub guardian: Address,
+    /// `execute_guardian` works from this ledger timestamp on.
+    pub eta: u64,
+}
+
+/// An admin handover started by `transfer_admin`, waiting for the new
+/// admin's `accept_admin` (Raven R6, UA-06). Held in temporary storage and
+/// void after `live_until_ledger`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAdmin {
+    pub admin: Address,
+    pub live_until_ledger: u32,
+}
+
+/// The role holders in force (the same as `config().admin` /
+/// `config().guardian`) and any handover in flight (Raven R6).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Roles {
+    pub admin: Address,
+    pub guardian: Address,
+    /// `transfer_admin`'s nominee and the last ledger it can accept on.
+    pub pending_admin: Option<Address>,
+    pub pending_admin_live_until: Option<u32>,
+    /// `propose_guardian`'s nominee and its `eta`.
+    pub pending_guardian: Option<Address>,
+    pub pending_guardian_eta: Option<u64>,
 }
 
 /// A lender's standing offer. The lender sets only asset, principal, APR and

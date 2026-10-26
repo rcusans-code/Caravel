@@ -31,6 +31,17 @@ pub(crate) const TRIGGER_BPS: u32 = 200;
 /// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
+/// Whitelists `who` the only way the contract allows (Raven UA-03):
+/// `propose_liquidator`, wait out the timelock, `execute_liquidator`. The
+/// ledger clock is put back afterwards, so setup code keeps its timeline.
+pub(crate) fn whitelist(env: &Env, repo: &CaravelRepoClient<'_>, who: &Address) {
+    let now = env.ledger().timestamp();
+    let eta = repo.propose_liquidator(who);
+    env.ledger().set_timestamp(eta);
+    repo.execute_liquidator(who);
+    env.ledger().set_timestamp(now);
+}
+
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
         admin: Address::generate(env),
@@ -210,7 +221,7 @@ fn admin_manages_liquidator_whitelist() {
     let liquidator = Address::generate(&env);
 
     assert!(!client.is_liquidator(&liquidator));
-    client.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &client, &liquidator);
     assert!(client.is_liquidator(&liquidator));
     client.set_liquidator(&liquidator, &false);
     assert!(!client.is_liquidator(&liquidator));
@@ -278,7 +289,7 @@ fn world<'a>() -> World<'a> {
     StellarAssetClient::new(&env, &usdc).mint(&borrower, &(100 * UNIT));
     StellarAssetClient::new(&env, &tbenji).mint(&borrower, &(2_000 * UNIT));
     let liquidator = Address::generate(&env);
-    repo.set_liquidator(&liquidator, &true);
+    crate::test::whitelist(&env, &repo, &liquidator);
     StellarAssetClient::new(&env, &usdc).mint(&liquidator, &(2_000 * UNIT));
 
     World {
