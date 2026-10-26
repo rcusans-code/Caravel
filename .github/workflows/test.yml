@@ -1,0 +1,84 @@
+# Runs every test on push and pull request (Raven audit CT-02). No secrets.
+#   contracts: cargo fmt check, cargo test --workspace, the wasm32v1-none
+#              release build, then a snapshot-drift check: cargo test rewrites
+#              contracts/*/test_snapshots/, so a changed or new snapshot that
+#              was not committed fails the job (CT-03: a TTL or state change
+#              shows up there). Regenerate with `cargo test --workspace`,
+#              review the snapshot diff and commit it.
+#   keeper:    npm ci && npm test (scripts/keeper)
+#   app:       npm ci (postinstall builds the bindings in packages/), npm test,
+#              npm run build:public (demo signer off + secrets check)
+name: Tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      # soroban-sdk 29 refuses a bare `cargo build --target wasm32v1-none`;
+      # same CLI version as the local toolchain (stellar 28.1.0).
+      - uses: stellar/stellar-cli@v28.1.0
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo test --workspace
+        run: cargo test --workspace --locked
+      - name: wasm32v1-none release build (stellar contract build)
+        run: stellar contract build
+      - name: Test snapshots match the committed ones
+        run: |
+          # :(glob) so ** spans test_snapshots/<module>/; --untracked-files=all
+          # so a new snapshot that was never committed counts as drift too.
+          snaps=':(glob)contracts/*/test_snapshots/**'
+          drift="$(git status --porcelain --untracked-files=all -- "$snaps")"
+          if [ -n "$drift" ]; then
+            echo "::error::cargo test changed or added test snapshots that are not committed. Run cargo test --workspace, review the snapshot diff and commit it."
+            echo "$drift" | head -50
+            git diff --stat -- "$snaps" | tail -5
+            exit 1
+          fi
+          echo "test snapshots match the committed ones"
+
+  keeper:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts/keeper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: scripts/keeper/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run build:public
