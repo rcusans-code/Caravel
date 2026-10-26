@@ -143,7 +143,7 @@ stateDiagram-v2
 | `set_pause(asset, Pause { no_new_repos, no_seize })` | admin | — | — | — (instant for switching on; clearing fails with `Loosens`) |
 | `guardian_set_asset(asset, config)`, `guardian_set_pause(asset, pause)` | guardian | — | — | — (tighten only, instant: disable, raise haircut, lower cap or NAV age, narrow the NAV band, switch a pause on) |
 | `propose_asset(asset, config) → eta`, `propose_pause(asset, pause) → eta` | admin | — | — | — (queues any change, loosening included, for `timelock_secs`) |
-| `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` | — | — | — |
+| `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` until `eta + timelock_secs` (`ProposalExpired` after) | — | — | — |
 | `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin or guardian, any time | — | — | — |
 | `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `is_liquidator(who)`, `claimable(who)` | anyone | read only | — | — |
 
@@ -159,7 +159,7 @@ Every state-changing call checks status first and fails with a named error other
 | `AssetChangeProposed` | asset | eta, haircut_bps, margin_trigger_bps, enabled, max_nav_age_secs, max_nav_move_bps, nav_floor, nav_ceiling, max_open_debt, band_settle_secs |
 | `PauseChangeProposed` | asset | eta, no_new_repos, no_seize |
 | `ProposalExecuted` | asset, kind (`asset` / `pause`) | — (followed by `AssetConfigured` / `PauseSet`) |
-| `ProposalCancelled` | asset, kind | by (cancelled, or superseded by an instant change) |
+| `ProposalCancelled` | asset, kind | by (cancelled, replaced by a new proposal, or superseded by an instant change) |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
 | `RepoOpened` | repo_id, offer_id | lender, borrower, collateral_asset, collateral_amount, principal, interest, haircut_bps, maturity_ts |
@@ -189,7 +189,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Pause switches stop one action each, never an exit** (DECISIONS #30). `no_new_repos` blocks offers and takes; `no_seize` blocks `default` and `liquidate`, with the clock still running so seizure goes as soon as it clears. `repay` and `top_up` work under both.
 - **A frozen account never traps the other side.** Every USDC payout from a settlement (lender, treasury, borrower surplus) is tried and, if the recipient cannot receive it (Circle freeze, closed trustline), parked in the contract for that recipient's `claim`; the repay, auto-repay or liquidation still lands. Collateral payouts stay direct (DECISIONS #24): an auto-repay that cannot return the collateral refunds the USDC and the repo defaults instead.
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
-- **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta`, and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
+- **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta` until `eta + timelock_secs` (then it expires), and admin or guardian can `cancel_*` it any time. An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
 `cargo test --workspace` runs 241 tests (14 oracle, 217 repo, 10 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
@@ -279,13 +279,13 @@ npm run build:public              # production build, demo signer off, secrets c
 <!-- testnet-ids:start: written by scripts/readme-ids.py from deployments/testnet.json; edits here are overwritten -->
 | Contract | ID |
 |---|---|
-| Repo (Caravel) | [`CD4Q2QTOIRJOUPKK46N5MZMTRQXZVOO6N5FRXHK3BEBBPDSXQNQMK6YN`](https://stellar.expert/explorer/testnet/contract/CD4Q2QTOIRJOUPKK46N5MZMTRQXZVOO6N5FRXHK3BEBBPDSXQNQMK6YN) |
+| Repo (Caravel) | [`CBWTB23F5PQTGX2QYOA3FJB3M6ZHDRCTT33XFKHXFD5SJJFTJEA7YTD6`](https://stellar.expert/explorer/testnet/contract/CBWTB23F5PQTGX2QYOA3FJB3M6ZHDRCTT33XFKHXFD5SJJFTJEA7YTD6) |
 | Price feed (mock SEP-40) | [`CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR`](https://stellar.expert/explorer/testnet/contract/CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR) |
 | USDC SAC (Circle testnet USDC) | [`CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`](https://stellar.expert/explorer/testnet/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA) |
 | tBENJI SAC (AUTH_REQUIRED) | [`CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX`](https://stellar.expert/explorer/testnet/contract/CBC7SGLXRLNFXK5S33XL7PQ2YBT3NMT5W5EOW5PLOMLIIGBNGACKXBXX) |
 | tSAFO (Spiko-style mock, 5 decimals) | [`CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2`](https://stellar.expert/explorer/testnet/contract/CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2) |
 
-Deployed 2026-10-26T07:22:39Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
+Deployed 2026-10-26T08:27:35Z. The app and the keeper read the same ids from [deployments/testnet.json](deployments/testnet.json) and `.env`.
 <!-- testnet-ids:end -->
 
 ## Risks and limits

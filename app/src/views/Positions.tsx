@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
-import type { ProtocolConfig, Repo, Status } from "../chain";
+import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
 import { BPS, collateralDecimals, collateralValue, coverPct, fmtAmount, fmtCountdown, fmtNav, fmtPct, parseAmount, requiredCollateral } from "../format";
 import { Alert, DvpReceipt, Field, Skel, StatusPill, Tip, TxHash, TxProgress, useFlash } from "../ui";
-import { collateralBlock, navBlock, topUpHoldText, usdcBlock } from "../gates";
+import { NAV_OUTAGE_DAYS, collateralBlock, fmtDuration, inKindWindow, navBlock, topUpHoldText, usdcBlock } from "../gates";
 import { CONNECT, type Ctx, type Receipt } from "../ctx";
 
 export function PositionsView({
@@ -270,6 +270,17 @@ function PositionCard({
   }, [nav, dec, debt, repo]);
   const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
+  // NAV outage fallback (#38): liquidate needs a fresh NAV; after 7 stale days the lender may take the collateral in kind.
+  const assetCfg = ctx.assets[repo.collateral_asset] ?? null;
+  const win = repo.status === "Defaulted" ? inKindWindow(nav, assetCfg, config.day_secs, now) : null;
+  const outageOpen = win?.state === "open";
+  const outageWaiting = win?.state === "waiting";
+  const opensAtText =
+    win?.opensAt != null ? new Date(win.opensAt * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
+  const outageSpan = `${NAV_OUTAGE_DAYS} ${Number(config.day_secs) >= 86_400 ? "days" : "demo days"}`;
+  const navAgeText = assetCfg ? fmtDuration(assetCfg.max_nav_age_secs) : "its maximum age";
+  // undefined = sold; null = events not read, so the card does not guess.
+  const claimedInKind = repo.status !== "Liquidated" ? undefined : ctx.inKind === null ? null : ctx.inKind.get(String(repo.id));
   const live = repo.status === "Open" || repo.status === "MarginCall";
   // repay also works out of Defaulted until a liquidation lands; top-up and auto-repay do not.
   const repayable = live || repo.status === "Defaulted";
@@ -337,6 +348,23 @@ function PositionCard({
       });
   };
 
+  const doClaimInKind = async () => {
+    if (!signer) return;
+    const out = await ctx.run(`inkind-${repo.id}`, `Repo #${repo.id} not claimed in kind`, () => chain.claimInKind(signer, repo.id));
+    if (!out) return;
+    // The claim lands even when the token refuses the push: then it is parked for claim_collateral.
+    const parkedNow = (await chain.getClaimableCollateral(signer.address).catch(() => ({}) as Record<string, bigint>))[repo.collateral_asset] ?? 0n;
+    ctx.setFlash({
+      tone: "info",
+      title: `Repo #${String(repo.id).padStart(3, "0")} claimed in kind`,
+      body:
+        parkedNow > 0n
+          ? `${amt(out.value)} ${token.code} is yours, but ${token.code} refused the transfer to this account, so the contract parked it: claim it above, to this account or to a custody account. The debt is closed.`
+          : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${fmtAmount(debt)} USDC debt is closed.`,
+      hash: out.hash,
+    });
+  };
+
   const doRepay = async () => {
     if (!signer) return;
     const out = await ctx.run(`repay-${repo.id}`, `Repo #${repo.id} not repaid`, () => chain.repay(signer, repo.id));
@@ -382,11 +410,27 @@ function PositionCard({
           )}
         </Alert>
       )}
-      {repo.status === "Defaulted" && (
+      {repo.status === "Defaulted" && !outageOpen && !outageWaiting && (
         <Alert tone="info" title="Awaiting liquidation">
           {side === "lent"
             ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt. Until then the borrower can still repay you in full.`
             : `This repo was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${fmtAmount(debt)} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
+        </Alert>
+      )}
+      {outageWaiting && (
+        <Alert tone="margin" title="Liquidation blocked: stale NAV">
+          {`The ${token.code} price is over ${navAgeText} old, so no liquidator can buy the collateral. `}
+          {side === "lent"
+            ? `If it stays stale, you can claim all ${amt(repo.collateral_amount)} ${token.code} in kind from ${opensAtText}, ${outageSpan} after the NAV went stale. The borrower can still repay you until then.`
+            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} USDC before then to get it back.`}
+        </Alert>
+      )}
+      {outageOpen && (
+        <Alert tone="margin" title={side === "lent" ? "Claim the collateral in kind" : "The lender can take your collateral in kind"}>
+          {`The ${token.code} NAV has been stale for over ${outageSpan}, so liquidation stays blocked. `}
+          {side === "lent"
+            ? `You can take all ${amt(repo.collateral_amount)} ${token.code} instead of USDC: no sale, no fee, and the ${fmtAmount(debt)} USDC debt closes. The borrower can still repay you until you claim.`
+            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it back.`}
         </Alert>
       )}
         <div>
@@ -426,8 +470,11 @@ function PositionCard({
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? (outageOpen ? "In-kind claim open" : outageWaiting ? "In-kind claim opens in" : "Liquidation pending") : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
           </span>
+          {outageWaiting && win?.opensAt != null && (
+            <span className="cv-countdown__time">{fmtCountdown(win.opensAt - now, Number(config.day_secs))}</span>
+          )}
           {live && !(pastGrace && !inMarginCall) && (
             <span className="cv-countdown__time">
               {inMarginCall && toDeadline !== null
@@ -460,7 +507,20 @@ function PositionCard({
             {busy === `declare-${repo.id}` ? "Declaring" : "Declare default"}
           </button>
         )}
+        {outageOpen && side === "lent" && (
+          <button
+            type="button"
+            className="cv-btn cv-btn--primary cv-btn--sm"
+            disabled={!!busy}
+            title={`Sends claim_in_kind: the ${token.code} comes to you and the repo closes as Liquidated`}
+            onClick={doClaimInKind}
+            data-action="claim-in-kind"
+          >
+            {busy === `inkind-${repo.id}` ? "Claiming" : "Claim collateral in kind"}
+          </button>
+        )}
       </div>
+      {ctx.tx?.key === `inkind-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {ctx.tx?.key === `declare-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {pastGrace && side === "borrowed" && (
@@ -536,17 +596,33 @@ function PositionCard({
         />
       )}
       {ctx.tx?.key === `auto-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config)}</p>}
+      {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config, claimedInKind)}</p>}
+      {repo.status === "Liquidated" && side === "lent" && <p className="cv-field__hint">{lenderLiquidated(repo, config, claimedInKind)}</p>}
     </article>
   );
 }
 
-/** What a settled repo meant for the borrower, so a closed card never just says "Closed". */
-const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig) => string>> = {
+/** What a settled repo meant for the borrower, so a closed card never just says "Closed". `k` = its ClaimedInKind event, if any. */
+const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindClaim | null) => string>> = {
   Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount, 2, assetBySac(r.collateral_asset).decimals)} ${assetBySac(r.collateral_asset).code} returned to this wallet.`,
-  Liquidated: (r, c) =>
-    `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
+  Liquidated: (r, c, k) =>
+    k === null
+      ? "Liquidated: not repaid in time."
+      : k
+      ? `Claimed in kind: not repaid in time while the ${assetBySac(r.collateral_asset).code} NAV was stale, so the lender took the collateral itself. There was no sale, so no surplus came back.`
+      : `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
 };
+
+/** The lender's line on a Liquidated repo: sold for USDC, or taken in kind (#38). */
+function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim | null): string {
+  const t = assetBySac(r.collateral_asset);
+  if (k === null) return "Liquidated: the borrower did not repay in time.";
+  if (!k) return `Liquidated: the ${t.code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)} and the USDC paid you first, up to the debt.`;
+  const amt = `${fmtAmount(k.amount, 2, t.decimals)} ${t.code}`;
+  return k.parked
+    ? `Claimed in kind: ${amt} is yours instead of USDC. ${t.code} refused the transfer to this account, so it was parked for you to claim.`
+    : `Claimed in kind: ${amt} went to this wallet instead of USDC. No sale, no fee; the debt is closed.`;
+}
 
 export function AutoRepayToggle({ checked, disabled, busy, onChange, hint }: { checked: boolean; disabled?: boolean; busy?: boolean; onChange: (v: boolean) => void; hint: string }) {
   return (

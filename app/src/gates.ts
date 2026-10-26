@@ -174,6 +174,38 @@ export function navBlock(code: string, h: NavHealth, asset: BandAsset | null): s
   return navHoldText(code, h, asset);
 }
 
+// --- NAV outage fallback: the lender's in-kind claim (DECISIONS.md #38) ------
+// Mirrors contracts/repo/src/inkind.rs `nav_outage`.
+
+/** Contract days a NAV must be stale before `claim_in_kind` opens (inkind.rs NAV_OUTAGE_DAYS). */
+export const NAV_OUTAGE_DAYS = 7;
+
+export interface InKindWindow {
+  /**
+   * none: no price, so the window never opens (NoPrice) · fresh: the NAV is
+   * fresh, a liquidator sells the collateral · waiting: stale, not long
+   * enough yet (NoNavOutage) · open: `claim_in_kind` succeeds.
+   */
+  state: "none" | "fresh" | "waiting" | "open";
+  /** Ledger second from which the claim succeeds (the contract wants now > last NAV ts + max age + 7 days); null without a price. */
+  opensAt: number | null;
+}
+
+/** When the lender of a Defaulted repo may take its collateral in kind, at ledger time `now`. */
+export function inKindWindow(
+  nav: Nav | null,
+  asset: Pick<AssetConfig, "max_nav_age_secs"> | null,
+  daySecs: number | bigint,
+  now: number,
+): InKindWindow {
+  if (!nav || nav.price <= 0n || !asset) return { state: "none", opensAt: null };
+  const ts = Number(nav.timestamp);
+  const opensAt = ts + Number(asset.max_nav_age_secs) + NAV_OUTAGE_DAYS * Number(daySecs) + 1;
+  if (now >= opensAt) return { state: "open", opensAt };
+  // fresh_nav's staleness (a future-dated price counts as fresh).
+  return { state: now - ts > Number(asset.max_nav_age_secs) ? "waiting" : "fresh", opensAt };
+}
+
 /** Why Take is blocked by the NAV, or null. */
 export const takeNavBlock = (code: string, h: NavHealth, asset: BandAsset | null) => navBlock(code, h, asset);
 
