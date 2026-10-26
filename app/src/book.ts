@@ -3,8 +3,11 @@
 // (landing.ts), so both show the same offers and repos.
 import { Account, Address, BASE_FEE, Contract, TransactionBuilder, contract as sdkContract, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { NETWORK_PASSPHRASE, REPO_ID, RPC_URL } from "./config";
+import { bounded } from "./net";
 
-export const server = new rpc.Server(RPC_URL);
+// One RPC client for every read and write, with a per-request timeout (Raven Q-01):
+// a hung RPC fails the read with an error instead of leaving stale data on screen.
+export const server = bounded(new rpc.Server(RPC_URL));
 
 // --- types (normalised from on-chain structs, contracts/repo/src/types.rs) ----
 

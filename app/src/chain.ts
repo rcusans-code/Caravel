@@ -26,11 +26,14 @@ import type { Signer } from "./wallet";
 import {
   SIGN_TIMEOUT_MS,
   addTrustlinesWithRetry,
+  boundedSign,
   signOnce,
   type TrustCode,
   type TrustResult,
   type WalletSignError,
 } from "./trustline";
+import { FRIENDBOT_TIMEOUT_MS, HORIZON_TIMEOUT_MS, fetchWithin } from "./net";
+import { TxError, friendbotAlreadyFunded, sendAssembled, sendClassic, txHashOf, type AssembledLike } from "./txerror";
 
 // The order book reads live in book.ts (shared with the landing page's live deals).
 export { getBook, getCounters, server } from "./book";
@@ -77,6 +80,8 @@ export interface Balances {
   exists: boolean;
   xlm: bigint;
   usdc: bigint | null; // null = no trustline
+  /** USDC trustline authorized by its issuer; false = frozen (Raven AS-04) or no line. */
+  usdcAuthorized: boolean;
   tbenji: bigint | null;
   tbenjiAuthorized: boolean;
   /** tSAFO units (5 decimals); null when tSAFO is not deployed. No trustline. */
@@ -92,9 +97,10 @@ export function holding(b: Balances, sac: string): { amount: bigint | null; allo
 }
 
 // --- read-only clients (simulation needs no signer) ----------------------------
+// Every client shares book.ts's `server`, which carries the RPC timeout (Raven Q-01).
 
-const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
-const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL });
+const readRepo = new RepoClient({ contractId: REPO_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL, server });
+const readOracle = new OracleClient({ contractId: ORACLE_ID, networkPassphrase: NETWORK_PASSPHRASE, rpcUrl: RPC_URL, server });
 const oracleAsset = (sac: string) => ({ tag: "Stellar" as const, values: [sac] as const });
 
 export async function getConfig(): Promise<ProtocolConfig> {
@@ -209,9 +215,18 @@ export async function getLedgerTime(): Promise<number> {
 // --- balances (classic trustlines, via Horizon) -------------------------------
 
 export async function getBalances(address: string): Promise<Balances> {
-  const res = await fetch(`${HORIZON_URL}/accounts/${address}`);
+  const res = await fetchWithin(`${HORIZON_URL}/accounts/${address}`, HORIZON_TIMEOUT_MS);
   if (res.status === 404)
-    return { exists: false, xlm: 0n, usdc: null, tbenji: null, tbenjiAuthorized: false, tsafo: TSAFO ? 0n : null, tsafoAllowed: false };
+    return {
+      exists: false,
+      xlm: 0n,
+      usdc: null,
+      usdcAuthorized: false,
+      tbenji: null,
+      tbenjiAuthorized: false,
+      tsafo: TSAFO ? 0n : null,
+      tsafoAllowed: false,
+    };
   if (!res.ok) throw new Error(`Horizon ${res.status}`);
   const acc = (await res.json()) as {
     balances: { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string; is_authorized?: boolean }[];
@@ -232,6 +247,7 @@ export async function getBalances(address: string): Promise<Balances> {
     exists: true,
     xlm: native ? horizonToUnits(native.balance) : 0n,
     usdc: u ? horizonToUnits(u.balance) : null,
+    usdcAuthorized: !!u?.is_authorized,
     tbenji: t ? horizonToUnits(t.balance) : null,
     tbenjiAuthorized: !!t?.is_authorized,
     tsafo,
@@ -239,9 +255,12 @@ export async function getBalances(address: string): Promise<Balances> {
   };
 }
 
+/** Funds a new testnet account. "Already exists" (a second click while the first funds it) counts as success (DW-05). */
 export async function friendbot(address: string) {
-  const res = await fetch(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`);
-  if (!res.ok) throw new Error("Friendbot did not fund the account. Try again in a minute.");
+  const res = await fetchWithin(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`, FRIENDBOT_TIMEOUT_MS);
+  if (res.ok) return;
+  if (friendbotAlreadyFunded(res.status, await res.text().catch(() => ""))) return;
+  throw new Error("Friendbot did not fund the account. Try again in a minute.");
 }
 
 // --- writes ---------------------------------------------------------------------
@@ -254,26 +273,26 @@ export interface TxOutcome<T> {
 const clientOpts = (signer: Signer) => ({
   networkPassphrase: NETWORK_PASSPHRASE,
   rpcUrl: RPC_URL,
+  server,
   publicKey: signer.address,
-  // Report the wallet step to the UI (TxProgress): sign while the signer is open, submit once it returns.
-  signTransaction: async (...args: Parameters<Signer["signTransaction"]>) => {
-    emitPhase("sign");
-    const out = await signer.signTransaction(...args);
-    emitPhase("submit");
-    return out;
-  },
+  // Report the wallet step to the UI (TxProgress): sign while the signer is open, submit once it
+  // returns. A wallet that never answers fails after 120 s instead of holding the app busy (DW-04).
+  signTransaction: boundedSign(signer.signTransaction, (p) => emitPhase(p)),
 });
 
 type Unwrappable<T> = { isErr(): boolean; unwrap(): T; unwrapErr?(): { message: string } };
 
+/**
+ * Simulation errors throw before any wallet prompt. After signing, sendAssembled
+ * reports the hash as soon as the network accepts the tx and keeps it on every
+ * failure (TxError), checking the status before reading the result (DW-02).
+ */
 async function submit<R>(tx: contract.AssembledTransaction<R>): Promise<TxOutcome<R>> {
   const sim = tx.simulation;
   if (sim && rpc.Api.isSimulationError(sim as rpc.Api.SimulateTransactionResponse)) {
     throw new Error((sim as rpc.Api.SimulateTransactionErrorResponse).error);
   }
-  const sent = await tx.signAndSend();
-  const hash = sent.getTransactionResponse?.txHash ?? sent.sendTransactionResponse?.hash ?? "";
-  return { hash, value: sent.result };
+  return sendAssembled(tx as unknown as AssembledLike<R>, (hash) => emitPhase("submit", hash));
 }
 
 function unwrapResult<T>(r: unknown): T {
@@ -382,7 +401,10 @@ export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promi
     const settledElsewhere =
       /Error\(Contract, #7\)/.test(msg) || (await getRepoStatus(repo.id).catch(() => null))?.match(/^(Repaid|Defaulted|Liquidated)$/);
     if (settledElsewhere)
-      throw new Error(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`);
+      throw new TxError(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`, {
+        hash: txHashOf(e),
+        stage: "failed",
+      });
     throw e;
   }
 }
@@ -533,7 +555,9 @@ export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise
     const a = code === "USDC" ? USDC : TBENJI;
     b.addOperation(Operation.changeTrust({ asset: new ClassicAsset(a.code, a.issuer) }));
   }
-  const tx = b.setTimeout(SIGN_TIMEOUT_MS / 1000).build();
+  // The timebound starts before the prompt: leave 60 s after the longest signature so a
+  // slow (but answered) wallet does not land as txTooLate.
+  const tx = b.setTimeout(SIGN_TIMEOUT_MS / 1000 + 60).build();
   emitPhase("sign");
   const signedTxXdr = await signOnce(async () =>
     (await signer.signTransaction(tx.toXDR(), { networkPassphrase: NETWORK_PASSPHRASE, address: signer.address }))
@@ -541,11 +565,9 @@ export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise
   );
   emitPhase("submit");
   const signed = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
-  const sent = await server.sendTransaction(signed);
-  if (sent.status === "ERROR") throw new Error(`Trustline tx rejected: ${sent.errorResult?.result().switch().name}`);
-  const done = await server.pollTransaction(sent.hash, { attempts: 20 });
-  if (done.status !== "SUCCESS") throw new Error(`Trustline tx ${done.status}`);
-  return { hash: sent.hash, value: null };
+  // ERROR -> "Trustline tx not accepted: <code>", FAILED -> decoded op code (e.g. low reserve), hash kept (DW-01).
+  const hash = await sendClassic(server, signed, "Trustline tx", (h) => emitPhase("submit", h));
+  return { hash, value: null };
 }
 
 /**

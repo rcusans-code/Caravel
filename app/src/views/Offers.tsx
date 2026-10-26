@@ -4,7 +4,7 @@ import * as chain from "../chain";
 import type { Offer } from "../chain";
 import { BPS, collateralDecimals, fmtAmount, fmtNav, fmtPct, fmtTerm, interest as calcInterest, requiredCollateral } from "../format";
 import { Alert, DvpReceipt, Skel, Tip, TxHash, TxProgress } from "../ui";
-import { autoRepayHint, collateralBlock, takeNavBlock } from "../gates";
+import { autoRepayHint, collateralBlock, takeNavBlock, usdcBlock } from "../gates";
 import { CONNECT, type Ctx, type Receipt } from "../ctx";
 import { AutoRepayToggle } from "./Positions";
 
@@ -193,6 +193,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
         : `This loan would take ${token.code} past its exposure cap: ${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} USDC used, this loan adds ${fmtAmount(debt)}.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
+  else if (usdcBlock(balances)) block = usdcBlock(balances);
   else if (held && collateral !== null && (held.amount ?? 0n) < collateral)
     block = `You need ${amt(collateral)} ${token.code} and hold ${amt(held.amount ?? 0n)} ${token.code}.`;
 

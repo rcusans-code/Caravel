@@ -1,5 +1,6 @@
 import { TBENJI_SAC, TSAFO, USDC_SAC, ORACLE_ID } from "./config";
 import { staleNavText } from "./gates";
+import { txText } from "./txerror";
 
 // contracts/repo/src/errors.rs
 const REPO_ERRORS: Record<number, string> = {
@@ -44,7 +45,8 @@ const TOKEN_ERRORS: Record<number, string> = {
   6: "The account does not exist on testnet. Fund it with friendbot first.",
   8: "Amounts must be positive.",
   10: "Not enough balance for this transfer.",
-  11: "This account is not authorized to hold the asset. tBENJI is AUTH_REQUIRED: the issuer must authorize the account.",
+  // Asset-neutral (Raven AS-04): the frozen asset can be USDC as well as tBENJI; explain() prefixes the token.
+  11: "This account is not authorized for this asset: the issuer has not authorized its trustline, or has frozen it.",
   13: "The account has no trustline for this asset. Add the trustline, then try again.",
 };
 
@@ -59,6 +61,10 @@ export function explain(err: unknown, navAges: { code: string; secs: number | bi
   const raw = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
   const msg = raw ?? "";
 
+  // Network result codes (txTooLate, txBadSeq, low reserve …) and still-pending
+  // writes first (Raven DW-01/DW-02): a refused tx is not a wallet decline.
+  const tx = txText(err);
+  if (tx) return tx;
   if (/declin|reject|denied|cancel+ed|user closed|not allowed/i.test(msg))
     return "You rejected the request in your wallet. Nothing was sent.";
   if (/network passphrase|wrong network|networkPassphrase/i.test(msg))

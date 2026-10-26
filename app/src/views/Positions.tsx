@@ -4,7 +4,7 @@ import * as chain from "../chain";
 import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
 import { BPS, collateralDecimals, collateralValue, coverPct, fmtAmount, fmtCountdown, fmtNav, fmtPct, parseAmount, requiredCollateral } from "../format";
 import { Alert, DvpReceipt, Field, Skel, StatusPill, Tip, TxHash, TxProgress, useFlash } from "../ui";
-import { NAV_OUTAGE_DAYS, collateralBlock, fmtDuration, inKindWindow, navBlock, topUpHoldText } from "../gates";
+import { NAV_OUTAGE_DAYS, collateralBlock, fmtDuration, inKindWindow, navBlock, topUpHoldText, usdcBlock } from "../gates";
 import { CONNECT, type Ctx, type Receipt } from "../ctx";
 
 export function PositionsView({
@@ -296,6 +296,8 @@ function PositionCard({
   // Only the lender declares default; the contract's `default` auto-repays an opted-in borrower first.
   const canDeclareDefault = pastGrace && !!signer && side === "lent";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
+  // A frozen USDC line cannot pay the debt (Raven AS-04).
+  const frozen = canRepay ? usdcBlock(balances) : null;
   const canTopUp = live && canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
   const topUpAmount = parseAmount(topUpText, token.decimals);
@@ -312,13 +314,23 @@ function PositionCard({
         tone: "info",
         title: `Topped up Repo #${String(repo.id).padStart(3, "0")}`,
         body: `Added ${amt(topUpAmount)} ${token.code}. ${inMarginCall ? (topUpHold ?? "The margin call clears once collateral is back at the initial margin.") : ""}`,
+        hash: out.hash,
       });
     }
   };
 
   const toggleAuto = async (enabled: boolean) => {
     if (!signer) return;
-    await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () => chain.setAutoRepay(signer, repo.id, enabled));
+    const out = await ctx.run(`auto-${repo.id}`, `Auto-repay not ${enabled ? "turned on" : "turned off"}`, () =>
+      chain.setAutoRepay(signer, repo.id, enabled),
+    );
+    if (out)
+      ctx.setFlash({
+        tone: "info",
+        title: `Auto-repay ${enabled ? "on" : "off"} for Repo #${String(repo.id).padStart(3, "0")}`,
+        body: enabled ? `At maturity ${fmtAmount(debt)} USDC is pulled from this wallet.` : "Repay by hand before maturity plus grace.",
+        hash: out.hash,
+      });
   };
 
   const doDeclareDefault = async () => {
@@ -332,6 +344,7 @@ function PositionCard({
           out.value === "Repaid"
             ? `The borrower had auto-repay on: it pulled ${fmtAmount(debt)} USDC from them and your loan is repaid.`
             : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
+        hash: out.hash,
       });
   };
 
@@ -348,6 +361,7 @@ function PositionCard({
         parkedNow > 0n
           ? `${amt(out.value)} ${token.code} is yours, but ${token.code} refused the transfer to this account, so the contract parked it: claim it above, to this account or to a custody account. The debt is closed.`
           : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${fmtAmount(debt)} USDC debt is closed.`,
+      hash: out.hash,
     });
   };
 
@@ -473,8 +487,8 @@ function PositionCard({
           <button
             type="button"
             className={`cv-btn ${primary && !canTopUp ? "cv-btn--primary" : "cv-btn--secondary"} cv-btn--sm`}
-            disabled={!!busy || !!short || !mayHold}
-            title={mayHold ? "" : holdBlock}
+            disabled={!!busy || !!short || !mayHold || !!frozen}
+            title={frozen ?? (mayHold ? "" : holdBlock)}
             onClick={doRepay}
             data-action="repay"
           >
@@ -559,7 +573,9 @@ function PositionCard({
       )}
       {canRepay && (
         <p className="cv-field__hint">
-          {short
+          {frozen
+            ? frozen
+            : short
             ? `Repay needs ${fmtAmount(debt)} USDC; you hold ${fmtAmount(balances!.usdc!)} USDC.`
             : `Repay ${fmtAmount(debt)} USDC to close Repo #${String(repo.id).padStart(3, "0")} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
         </p>

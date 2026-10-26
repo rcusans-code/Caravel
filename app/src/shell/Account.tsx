@@ -6,7 +6,7 @@ import type { Balances } from "../chain";
 import { fmtAmount } from "../format";
 import { Alert, Skel, TxHash, useFlash } from "../ui";
 import { trustlineUi } from "../trustline";
-import { ACCESS_LIMITED, collateralBlock } from "../gates";
+import { ACCESS_LIMITED, collateralBlock, usdcBlock } from "../gates";
 import type { Signer } from "../wallet";
 import type { Ctx } from "../ctx";
 
@@ -67,7 +67,7 @@ export function AccountAlerts({
       });
       setFlash(
         r.added.length > 0
-          ? { tone: "info", title: "Trustline added", body: `${r.added.join(" + ")} trustline in place.` }
+          ? { tone: "info", title: "Trustline added", body: `${r.added.join(" + ")} trustline in place.`, hash: r.hash }
           : null,
       );
       return r;
@@ -87,11 +87,18 @@ export function AccountAlerts({
   const onClaim = () =>
     run("claim", "USDC not claimed", async () => {
       const r = await chain.claim(signer);
-      setFlash({ tone: "info", title: "USDC claimed", body: `${fmtAmount(r.value)} USDC sent to your account.` });
+      setFlash({ tone: "info", title: "USDC claimed", body: `${fmtAmount(r.value)} USDC sent to your account.`, hash: r.hash });
       return r;
     });
+  // USDC line frozen by its issuer (Raven AS-04): say so, and claim cannot land.
+  const frozen = usdcBlock(balances);
   return (
     <>
+      {frozen && (
+        <Alert tone="margin" title="USDC frozen by its issuer">
+          {frozen}
+        </Alert>
+      )}
       {claimable > 0n && (
         <Alert
           tone="info"
@@ -101,7 +108,8 @@ export function AccountAlerts({
               type="button"
               className="cv-btn cv-btn--primary cv-btn--sm"
               data-action="claim"
-              disabled={busy === "claim"}
+              disabled={!!busy || !!frozen}
+              title={frozen ?? undefined}
               aria-busy={busy === "claim" ? "true" : undefined}
               onClick={onClaim}
             >
@@ -133,9 +141,13 @@ export function AccountAlerts({
             <button
               type="button"
               className="cv-btn cv-btn--secondary cv-btn--sm"
+              data-action="friendbot"
+              // One request at a time (DW-05): a second click used to turn a funded account into "Friendbot failed".
+              disabled={!!busy}
+              aria-busy={busy === "fund" ? "true" : undefined}
               onClick={() => run("fund", "Friendbot failed", () => chain.friendbot(signer.address)).then(refresh)}
             >
-              Fund with friendbot
+              {busy === "fund" ? "Funding…" : "Fund with friendbot"}
             </button>
           }
         >
@@ -212,6 +224,7 @@ function ParkedCollateral({
         tone: "info",
         title: `${token.code} claimed`,
         body: `${fmtAmount(r.value, 2, token.decimals)} ${token.code} sent to ${dest ? `${dest.slice(0, 4)}…${dest.slice(-4)}` : "your account"}.`,
+        hash: r.hash,
       });
       return r;
     });
