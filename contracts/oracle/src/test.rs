@@ -18,7 +18,10 @@ struct Setup {
 }
 
 fn setup() -> Setup {
-    let env = Env::default();
+    setup_in(Env::default())
+}
+
+fn setup_in(env: Env) -> Setup {
     env.ledger().set_timestamp(1_000);
     let admin = Address::generate(&env);
     let id = env.register(
@@ -121,9 +124,9 @@ fn non_admin_set_price_fails() {
 }
 
 #[test]
-fn no_auth_set_price_at_fails() {
+fn no_auth_set_price_fails() {
     let s = setup();
-    assert!(s.client.try_set_price_at(&s.tbenji, &ONE, &10).is_err());
+    assert!(s.client.try_set_price(&s.tbenji, &ONE).is_err());
 }
 
 #[test]
@@ -146,13 +149,13 @@ fn prices_newest_first_and_capped() {
     let s = setup();
     s.env.mock_all_auths();
     for i in 0..3u64 {
-        s.env.ledger().set_timestamp(1_000 + i * 60);
+        s.env.ledger().set_timestamp(1_000 + i * 300);
         s.client.set_price(&s.tbenji, &(ONE + i as i128));
     }
     let all = s.client.prices(&s.tbenji, &10).unwrap();
     assert_eq!(all.len(), 3);
     assert_eq!(all.get(0).unwrap().price, ONE + 2);
-    assert_eq!(all.get(0).unwrap().timestamp, 1_120);
+    assert_eq!(all.get(0).unwrap().timestamp, 1_600);
     assert_eq!(all.get(2).unwrap().price, ONE);
     let two = s.client.prices(&s.tbenji, &2).unwrap();
     assert_eq!(two.len(), 2);
@@ -165,7 +168,7 @@ fn history_trimmed_to_max() {
     let s = setup();
     s.env.mock_all_auths();
     for i in 0..(MAX_HISTORY as u64 + 5) {
-        s.env.ledger().set_timestamp(1_000 + i);
+        s.env.ledger().set_timestamp(1_000 + i * 300);
         s.client.set_price(&s.tbenji, &(ONE + i as i128));
     }
     let all = s.client.prices(&s.tbenji, &100).unwrap();
@@ -178,49 +181,106 @@ fn history_trimmed_to_max() {
 fn price_at_timestamp_lookup() {
     let s = setup();
     s.env.mock_all_auths();
-    s.client.set_price_at(&s.tbenji, &ONE, &100);
-    s.client.set_price_at(&s.tbenji, &(ONE * 2), &200);
-    s.client.set_price_at(&s.tbenji, &(ONE * 3), &300);
+    for (ts, price) in [(1_200, ONE), (1_500, ONE * 2), (1_800, ONE * 3)] {
+        s.env.ledger().set_timestamp(ts);
+        s.client.set_price(&s.tbenji, &price);
+    }
 
-    assert_eq!(s.client.price(&s.tbenji, &99), None);
-    assert_eq!(s.client.price(&s.tbenji, &100).unwrap().price, ONE);
-    assert_eq!(s.client.price(&s.tbenji, &199).unwrap().price, ONE);
-    assert_eq!(s.client.price(&s.tbenji, &250).unwrap().price, ONE * 2);
+    assert_eq!(s.client.price(&s.tbenji, &1_199), None);
+    assert_eq!(s.client.price(&s.tbenji, &1_200).unwrap().price, ONE);
+    assert_eq!(s.client.price(&s.tbenji, &1_499).unwrap().price, ONE);
+    assert_eq!(s.client.price(&s.tbenji, &1_650).unwrap().price, ONE * 2);
     assert_eq!(
         s.client.price(&s.tbenji, &10_000),
         Some(PriceData {
             price: ONE * 3,
-            timestamp: 300
+            timestamp: 1_800
         })
     );
 }
 
+/// A second push inside the newest record's resolution slot replaces that
+/// record (price and timestamp); the older records stay.
 #[test]
-fn set_price_at_out_of_order_and_overwrite() {
+fn same_slot_push_replaces_only_the_newest_record() {
     let s = setup();
     s.env.mock_all_auths();
-    s.client.set_price_at(&s.tbenji, &(ONE * 3), &300);
-    s.client.set_price_at(&s.tbenji, &ONE, &100);
-    s.client.set_price_at(&s.tbenji, &(ONE * 2), &200);
-    s.client.set_price_at(&s.tbenji, &(ONE * 4), &200); // overwrite
+    s.env.ledger().set_timestamp(1_200); // slot 4
+    s.client.set_price(&s.tbenji, &ONE);
+    s.env.ledger().set_timestamp(1_500); // slot 5
+    s.client.set_price(&s.tbenji, &(ONE * 2));
+    s.env.ledger().set_timestamp(1_799); // still slot 5
+    s.client.set_price(&s.tbenji, &(ONE * 3));
 
     let all = s.client.prices(&s.tbenji, &10).unwrap();
-    assert_eq!(all.len(), 3);
-    assert_eq!(all.get(0).unwrap().timestamp, 300);
-    assert_eq!(all.get(1).unwrap().price, ONE * 4);
-    assert_eq!(all.get(2).unwrap().timestamp, 100);
-    // An old timestamp does not displace the latest price.
-    assert_eq!(s.client.lastprice(&s.tbenji).unwrap().timestamp, 300);
+    assert_eq!(all.len(), 2);
+    assert_eq!(
+        all.get(0).unwrap(),
+        PriceData {
+            price: ONE * 3,
+            timestamp: 1_799
+        }
+    );
+    assert_eq!(
+        all.get(1).unwrap(),
+        PriceData {
+            price: ONE,
+            timestamp: 1_200
+        }
+    );
+
+    s.env.ledger().set_timestamp(1_800); // slot 6: appends
+    s.client.set_price(&s.tbenji, &ONE);
+    assert_eq!(s.client.prices(&s.tbenji, &10).unwrap().len(), 3);
+}
+
+/// nav-review side feed-rewrite: a feeder key posting every ledger (5 s)
+/// adds one record per resolution slot, so replacing the whole 20-record
+/// window takes more than 18 × resolution of ledger time.
+#[test]
+fn flooding_posts_add_one_record_per_slot() {
+    // ~1,300 posts: skip the ledger snapshot (~1.6 MB).
+    let s = setup_in(Env::new_with_config(
+        soroban_sdk::testutils::EnvTestConfig {
+            capture_snapshot_at_drop: false,
+        },
+    ));
+    s.env.mock_all_auths();
+    s.env.ledger().set_timestamp(1_200);
+    for _ in 0..MAX_HISTORY {
+        s.client.set_price(&s.tbenji, &ONE);
+        s.env
+            .ledger()
+            .set_timestamp(s.env.ledger().timestamp() + 300);
+    }
+    let start = s.env.ledger().timestamp();
+    let mut posts = 0u64;
+    loop {
+        s.client.set_price(&s.tbenji, &(ONE / 2));
+        posts += 1;
+        let window = s.client.prices(&s.tbenji, &MAX_HISTORY).unwrap();
+        if window.iter().all(|r| r.price == ONE / 2) {
+            let span = window.get(0).unwrap().timestamp - window.last().unwrap().timestamp;
+            assert!(span > u64::from(MAX_HISTORY - 2) * 300);
+            break;
+        }
+        s.env.ledger().set_timestamp(s.env.ledger().timestamp() + 5);
+    }
+    // 20 slots: the one the flood starts in plus 19 more.
+    let elapsed = s.env.ledger().timestamp() - start;
+    assert_eq!(elapsed, u64::from(MAX_HISTORY - 1) * 300);
+    assert_eq!(posts, elapsed / 5 + 1);
 }
 
 #[test]
 fn stale_price_demo() {
-    // Only an old record exists: lastprice exposes its old timestamp so the
-    // repo contract's staleness check can reject it.
+    // The feed stops: lastprice keeps its old ledger timestamp, so the repo
+    // contract's staleness check can reject it.
     let s = setup();
     s.env.mock_all_auths();
+    s.env.ledger().set_timestamp(5_000);
+    s.client.set_price(&s.tbenji, &ONE);
     s.env.ledger().set_timestamp(10_000);
-    s.client.set_price_at(&s.tbenji, &ONE, &5_000);
     let p = s.client.lastprice(&s.tbenji).unwrap();
     assert_eq!(s.env.ledger().timestamp() - p.timestamp, 5_000);
 }
