@@ -137,6 +137,10 @@ export STELLAR_NETWORK="${REQ_NETWORK:-${NETWORK:-testnet}}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 OLD_REPO_ID="${REPO_ID:-}"   # wound down below if this run replaces it (UA-05)
+# Repos replaced by an earlier run that died before step 7: that run wrote the
+# new REPO_ID at once, so this run reads it as OLD_REPO_ID and would forget the
+# one it replaced. Steps 7-9 record and wind these down, then clear the marker.
+PENDING_SUPERSEDED="${SUPERSEDED_PENDING:-}"
 
 # --- 0. guards (Raven R4) -------------------------------------------------------
 check_sac USDC "$USDC_ASSET" "$USDC_SAC"
@@ -180,6 +184,17 @@ view() {
   stellar contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no "$@"
 }
 
+unset_env() { # unset_env KEY: drop the line (no-op when absent or under --plan)
+  (( PLAN )) && return 0
+  grep -q "^${1}=" "$ENV_FILE" || return 0
+  sed -i.bak "/^${1}=/d" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+}
+# A contract was deployed: write DEPLOYED_AT now, not only at step 7, so a run
+# that dies later still leaves the new timestamp for the re-run to keep.
+mark_deployed() {
+  DEPLOYED_NEW=1
+  (( PLAN )) || set_env DEPLOYED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
 set_env() { # set_env KEY VALUE: replace in place or append
   local k="$1" v="$2"
   if (( PLAN )); then
@@ -271,7 +286,7 @@ else
     --decimals "$ORACLE_DECIMALS" --resolution "$ORACLE_RESOLUTION")
   log "oracle $ORACLE_ID"
   REDEPLOY_REPO=1   # repo config points at the oracle
-  DEPLOYED_NEW=1
+  mark_deployed
 fi
 set_env ORACLE_ID "$ORACLE_ID"
 
@@ -294,7 +309,7 @@ else
   TSAFO_ID=$(deploy --wasm "$SPIKO_WASM" -- \
     --admin "$ISSUER_ADDRESS" --name "Test Spiko SAFO (USD)" --symbol tSAFO --decimals "$TSAFO_DECIMALS")
   log "tSAFO $TSAFO_ID"
-  DEPLOYED_NEW=1
+  mark_deployed
 fi
 set_env TSAFO_ID "$TSAFO_ID"
 
@@ -358,7 +373,13 @@ else
   REPO_ID=$(deploy --wasm "$REPO_WASM" -- \
     --config "$CONFIG_JSON")
   log "repo $REPO_ID"
-  DEPLOYED_NEW=1
+  # Record the replaced repo before REPO_ID moves, so a failure before step 7
+  # does not lose it (the re-run would see this new repo as OLD_REPO_ID).
+  if [[ -n "$OLD_REPO_ID" && "$OLD_REPO_ID" != "$REPO_ID" ]]; then
+    PENDING_SUPERSEDED="$OLD_REPO_ID${PENDING_SUPERSEDED:+ $PENDING_SUPERSEDED}"
+    (( PLAN )) || set_env SUPERSEDED_PENDING "$PENDING_SUPERSEDED"
+  fi
+  mark_deployed
 fi
 set_env REPO_ID "$REPO_ID"
 
@@ -481,9 +502,14 @@ done
 [[ -n "${DEPLOYED_NEW:-}" || -z "${DEPLOYED_AT:-}" ]] && DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 set_env DEPLOYED_AT "$DEPLOYED_AT"
 # "superseded": earlier repo contracts, newest first, kept across runs; this
-# run's replaced REPO_ID joins it (UA-05: scripts/winddown.sh reads the list).
+# run's replaced REPO_ID joins it, and so do SUPERSEDED_PENDING ids left by a
+# run that died after replacing REPO_ID (UA-05: scripts/winddown.sh reads the list).
 SUPERSEDED_ADD=""
-[[ -n "$OLD_REPO_ID" && "$OLD_REPO_ID" != "$REPO_ID" ]] && SUPERSEDED_ADD="$OLD_REPO_ID"
+for id in "$OLD_REPO_ID" $PENDING_SUPERSEDED; do
+  if [[ -n "$id" && "$id" != "$REPO_ID" && " $SUPERSEDED_ADD " != *" $id "* ]]; then
+    SUPERSEDED_ADD="${SUPERSEDED_ADD:+$SUPERSEDED_ADD }$id"
+  fi
+done
 
 # --plan stops here: no file is written, no bindings, no wind-down tx.
 if (( PLAN )); then
@@ -506,7 +532,7 @@ prev = []
 if os.path.exists(sys.argv[1]):
     try: prev = json.load(open(sys.argv[1])).get("superseded", [])
     except Exception: prev = []
-superseded = [i for i in [sys.argv[2]] + prev if i and i != sys.argv[3]]
+superseded = [i for i in sys.argv[2].split() + prev if i and i != sys.argv[3]]
 superseded = list(dict.fromkeys(superseded))
 out = {
   "network": "$STELLAR_NETWORK",
@@ -566,11 +592,19 @@ if [[ -n "$SUPERSEDED_ADD" ]]; then
     log "winding down superseded repo $SUPERSEDED_ADD"
     # Same keys as this run: pass the untracked keys file on when it was used.
     KF=""; (( ${#KEYS_FILE_ROLES[@]} )) && KF="$(caravel_keys_file testnet)"
-    ENV_FILE="$ENV_FILE" CARAVEL_KEYS_FILE="$KF" "$ROOT/scripts/winddown.sh" "$SUPERSEDED_ADD" >&2 \
-      || log "WARN: winddown of $SUPERSEDED_ADD failed; re-run scripts/winddown.sh $SUPERSEDED_ADD"
+    # shellcheck disable=SC2086  # one argument per id
+    if ENV_FILE="$ENV_FILE" CARAVEL_KEYS_FILE="$KF" "$ROOT/scripts/winddown.sh" $SUPERSEDED_ADD >&2; then
+      unset_env SUPERSEDED_PENDING
+    else
+      # Keep the marker: the next run (or scripts/winddown.sh) retries.
+      log "WARN: winddown of $SUPERSEDED_ADD failed; re-run scripts/winddown.sh $SUPERSEDED_ADD"
+    fi
   else
+    unset_env SUPERSEDED_PENDING   # recorded in testnet.json; the caller chose to keep it open
     log "--no-winddown: $SUPERSEDED_ADD stays open (scripts/winddown.sh $SUPERSEDED_ADD later)"
   fi
+else
+  unset_env SUPERSEDED_PENDING   # a stale marker naming only the live repo
 fi
 
 log "done in $(( $(date +%s) - T0 ))s"
