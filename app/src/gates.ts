@@ -19,7 +19,8 @@ export function fmtDuration(secs: number | bigint): string {
 /**
  * Why this wallet cannot hold `token` as collateral, or null when it can. The
  * gate is per collateral asset: tBENJI needs an issuer-authorized trustline,
- * tSAFO needs the issuer allowlist. Lending needs neither (USDC only).
+ * tSAFO needs the issuer allowlist. Lending needs neither (USDC only;
+ * a #38 in-kind claim the token refuses is parked for claim_collateral).
  */
 export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | "kind">): string | null {
   if (!b || !b.exists) return null; // the friendbot / trustline checks say what to do

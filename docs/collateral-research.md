@@ -92,7 +92,7 @@ How this maps to the collateral we target:
 What it means for Caravel:
 1. **Gating is not our edge.** XOXNO already supports an issuer-allowlisted fund token in tested code: the pool, holders and liquidators must all be allowlisted ([liqvid_rwa_collateral.rs](https://github.com/XOXNO/rs-lending-xlm/blob/30d59905/tests/test-harness/tests/controller/liqvid_rwa_collateral.rs)). Its six Spiko markets are configured but `"enabled": false` on mainnet ([markets.json#L425](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/mainnet/markets.json#L425)), and no public reason was found.
 2. **The barrier is issuer approval, not code.** Writing the whitelist check is cheap. What is hard is getting Franklin or Spiko to approve the contract and every liquidator: legal and onboarding work for each issuer.
-3. **Our design keeps the approval small.** Lenders hold only USDC and never the fund share, so they need no KYC. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
+3. **Our design keeps the approval small.** Lenders hold only USDC, so they need no KYC to lend; only the NAV-outage in-kind claim (DECISIONS #38) needs the lender or its custody account approved. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
 4. **Pitch line:** "gated *and* on the fund's clock". Fixed term and NAV-timed margin calls are what no live lender offers. Gating alone is not. The edge is the fixed term, not the fixed rate: see §8.
 
 ## 8. Our edge: a term that matches redemption time, not a fixed rate (supports the Innovation pitch)

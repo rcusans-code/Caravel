@@ -20,7 +20,7 @@ Caravel uses the model money markets already use for this asset: a **fixed-term 
 
 `[v2 F-06]` For the first collateral, a stable-$1.00 government money-market fund, the price does not drift: yield arrives as new tokens, and the only way NAV falls is the fund "breaking the buck" or a feed fault. So for this asset the margin check is a guard against those two events, not the main protection. The protections that do the daily work are the fixed term, atomic settlement, the haircut and issuer-approved liquidation. The margin window becomes the main mechanism for collateral whose price does move (euro funds against a USDC loan, Tier 3 in [docs/collateral-research.md:37](collateral-research.md#L37)).
 
-`[v2 F-15]` One design fact carries most of the compliance weight: **lenders never hold fund shares**. In every path the lender receives USDC only. Only the contract, the borrower and the liquidators need the issuer's approval, which is the same split Aave Horizon uses ([docs/research/rwa-collateral-gap-analysis.md:138](research/rwa-collateral-gap-analysis.md#L138)).
+`[v2 F-15]` One design fact carries most of the compliance weight: **lenders deal only in USDC**. In every path but one the lender receives USDC only; the exception is the NAV-outage fallback ([DECISIONS #38](../DECISIONS.md)), where the lender of a Defaulted repo takes the collateral in kind, to its own approved wallet or an issuer-approved custody account. Otherwise only the contract, the borrower and the liquidators need the issuer's approval, which is the same split Aave Horizon uses ([docs/research/rwa-collateral-gap-analysis.md:138](research/rwa-collateral-gap-analysis.md#L138)).
 
 ## 2. The asset: four facts every mechanic rests on
 
@@ -381,7 +381,7 @@ Demo profile: 1 day = 60 s; term 420 s; margin window 120 s; grace 60 s; NAV age
 Plain statements the README should carry, each in one or two sentences:
 
 - **The issuer authorizes the contract.** The whole design rests on the fund issuer calling `set_authorized` on a contract address, making it a shareholder of record. No contract holds BENJI today. Aave Horizon's issuers did this on Ethereum. The testnet uses a team-issued tBENJI. (F-13)
-- **Lenders never hold fund shares.** They receive USDC only, so the lender side is open to anyone with USDC. Borrowers and liquidators are issuer-approved holders. (F-15)
+- **Lenders deal only in USDC**, so the lender side is open to anyone with USDC. The one exception is the #38 NAV-outage in-kind claim, which needs the lender or its custody account to be an approved holder. Borrowers and liquidators are issuer-approved holders. (F-15)
 - **Issuer action overrides the contract.** Freeze, clawback and de-authorization stop `repay` and `liquidate` wherever the shares are; the contract does not route around them; lenders bear collateral-freeze risk; the haircut does not cover it. (F-14)
 - **Dividends.** Real BENJI pays daily dividends as new tokens to the holder of record, which during a repo is the contract. They belong to the borrower; v1 does not pass them through; the demo token pays none. Needs checking with the issuer whether a contract address receives them. (F-07)
 - **The margin check is a stress guard for stable-$1 collateral.** NAV is 1.00 on a normal day; a call means the fund broke the buck or the feed is wrong. (F-06)
