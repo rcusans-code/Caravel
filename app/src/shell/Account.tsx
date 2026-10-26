@@ -267,20 +267,22 @@ function ParkedCollateral({
 }
 
 /** The connected wallet's balances, in the header left of the account chip. */
-export function BalanceFigures({ balances }: { balances: Balances | null }) {
+export function BalanceFigures({ balances, failed = false }: { balances: Balances | null; failed?: boolean }) {
+  // Not read (yet): skeletons while loading, dashes once the read has failed.
+  const none = failed ? "—" : null;
   return (
     <div className="app-bal" aria-label="Balances">
-      <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : null} />
-      <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : null} />
+      <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : none} />
+      <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : none} />
       <Figure
         label="tBENJI"
-        value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : null}
+        value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : none}
         hint={balances?.tbenji !== null && balances && !balances.tbenjiAuthorized ? "Not authorized by the issuer" : undefined}
       />
       {TSAFO && (
         <Figure
           label={TSAFO.code}
-          value={balances ? fmtAmount(balances.tsafo ?? 0n, 2, TSAFO.decimals) : null}
+          value={balances ? fmtAmount(balances.tsafo ?? 0n, 2, TSAFO.decimals) : none}
           hint={balances?.exists && !balances.tsafoAllowed ? "Not on the issuer allowlist" : undefined}
         />
       )}

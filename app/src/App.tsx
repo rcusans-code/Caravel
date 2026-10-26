@@ -45,6 +45,8 @@ export default function App() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
+  // The balance read failed: the header shows dashes instead of skeletons that never resolve.
+  const [balancesFailed, setBalancesFailed] = useState(false);
   const [liquidatorOk, setLiquidatorOk] = useState(false);
   // USDC a settlement could not push to this account, waiting for claim().
   const [claimable, setClaimable] = useState(0n);
@@ -124,8 +126,14 @@ export default function App() {
       setLiquidatorOk(l);
       setClaimable(c);
       setParked(p);
+      setBalancesFailed(false);
+      setFlash((f) => (f?.read && f.title === "Could not read balances" ? null : f));
     } catch (e) {
-      setFlash({ tone: "error", title: "Could not read balances", body: explain(e) });
+      setBalancesFailed(true);
+      setFlash((f) =>
+        // A market read error already says testnet is unreachable; keep that one (it carries Retry).
+        f?.read && f.title !== "Could not read balances" ? f : { tone: "error", title: "Could not read balances", body: `${explain(e)} Retrying every 10 s.`, read: true },
+      );
     }
   }, [signer]);
 
@@ -162,6 +170,7 @@ export default function App() {
 
   useEffect(() => {
     setBalances(null);
+    setBalancesFailed(false);
     setClaimable(0n);
     setParked({});
     refreshAccount();
@@ -336,7 +345,7 @@ export default function App() {
             <img src={lockup} alt="Caravel" height={44} />
           </a>
           <span className="caption app-net">Stellar testnet</span>
-          {signer && <BalanceFigures balances={balances} />}
+          {signer && <BalanceFigures balances={balances} failed={balancesFailed} />}
           {config && assets[COLLATERAL[0].sac] && <DemoInfo config={config} asset={assets[COLLATERAL[0].sac]!} />}
           <div className="app-header__account">
             {signer ? (
@@ -386,7 +395,7 @@ export default function App() {
             action={
               <span className="cv-row app-flash__actions">
                 {flash.read && (
-                  <button type="button" className="cv-btn cv-btn--secondary cv-btn--sm" onClick={() => void refreshMarket()}>
+                  <button type="button" className="cv-btn cv-btn--secondary cv-btn--sm" onClick={() => void refreshAll()}>
                     Retry
                   </button>
                 )}
