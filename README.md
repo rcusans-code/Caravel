@@ -242,7 +242,7 @@ The contract reads a mock feed so the demo can move the NAV on camera. `npm run 
 
 ## Run it
 
-Prerequisites: Rust with the `wasm32v1-none` target and the Stellar CLI 28.x.
+Prerequisites: Rust with the `wasm32v1-none` target, the Stellar CLI 28.x, and Node 20+ for the keeper and the app. You do not need to deploy anything to try it: the contracts below are live on testnet and the [app](https://caravel-repo.pages.dev/app/) runs against them.
 
 ```bash
 rustup target add wasm32v1-none
@@ -260,7 +260,7 @@ Build the contract wasm:
 stellar contract build
 ```
 
-Deploy to testnet (oracle, tSAFO and repo contracts, collateral config, liquidator whitelist, issuer authorization; IDs written to `.env`, `deployments/testnet.json` and the table below). `.env` is committed on purpose: it holds testnet-only burner keys, and no mainnet key exists anywhere in this repo.
+Deploy your own copy to testnet (oracle, tSAFO and repo contracts, collateral config, liquidator whitelist, issuer authorization; IDs written to `.env`, `deployments/testnet.json` and the table below in your checkout; the repo wasm upload costs roughly 1,000–1,500 testnet XLM). `.env` is committed on purpose: it holds testnet-only burner keys, so the keeper and scripts work right after a clone, and no mainnet key exists anywhere in this repo ([Risks: Public testnet keys](#risks-and-limits)).
 
 ```bash
 scripts/deploy.sh
@@ -346,7 +346,11 @@ Everything in this repo was written during the hackathon, starting around noon o
 - **Sun 16:35–18:05:** auto-repay at maturity (#30); per-asset NAV staleness (#23); Spiko-style tSAFO as collateral #2 (#25); landing and app on one Pages site; the keeper's NAV-jump hold; pitch deck PDF.
 - **Sun 18:05–20:50:** per-asset pause switches (#33), NAV sanity band (#34), exposure caps (#35), the app's Settle now button (#36); guardian and timelock (#39); rule #20 (a missed margin call clears on a recovered NAV); three testnet redeploys, the last at 20:46.
 - **Sun 20:50–21:10:** the landing's ticker and hero card read live testnet deals.
-- **Mon (plan):** final testnet redeploy, demo video, submission at 11:30 (deadline 12:00).
+- **Sun 21:10–23:05:** eight fixes from an internal attack review (A1–A8: parked USDC payouts on a failed transfer, repay out of Defaulted, a per-asset margin trigger, fresh NAV before a margin-call default, keeper and app hardening); testnet redeploy at 23:02.
+- **Mon 06:00–07:50:** tuned risk numbers with sources ([DECISIONS #35](DECISIONS.md), [config-tuning.md](docs/config-tuning.md)); the NAV risk review's five fixes (ledger-time feed records, band settle on a real move, in-kind claim after a NAV outage, keeper re-post guard, the app's NAV hold; DECISIONS #36–#41); two testnet redeploys; demo video recorded.
+- **Mon 08:15–09:00:** App.tsx split (#38); guardian proposals expire (#41) and a redeploy; in-kind claim UI; [mainnet readiness](docs/mainnet-readiness.md) gap list.
+- **Mon 09:30–10:35:** Raven audit fixes R1–R8 merged (tests and CI, keeper liveness, app error paths, deploy guards, contract guards, governance, docs; [docs/audits/](docs/audits/README.md)); short-borrower auto-repay fix; two testnet redeploys, the last at 10:19.
+- **Mon 11:30:** submission (deadline 12:00).
 
 ## Team
 
