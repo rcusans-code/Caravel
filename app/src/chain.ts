@@ -8,6 +8,7 @@ import type { Repo, Status } from "./book";
 import { toReading, type Asset, type FeedReading } from "./sep40";
 import {
   COLLATERAL,
+  DEPLOYED_AT,
   HORIZON_URL,
   LIVE_FEED,
   NETWORK_PASSPHRASE,
@@ -428,8 +429,25 @@ export async function claim(signer: Signer): Promise<TxOutcome<bigint>> {
  */
 export async function claimInKind(signer: Signer, repoId: bigint): Promise<TxOutcome<bigint>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
-  const out = await submit(await c.claim_in_kind({ repo_id: repoId }));
+  const out = await submit(padWrites(await c.claim_in_kind({ repo_id: repoId })));
   return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/**
+ * Adds write-byte and fee headroom to a simulated tx. When a token refuses
+ * a push inside `try_transfer` (the parked path), testnet simulation
+ * under-counts write bytes (repo #2 on CD4Q2QTO: simulated 3,024, needed
+ * 3,248), so the tx fails on chain with RESOURCE_LIMIT_EXCEEDED. Unused
+ * refundable fee comes back. sign() rebuilds from this cached transactionData.
+ */
+function padWrites<R>(tx: contract.AssembledTransaction<R>, bytes = 2048, fee = 200_000n): contract.AssembledTransaction<R> {
+  const sim = tx.simulation;
+  if (!sim || !rpc.Api.isSimulationSuccess(sim as rpc.Api.SimulateTransactionResponse)) return tx;
+  const data = tx.simulationData.transactionData;
+  const r = data.resources();
+  r.writeBytes(r.writeBytes() + bytes);
+  data.resourceFee(xdr.Int64.fromString((data.resourceFee().toBigInt() + fee).toString()));
+  return tx;
 }
 
 /** Collateral parked for `address` per collateral token id (in-kind claims the token refused); 0 on a contract without it. */
@@ -466,17 +484,20 @@ export interface InKindClaim {
 /**
  * Every `ClaimedInKind` event the RPC still holds for the repo contract, by
  * repo id. Repo state is `Liquidated` for a sale and an in-kind claim alike;
- * only the event tells them apart. Starts at the RPC's oldest retained ledger
- * (testnet keeps about 7 days).
+ * only the event tells them apart. RPC scans at most ~10,000 ledgers per
+ * call, so the scan starts near the deploy (DEPLOYED_AT, ledgers ≥ 4 s
+ * apart, so this overshoots back) and follows the cursor to the latest
+ * ledger. Testnet keeps about 7 days of events.
  */
 export async function getInKindClaims(): Promise<Map<string, InKindClaim>> {
-  const oldest = (await server.getTransaction("0".repeat(64))).oldestLedger;
+  const t = await server.getTransaction("0".repeat(64));
+  const sinceDeploy = Math.max(0, Number(t.latestLedgerCloseTime) - Date.parse(DEPLOYED_AT) / 1000);
+  const startLedger = Math.max(t.oldestLedger, t.latestLedger - Math.ceil(sinceDeploy / 4));
   const topics = [[xdr.ScVal.scvSymbol("claimed_in_kind").toXDR("base64"), "*", "*"]];
   const filters = [{ type: "contract" as const, contractIds: [REPO_ID], topics }];
   const out = new Map<string, InKindClaim>();
-  const limit = 100;
-  let page = await server.getEvents({ startLedger: oldest, filters, limit });
-  for (let i = 0; i < 20; i++) {
+  let page = await server.getEvents({ startLedger, filters, limit: 100 });
+  for (let i = 0; i < 30; i++) {
     for (const e of page.events) {
       const id = big(scValToNative(e.topic[1]));
       const d = scValToNative(e.value) as { collateral_amount: bigint; parked: boolean; nav_timestamp: bigint };
@@ -488,8 +509,10 @@ export async function getInKindClaims(): Promise<Map<string, InKindClaim>> {
         navTimestamp: big(d.nav_timestamp),
       });
     }
-    if (page.events.length < limit || !page.cursor) break;
-    page = await server.getEvents({ cursor: page.cursor, filters, limit });
+    // Cursor = toid: ledger sequence in the high 32 bits.
+    const cursorLedger = page.cursor ? Number(BigInt(page.cursor.split("-")[0]) >> 32n) : Infinity;
+    if (!page.cursor || cursorLedger >= page.latestLedger) break;
+    page = await server.getEvents({ cursor: page.cursor, filters, limit: 100 });
   }
   return out;
 }

@@ -98,7 +98,8 @@ export default function App() {
   // Collateral an in-kind claim could not push to this account, per token id, waiting for claim_collateral().
   const [parked, setParked] = useState<Record<string, bigint>>({});
   // ClaimedInKind events by repo id: a Liquidated repo the lender took in kind, not sold (#38).
-  const [inKind, setInKind] = useState<Map<string, InKindClaim>>(new Map());
+  // null = not read yet (or the read failed): closed cards then say neither "sold" nor "in kind".
+  const [inKind, setInKind] = useState<Map<string, InKindClaim> | null>(null);
   const [loaded, setLoaded] = useState(false);
   // Tab in the URL hash (route.ts, issue #37): read on load, followed on back/forward and hand edits.
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash).route);
@@ -184,10 +185,16 @@ export default function App() {
 
   // Sale or in-kind claim? Only the event says; re-read when a repo turns Liquidated.
   const liquidatedKey = repos.filter((r) => r.status === "Liquidated").map((r) => String(r.id)).join(",");
+  const [inKindTry, setInKindTry] = useState(0);
   useEffect(() => {
     if (!liquidatedKey) return;
-    chain.getInKindClaims().then(setInKind, (e) => console.warn("ClaimedInKind events not read", e));
-  }, [liquidatedKey]);
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    chain.getInKindClaims().then(setInKind, (e) => {
+      console.warn("ClaimedInKind events not read", e);
+      retry = setTimeout(() => setInKindTry((n) => n + 1), 20_000);
+    });
+    return () => clearTimeout(retry);
+  }, [liquidatedKey, inKindTry]);
 
   useEffect(() => {
     setBalances(null);
@@ -504,8 +511,8 @@ interface Ctx {
   run: <T>(key: string, title: string, fn: () => Promise<T>) => Promise<T | null>;
   setFlash: (f: Flash) => void;
   refreshAll: () => Promise<unknown>;
-  /** ClaimedInKind events by repo id (#38). */
-  inKind: Map<string, InKindClaim>;
+  /** ClaimedInKind events by repo id (#38); null until read. */
+  inKind: Map<string, InKindClaim> | null;
 }
 
 function AccountChip({ signer, onDisconnect }: { signer: Signer; onDisconnect: () => void }) {
@@ -1675,9 +1682,10 @@ function PositionCard({
   const outageWaiting = win?.state === "waiting";
   const opensAtText =
     win?.opensAt != null ? new Date(win.opensAt * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
-  const outageSpan = `${NAV_OUTAGE_DAYS} ${Number(config.day_secs) >= 86_400 ? "days" : `demo days (${fmtDuration(BigInt(NAV_OUTAGE_DAYS) * config.day_secs)})`}`;
+  const outageSpan = `${NAV_OUTAGE_DAYS} ${Number(config.day_secs) >= 86_400 ? "days" : "demo days"}`;
   const navAgeText = assetCfg ? fmtDuration(assetCfg.max_nav_age_secs) : "its maximum age";
-  const claimedInKind = repo.status === "Liquidated" ? ctx.inKind.get(String(repo.id)) : undefined;
+  // undefined = sold; null = events not read, so the card does not guess.
+  const claimedInKind = repo.status !== "Liquidated" ? undefined : ctx.inKind === null ? null : ctx.inKind.get(String(repo.id));
   const live = repo.status === "Open" || repo.status === "MarginCall";
   // repay also works out of Defaulted until a liquidation lands; top-up and auto-repay do not.
   const repayable = live || repo.status === "Defaulted";
@@ -1801,19 +1809,19 @@ function PositionCard({
         </Alert>
       )}
       {outageWaiting && (
-        <Alert tone="margin" title="Liquidation blocked: the NAV is stale">
-          {`The ${token.code} price is more than ${navAgeText} old, and liquidate needs a fresh NAV, so no liquidator can buy the collateral. `}
+        <Alert tone="margin" title="Liquidation blocked: stale NAV">
+          {`The ${token.code} price is over ${navAgeText} old, so no liquidator can buy the collateral. `}
           {side === "lent"
-            ? `If the price stays stale, you can claim the whole ${amt(repo.collateral_amount)} ${token.code} in kind from ${opensAtText} (last NAV + ${navAgeText} + ${outageSpan}). A fresh NAV first reopens the sale. Until then the borrower can still repay you in full.`
-            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} USDC before then to get it all back.`}
+            ? `If it stays stale, you can claim all ${amt(repo.collateral_amount)} ${token.code} in kind from ${opensAtText}, ${outageSpan} after the NAV went stale. The borrower can still repay you until then.`
+            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} USDC before then to get it back.`}
         </Alert>
       )}
       {outageOpen && (
         <Alert tone="margin" title={side === "lent" ? "Claim the collateral in kind" : "The lender can take your collateral in kind"}>
-          {`The ${token.code} price has been stale for more than ${navAgeText} + ${outageSpan}, so liquidate stays blocked. `}
+          {`The ${token.code} NAV has been stale for over ${outageSpan}, so liquidation stays blocked. `}
           {side === "lent"
-            ? `You can take the whole ${amt(repo.collateral_amount)} ${token.code} instead of USDC: no sale, no fee, and the ${fmtAmount(debt)} USDC debt is closed. The borrower can still repay you until you claim.`
-            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no sale and no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it all back.`}
+            ? `You can take all ${amt(repo.collateral_amount)} ${token.code} instead of USDC: no sale, no fee, and the ${fmtAmount(debt)} USDC debt closes. The borrower can still repay you until you claim.`
+            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it back.`}
         </Alert>
       )}
         <div>
@@ -1984,17 +1992,20 @@ function PositionCard({
 }
 
 /** What a settled repo meant for the borrower, so a closed card never just says "Closed". `k` = its ClaimedInKind event, if any. */
-const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindClaim) => string>> = {
+const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindClaim | null) => string>> = {
   Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount, 2, assetBySac(r.collateral_asset).decimals)} ${assetBySac(r.collateral_asset).code} returned to this wallet.`,
   Liquidated: (r, c, k) =>
-    k
+    k === null
+      ? "Liquidated: not repaid in time."
+      : k
       ? `Claimed in kind: not repaid in time while the ${assetBySac(r.collateral_asset).code} NAV was stale, so the lender took the collateral itself. There was no sale, so no surplus came back.`
       : `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
 };
 
 /** The lender's line on a Liquidated repo: sold for USDC, or taken in kind (#38). */
-function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim): string {
+function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim | null): string {
   const t = assetBySac(r.collateral_asset);
+  if (k === null) return "Liquidated: the borrower did not repay in time.";
   if (!k) return `Liquidated: the ${t.code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)} and the USDC paid you first, up to the debt.`;
   const amt = `${fmtAmount(k.amount, 2, t.decimals)} ${t.code}`;
   return k.parked
