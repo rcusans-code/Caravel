@@ -17,6 +17,7 @@ import {
   USDC,
 } from "./config";
 import { horizonToUnits } from "./format";
+import { NAV_BAND_RECORDS, type PricePoint } from "./gates";
 import type { Signer } from "./wallet";
 import {
   SIGN_TIMEOUT_MS,
@@ -159,6 +160,25 @@ export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {
   const p = last.result;
   if (!p) return null;
   return { price: big(p.price), decimals: Number(dec.result), timestamp: big(p.timestamp) };
+}
+
+/** The feed's last `NAV_BAND_RECORDS` prices for `sac`, newest first: what `check_band` reads (#31). */
+export async function getNavHistory(sac: string = TBENJI_SAC): Promise<PricePoint[]> {
+  const r = (await readOracle.prices({ asset: oracleAsset(sac), records: NAV_BAND_RECORDS })).result;
+  return (r ?? []).map((p) => ({ price: big(p.price), timestamp: big(p.timestamp) }));
+}
+
+/**
+ * Close time (unix seconds) of the latest ledger. The contract measures NAV
+ * age against ledger time, so the app does too. Read from a lookup of an
+ * unknown tx hash: the reply is a few hundred bytes and carries
+ * latestLedgerCloseTime, unlike getLatestLedger (~500 KB with ledger meta).
+ */
+export async function getLedgerTime(): Promise<number> {
+  const r = await server.getTransaction("0".repeat(64));
+  const t = Number(r.latestLedgerCloseTime);
+  if (!Number.isFinite(t) || t <= 0) throw new Error("RPC returned no ledger close time");
+  return t;
 }
 
 // --- balances (classic trustlines, via Horizon) -------------------------------
