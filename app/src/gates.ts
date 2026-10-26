@@ -29,6 +29,19 @@ export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | 
   return b.tbenjiAuthorized ? null : `Your account is not authorized to hold ${token.code}. The issuer must authorize it first. ${ACCESS_LIMITED}`;
 }
 
+export const USDC_FROZEN =
+  "USDC frozen by its issuer: this account cannot send or receive USDC, so lending, borrowing, repaying and claiming are off until the issuer unfreezes it.";
+
+/**
+ * USDC trustline present but not authorized (Raven AS-04): Circle froze it. Every
+ * write that moves USDC to or from the account (lend, take, repay, claim) would fail
+ * with SAC error #11, so the buttons are disabled with this text instead. Null = fine,
+ * or no line yet (the trustline prompt covers that).
+ */
+export function usdcBlock(b: Balances | null): string | null {
+  return b?.exists && b.usdc !== null && !b.usdcAuthorized ? USDC_FROZEN : null;
+}
+
 /** Contract error 9 (StaleNav), built from each asset's max_nav_age_secs. */
 export function staleNavText(ages: { code: string; secs: number | bigint }[]): string {
   const tail = "Wait for the next update (or push one from Admin), then try again.";

@@ -4,6 +4,7 @@ import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
 import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
 import { Networks, type SwkAppTheme } from "@creit.tech/stellar-wallets-kit/types";
 import { DEMO_KEYS, NETWORK_PASSPHRASE, type DemoRole } from "./config";
+import { WrongNetworkError, onOtherNetwork, restoreWallet } from "./session";
 
 export type SignTx = (
   xdr: string,
@@ -53,25 +54,16 @@ function kit() {
   return StellarWalletsKit;
 }
 
-export class WrongNetworkError extends Error {}
+export { WrongNetworkError };
 
 /** Opens the kit's wallet picker, then checks the wallet is on testnet. */
 export async function connectWallet(): Promise<Signer> {
   const k = kit();
   const { address } = await k.authModal();
-  try {
-    const net = await k.getNetwork();
-    if (net?.networkPassphrase && net.networkPassphrase !== NETWORK_PASSPHRASE) {
-      throw new WrongNetworkError(
-        "Your wallet is not on Testnet. Switch it to Testnet, then connect again.",
-      );
-    }
-  } catch (e) {
-    if (e instanceof WrongNetworkError) {
-      await k.disconnect().catch(() => undefined); // don't restore a rejected wallet on reload
-      throw e;
-    }
-    // Some wallets (Albedo, xBull PWA) cannot report their network; signing pins it anyway.
+  // Some wallets (Albedo, xBull PWA) cannot report their network; signing pins it anyway.
+  if (await onOtherNetwork(() => k.getNetwork(), NETWORK_PASSPHRASE)) {
+    await k.disconnect().catch(() => undefined); // don't restore a rejected wallet on reload
+    throw new WrongNetworkError("Your wallet is not on Testnet. Switch it to Testnet, then connect again.");
   }
   localStorage.removeItem(DEMO_ROLE_KEY);
   return walletSigner(address);
@@ -98,6 +90,8 @@ function walletSigner(address: string): Signer {
 /**
  * Restores the last session after a page reload without opening any wallet popup.
  * The kit keeps the picked wallet and address in localStorage; the demo role is ours.
+ * A wallet now on another network is disconnected and WrongNetworkError is thrown
+ * (the same check as connect).
  */
 export async function restoreSession(): Promise<Signer | null> {
   const role = localStorage.getItem(DEMO_ROLE_KEY) as DemoRole | null;
@@ -109,12 +103,17 @@ export async function restoreSession(): Promise<Signer | null> {
       return null;
     }
   }
+  const k = kit();
   try {
-    const k = kit();
     k.selectedModule; // throws when no wallet was picked before
-    const { address } = await k.getAddress(); // reads the stored address, no prompt
-    return walletSigner(address);
   } catch {
+    return null;
+  }
+  try {
+    // getAddress reads the stored address (no prompt); getNetwork asks the wallet.
+    return walletSigner(await restoreWallet(k, NETWORK_PASSPHRASE));
+  } catch (e) {
+    if (e instanceof WrongNetworkError) throw e;
     return null;
   }
 }

@@ -5,6 +5,7 @@ import type { Offer } from "../chain";
 import { BPS, fmtAmount, fmtPct, fmtTerm, interest as calcInterest, parseAmount, protocolFee } from "../format";
 import { Field, TxHash, TxProgress } from "../ui";
 import { CONNECT, type Ctx } from "../ctx";
+import { usdcBlock } from "../gates";
 
 export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   const { config, signer, balances, busy } = ctx;
@@ -36,6 +37,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   if (!signer) block = `${CONNECT} to post an offer.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
   else if (balances && balances.usdc === null) block = "Add a USDC trustline first.";
+  else if (usdcBlock(balances)) block = usdcBlock(balances);
   else if (balances && principal && balances.usdc !== null && balances.usdc < principal)
     block = `You hold ${fmtAmount(balances.usdc)} USDC, less than ${fmtAmount(principal)} USDC.`;
   else if (config && !asset) block = `${token.code} is not registered as collateral on this deployment.`;

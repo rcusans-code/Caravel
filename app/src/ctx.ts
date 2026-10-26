@@ -4,7 +4,8 @@ import type { Leg, Stamp, TxState } from "./ui";
 import type { NavHealth, PricePoint } from "./gates";
 import type { Signer } from "./wallet";
 
-export type Flash = { tone: "info" | "error" | "margin"; title: string; body: string } | null;
+/** `hash`: the tx this flash is about, linked under the text (Raven DW-02/DW-03), on success and on failure. */
+export type Flash = { tone: "info" | "error" | "margin"; title: string; body: string; hash?: string | null } | null;
 export type Receipt = { left: Leg; right: Leg; sentence: string; hash: string; stamp?: Stamp } | null;
 export const CONNECT = DEMO_ENABLED ? "Connect a wallet or pick a demo account" : "Connect a wallet";
 

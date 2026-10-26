@@ -16,6 +16,7 @@ const fresh = (): Balances => ({
   exists: true,
   xlm: 10_000_0000000n,
   usdc: null,
+  usdcAuthorized: false,
   tbenji: null,
   tbenjiAuthorized: false,
   tsafo: null,
@@ -166,8 +167,9 @@ test("trustlineUi: which alert and button show", () => {
   assert.equal(trustlineUi("demo", b, null).button?.label, "Add USDC + tBENJI trustlines");
   // Wallet missing one line: singular label.
   assert.equal(trustlineUi("wallet", { ...b, tbenji: 0n }, null).button?.label, "Add USDC trustline");
-  // Unrelated action in flight does not disable it.
-  assert.equal(trustlineUi("wallet", b, "take").button?.disabled, false);
+  // DW-05: any write in flight disables it (same-account sequence clash), the label stays.
+  const other = trustlineUi("wallet", b, "take").button;
+  assert.deepEqual(other && { label: other.label, disabled: other.disabled }, { label: "Add USDC + tBENJI trustlines", disabled: true });
   // Account not funded yet: friendbot first, no trustline button.
   assert.equal(trustlineUi("wallet", { ...b, exists: false }, null).button, null);
   // Not loaded yet.

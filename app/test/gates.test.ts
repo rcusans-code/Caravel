@@ -13,6 +13,7 @@ const wallet = (over: Partial<Balances> = {}): Balances => ({
   exists: true,
   xlm: 10_000_0000000n,
   usdc: 0n,
+  usdcAuthorized: true,
   tbenji: null,
   tbenjiAuthorized: false,
   tsafo: 0n,

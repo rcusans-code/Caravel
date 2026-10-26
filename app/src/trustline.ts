@@ -45,13 +45,14 @@ export class WalletSignError extends Error {
  * that never answers fails after `timeoutMs` with a plain Error (no automatic re-prompt:
  * its first popup may still be open), so the UI never stays stuck in "Waiting for wallet".
  */
-export async function signOnce(sign: () => Promise<string>, timeoutMs = SIGN_TIMEOUT_MS): Promise<string> {
+export async function signOnce<T = string>(
+  sign: () => Promise<T>,
+  timeoutMs = SIGN_TIMEOUT_MS,
+  timeoutText = "The wallet did not answer in time. Nothing was sent. Click Add trustline to try again.",
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("The wallet did not answer in time. Nothing was sent. Click Add trustline to try again.")),
-      timeoutMs,
-    );
+    timer = setTimeout(() => reject(new Error(timeoutText)), timeoutMs);
   });
   try {
     return await Promise.race([
@@ -63,6 +64,28 @@ export async function signOnce(sign: () => Promise<string>, timeoutMs = SIGN_TIM
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The contract-write timeout text: nothing was signed, so nothing was sent. */
+export const WRITE_SIGN_TIMEOUT_TEXT = "The wallet did not answer in time. Nothing was sent. Try again.";
+
+/**
+ * A contract write's signTransaction with the trustline's time limit (Raven DW-04):
+ * a wallet that never answers rejects after `timeoutMs` instead of holding the app's
+ * busy state (and so every write button) until reload. 120 s fits inside the 300 s
+ * timebound the SDK sets when signing starts. `phase` drives TxProgress.
+ */
+export function boundedSign<A extends unknown[], T>(
+  sign: (...args: A) => Promise<T>,
+  phase: (p: "sign" | "submit") => void = () => undefined,
+  timeoutMs = SIGN_TIMEOUT_MS,
+): (...args: A) => Promise<T> {
+  return async (...args: A) => {
+    phase("sign");
+    const out = await signOnce(() => sign(...args), timeoutMs, WRITE_SIGN_TIMEOUT_TEXT);
+    phase("submit");
+    return out;
+  };
 }
 
 export interface TrustDeps {
@@ -137,12 +160,14 @@ export function trustlineUi(kind: "wallet" | "demo", b: Balances | null, busy: s
   const showInfo =
     !gated && !tbenjiPending && (missing.includes("USDC") || (kind === "wallet" && missing.length > 0));
   const waiting = busy === "trust";
+  // Any write in flight disables it (Raven DW-05): a second tx from the same account
+  // would race the first one's sequence number and fail with txBadSeq.
   const button =
     missing.length > 0 && (gated || tbenjiPending || showInfo)
       ? {
           missing,
           label: waiting ? "Waiting for wallet…" : `Add ${missing.join(" + ")} trustline${missing.length > 1 ? "s" : ""}`,
-          disabled: waiting,
+          disabled: busy !== null,
         }
       : null;
   return { gated, tbenjiPending, showInfo, button };

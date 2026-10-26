@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import lockup from "../../design/logos/caravel-lockup.svg";
 import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, ORACLE_ID, REPO_ID, assetBySac, type DemoRole } from "./config";
 import * as chain from "./chain";
@@ -6,6 +6,7 @@ import type { AssetConfig, Balances, FeedReading, Nav, Offer, ProtocolConfig, Re
 import { explain } from "./errors";
 import { Alert, TxHash, type TxState } from "./ui";
 import { onPhase } from "./txphase";
+import { txHashOf } from "./txerror";
 import { collateralBlock, ledgerNow, navHealth, navHoldText, type PricePoint } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 import { demoTab, parseHash, shownTab, toHash, type Route, type Tab } from "./route";
@@ -56,10 +57,15 @@ export default function App() {
   // and margin deadlines against the ledger close time.
   const now = ledgerNow(tick, ledger);
   const [tx, setTx] = useState<TxState | null>(null);
+  // Hash of the write in flight, from the moment the network accepts it (DW-02).
+  const submitted = useRef<string | null>(null);
 
   // TxProgress: chain.ts reports sign / submit; prepare is set when a write starts.
   useEffect(() => {
-    onPhase((p) => setTx((t) => (t ? { ...t, step: p === "sign" ? 1 : p === "submit" ? 2 : 0 } : t)));
+    onPhase((p, hash) => {
+      if (hash) submitted.current = hash;
+      setTx((t) => (t ? { ...t, step: p === "sign" ? 1 : p === "submit" ? 2 : 0, ...(hash ? { hash } : {}) } : t));
+    });
     return () => onPhase(null);
   }, []);
 
@@ -138,6 +144,8 @@ export default function App() {
   useEffect(() => {
     restoreSession()
       .then((s) => s && setSigner((cur) => cur ?? s))
+      // The restored wallet moved off Testnet: it is disconnected, say so (Raven DW-06).
+      .catch((e) => setFlash({ tone: "error", title: "Wallet disconnected", body: e instanceof Error ? e.message : String(e) }))
       .finally(() => setRestored(true));
   }, []);
 
@@ -192,7 +200,9 @@ export default function App() {
   };
 
   // One runner for every write: busy label, error mapping, refresh after.
+  // The hash of a tx that reached the network stays on screen after a failure (DW-02).
   const run = async <T,>(key: string, title: string, fn: () => Promise<T>): Promise<T | null> => {
+    submitted.current = null;
     setBusy(key);
     setFlash(null);
     setTx({ key, step: 0, failed: false });
@@ -208,7 +218,7 @@ export default function App() {
         const a = assets[t.sac];
         return a ? [{ code: t.code, secs: a.max_nav_age_secs }] : [];
       });
-      setFlash({ tone: "error", title, body: explain(e, navAges) });
+      setFlash({ tone: "error", title, body: explain(e, navAges), hash: txHashOf(e) ?? submitted.current });
       return null;
     } finally {
       setBusy(null);
@@ -358,6 +368,12 @@ export default function App() {
             }
           >
             {flash.body}
+            {flash.hash && (
+              <>
+                {" "}
+                <TxHash kind="TX" value={flash.hash} />
+              </>
+            )}
           </Alert>
         )}
 
