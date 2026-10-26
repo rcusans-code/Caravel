@@ -14,7 +14,7 @@ These are our own reviews, not a third-party audit. A third-party audit is still
 | Code reviewed | [6827168](https://github.com/rcusans-code/Caravel/tree/6827168115683ecc43f4ddcc8865e65160490210) | [5faee32](https://github.com/rcusans-code/Caravel/tree/5faee32) (same code; only `DECISIONS.md` wording differs) |
 | Covers | contracts (`contracts/repo`, `contracts/oracle`, `contracts/spiko-mock`), keepers (`scripts/keeper`, `scripts/nav-keeper.sh`), deploy scripts, web app (`app/`), landing page (`site/`), README, INTRO, pitch deck | price checks in the repo contract, the mock oracle, both keepers, the app's price display |
 | Status checked against | main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054) | main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054) |
-| Contract fixes live on testnet | since redeploy [2b5888d](https://github.com/rcusans-code/Caravel/commit/2b5888d) | since redeploy [b19f4f2](https://github.com/rcusans-code/Caravel/commit/b19f4f2) |
+| Contract fixes live on testnet | since redeploy [2b5888d](https://github.com/rcusans-code/Caravel/commit/2b5888d) | since redeploy [b19f4f2](https://github.com/rcusans-code/Caravel/commit/b19f4f2); NAV-6 since [26f6ea8](https://github.com/rcusans-code/Caravel/commit/26f6ea8) |
 
 Line numbers in each file are at the reviewed commit.
 
@@ -47,7 +47,7 @@ Status: **Fixed in &lt;commit&gt;** (on main, with a named test or line) · **Pa
 | Ecosystem prior art | [ecosystem-prior-art.md](ecosystem-prior-art.md) | 6 | 0 | 3 | 3 | 0 | 4 | 0 | 2 | 0 | 0 |
 | Ecosystem claims in the landing page and docs | [content-claims.md](content-claims.md) | 15 | 1 | 5 | 9 | 0 | 14 | 1 | 0 | 0 | 0 |
 | **Raven audit total** | | **89** | **5** | **28** | **53** | **3** | **53** | **9** | **25** | **2** | **0** |
-| NAV risk review | [nav-risk-review.md](nav-risk-review.md) | 9 | 2 | 4 | 3 | 0 | 5 | 0 | 1 | 0 | 3 |
+| NAV risk review | [nav-risk-review.md](nav-risk-review.md) | 9 | 2 | 4 | 3 | 0 | 7 | 0 | 1 | 0 | 1 |
 
 Four root causes show up in two or three areas and are counted in each (CS-02 = AS-02, CS-06 = OZ-03 = STD-03, OZ-01 = UA-01, OZ-02 = UA-02), so the Raven audit has 84 unique findings: High 4, Medium 26, Low 51, Info 3.
 
@@ -61,8 +61,6 @@ Four root causes show up in two or three areas and are counted in each (CS-02 = 
 
 ## Still open
 
-- NAV-6: the in-kind fallback does not open when the feed has no usable timestamp. Fix on branch `simon/nav-outage-no-timestamp`, not merged yet (needs a repo redeploy).
-- NAV-7: the app's "Price on hold" badge does not know the band settle path (testnet gap under a minute). Fix on branch `simon/app-band-settle`, not merged yet.
 - NAV-8: a staircase of sub-10% pushes by the feeder key passes the keeper guards (production bands refuse it on-chain). No fix scheduled.
 
 ## Not covered

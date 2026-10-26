@@ -1,10 +1,10 @@
 # NAV risk review
 
-Commit reviewed: [5faee32](https://github.com/rcusans-code/Caravel/tree/5faee32) (26 Oct 2026; same code as the audited commit 6827168, only `DECISIONS.md` wording differs). Status checked against main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054). Line numbers are at the reviewed commit.
+Commit reviewed: [5faee32](https://github.com/rcusans-code/Caravel/tree/5faee32) (26 Oct 2026; same code as the audited commit 6827168, only `DECISIONS.md` wording differs). Status checked against main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054); NAV-6 and NAV-7 re-checked at [26f6ea8](https://github.com/rcusans-code/Caravel/commit/26f6ea8). Line numbers are at the reviewed commit.
 
 Scope: everything that depends on the fund NAV (net asset value) price: the repo contract's price checks (`contracts/repo/src/oracle.rs`, `margin.rs`, `lib.rs` take, default and liquidate), the mock SEP-40 oracle (`contracts/oracle`), the two keepers (`scripts/keeper`, `scripts/nav-keeper.sh`) and the app's price display (`app/src`). The question was: how well covered are we when the price is wrong, late, missing or moves for real? A discovery pass mapped the risk "sides" across feed integrity, freshness, band logic, keeper operations and UX. Each side then got a scenario test written at the reviewed commit that reproduces the loss (the "before" numbers below), a fix on its own branch, and an independent QA pass that re-ran the before and after tests and tried variants the author had not. One side failed QA (a variant broke the fix) and was reworked before it merged.
 
-Bottom line: the design already handled an honest feed that makes mistakes well: per-asset staleness, a future-timestamp limit, a sanity band over the last 20 feed records, exits (repay, top-up, claim) that are never blocked, and a keeper that holds on a price jump. Every defence, though, trusted whoever posts the price. The feeder could rewrite or flood the band window, our own nav-keeper re-posted a bad price until the band accepted it, and a NAV outage or a real move larger than the band froze liquidation with no way back. All five sides are fixed on main and live on testnet since the redeploy in [b19f4f2](https://github.com/rcusans-code/Caravel/commit/b19f4f2) (the later redeploy [2b5888d](https://github.com/rcusans-code/Caravel/commit/2b5888d) keeps them). Four residuals remain: two have fixes on branches that are not merged yet, and two are production rules, not code.
+Bottom line: the design already handled an honest feed that makes mistakes well: per-asset staleness, a future-timestamp limit, a sanity band over the last 20 feed records, exits (repay, top-up, claim) that are never blocked, and a keeper that holds on a price jump. Every defence, though, trusted whoever posts the price. The feeder could rewrite or flood the band window, our own nav-keeper re-posted a bad price until the band accepted it, and a NAV outage or a real move larger than the band froze liquidation with no way back. All five sides are fixed on main and live on testnet since the redeploy in [b19f4f2](https://github.com/rcusans-code/Caravel/commit/b19f4f2) (the later redeploy [2b5888d](https://github.com/rcusans-code/Caravel/commit/2b5888d) keeps them). QA of those fixes found four residuals: two are fixed on main too (NAV-6, live on testnet since the redeploy in [26f6ea8](https://github.com/rcusans-code/Caravel/commit/26f6ea8), and NAV-7 in the app), and two are production rules, not code.
 
 Amounts are in USDC on a 970 USDC repo with tBENJI collateral at NAV 1.00 unless stated. Testnet settings: band 2,500 bps, NAV age 180 s, feed resolution 60 s.
 
@@ -17,12 +17,12 @@ Amounts are in USDC on a 970 USDC repo with tBENJI collateral at NAV 1.00 unless
 | NAV-3 | Medium | A NAV outage locks Defaulted collateral for good | Fixed in [34fe61c](https://github.com/rcusans-code/Caravel/commit/34fe61c) |
 | NAV-4 | Medium (High for FX-linked funds) | A real NAV move larger than the band freezes margin calls and liquidation | Fixed in [77a95ab](https://github.com/rcusans-code/Caravel/commit/77a95ab) |
 | NAV-5 | Low | The app says "Live" while the contract refuses the price | Fixed in [9123d97](https://github.com/rcusans-code/Caravel/commit/9123d97) |
-| NAV-6 | Medium | The outage fallback never opens when the feed has no usable timestamp | Open |
-| NAV-7 | Low | The app's hold badge does not know the band settle path | Open |
+| NAV-6 | Medium | The outage fallback never opens when the feed has no usable timestamp | Fixed in [b2f580a](https://github.com/rcusans-code/Caravel/commit/b2f580a) |
+| NAV-7 | Low | The app's hold badge does not know the band settle path | Fixed in [2befd35](https://github.com/rcusans-code/Caravel/commit/2befd35) |
 | NAV-8 | Low | A staircase of sub-10% pushes walks past both keeper guards | Open |
 | NAV-9 | Medium | NAV age measures the re-posting keeper, not the fund's publication time | Roadmap (production feed rule) |
 
-Status counts: Fixed 5 · Partly fixed 0 · Roadmap 1 · Won't fix 0 · Open 3.
+Status counts: Fixed 7 · Partly fixed 0 · Roadmap 1 · Won't fix 0 · Open 1.
 
 ### NAV-1: The feeder can flush or rewrite the 20-record band window
 
@@ -80,18 +80,18 @@ Status counts: Fixed 5 · Partly fixed 0 · Roadmap 1 · Won't fix 0 · Open 3.
 ### NAV-6: The outage fallback never opens when the feed has no usable timestamp
 
 - Severity: Medium
-- Status: Open. A fix is on branch [`simon/nav-outage-no-timestamp`](https://github.com/rcusans-code/Caravel/tree/simon/nav-outage-no-timestamp) (fe47998, not merged; needs a repo redeploy, no ABI change).
-- Location: `contracts/repo/src/inkind.rs` (`nav_outage`), on main
+- Status: Fixed in [b2f580a](https://github.com/rcusans-code/Caravel/commit/b2f580a) (DECISIONS #38; live on testnet since the redeploy in [26f6ea8](https://github.com/rcusans-code/Caravel/commit/26f6ea8))
+- Location: `contracts/repo/src/inkind.rs` (`nav_outage`)
 - Finding: Found by QA of NAV-3. The in-kind clock starts from the feed's last timestamp. If the feed has no price, prints 0, or posts one price dated in the future (for example a millisecond timestamp, `now × 1000`) and stops, there is nothing to start from: 30 days after default `liquidate` returns `NoPrice`, `claim_in_kind` returns `NoNavOutage`, and the collateral stays locked. The oracle keeps its history sorted, so the feeder cannot even correct a future-dated entry. This is no worse than before NAV-3, but it is the same failure the fallback exists to fix.
-- Fix: On the branch: when the feed gives no usable timestamp, the same window runs from the repo's `maturity_ts + grace_secs` (a margin default comes before maturity, so this is the later, conservative start). Five tests cover the future-dated, never-priced and zero-price cases at the edge second.
+- Fix: When the feed gives no usable timestamp (no price, a price <= 0, or one dated more than 60 s ahead), the same window runs from the repo's `maturity_ts + grace_secs` (a margin default comes before maturity, so this is the later, conservative start); `ClaimedInKind.nav_timestamp` records the start used. No ABI change. Regression tests in `contracts/repo/src/test_nav_outage.rs`: `outage_future_dated_nav_opens_on_maturity_clock`, `outage_future_dated_nav_claim_open_after_30_real_days`, `outage_never_priced_asset_opens_on_maturity_clock`, `outage_zero_price_opens_on_maturity_clock` and `outage_future_skew_edge_matches_fresh_nav` (each fails before the fix), plus `outage_fallback_ends_when_a_usable_price_returns` (the fallback stops once a usable price is back).
 
 ### NAV-7: The app's hold badge does not know the band settle path
 
 - Severity: Low
-- Status: Open. A fix is on branch [`simon/app-band-settle`](https://github.com/rcusans-code/Caravel/tree/simon/app-band-settle) (f914e85, not merged; it must be re-applied on the split `App.tsx` before merge; app-only).
-- Location: `app/src/gates.ts` (`checkBand`), on main
+- Status: Fixed in [2befd35](https://github.com/rcusans-code/Caravel/commit/2befd35) (app only)
+- Location: `app/src/gates.ts` (`checkBand`)
 - Finding: The app's band mirror (NAV-5) predates the settle path (NAV-4). After a real move has settled, the contract accepts the price but the app still shows "Price on hold" and blocks Take until the 20-record window rolls. On testnet the gap is under a minute (the window rolls in about 19 minutes, the settle time is 20 minutes); with production settings (daily NAV, 1-day settle) it would be days.
-- Fix: On the branch: `checkBand` reads `band_candidate(asset)` and applies the same settled-level rule as the contract with exact integer maths; a contract without the view behaves as before.
+- Fix: `checkBand` reads `band_candidate(asset)` and applies the same settled-level rule as the contract with exact integer maths, in the hold badge, the Take gate and the Admin push preview; a contract without the view behaves as before. Regression tests in `app/test/navband.test.ts`: "settled level passes once it has stood band_settle_secs", "unsettled level holds (one second short of band_settle_secs)", "a record since `since` outside the band of the level holds" and "latest within the band of the level but ~2x band from a record since `since` holds" (each fails before the fix), plus three that pin the unchanged cases (out of band of the level, floor and ceiling first; no candidate or no view; zero records skipped and a candidate dated ahead never settling).
 
 ### NAV-8: A staircase of sub-10% pushes walks past both keeper guards
 
