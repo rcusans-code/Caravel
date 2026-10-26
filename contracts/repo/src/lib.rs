@@ -43,6 +43,8 @@ mod test_governance;
 #[cfg(test)]
 mod test_nav_outage;
 #[cfg(test)]
+mod test_production;
+#[cfg(test)]
 mod test_raven_guards;
 #[cfg(test)]
 mod test_spiko;
@@ -1470,9 +1472,20 @@ fn admin_or_guardian(env: &Env, caller: &Address) -> Result<Config, Error> {
     Ok(protocol)
 }
 
-/// Shortest accepted `timelock_secs`: a loosening must stay visible on-chain
-/// for at least a minute before it can execute (#33).
-pub(crate) const MIN_TIMELOCK_SECS: u64 = 60;
+/// Shortest accepted `timelock_secs` in the default (demo/testnet) build: a
+/// loosening must stay visible on-chain for at least a minute before it can
+/// execute (#33).
+#[allow(dead_code)]
+pub(crate) const DEMO_MIN_TIMELOCK_SECS: u64 = 60;
+/// Shortest accepted `timelock_secs` in the `production` build (Raven R12,
+/// UA-07): one day, so a mainnet contract cannot be deployed with the 120 s
+/// demo timelock. Production runs 172,800 s (DECISIONS #33).
+#[allow(dead_code)]
+pub(crate) const PRODUCTION_MIN_TIMELOCK_SECS: u64 = 86_400;
+#[cfg(not(feature = "production"))]
+pub(crate) const MIN_TIMELOCK_SECS: u64 = DEMO_MIN_TIMELOCK_SECS;
+#[cfg(feature = "production")]
+pub(crate) const MIN_TIMELOCK_SECS: u64 = PRODUCTION_MIN_TIMELOCK_SECS;
 
 fn validate_config(config: &Config) -> Result<(), Error> {
     let bps = math::BPS as u32;

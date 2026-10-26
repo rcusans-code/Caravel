@@ -14,7 +14,14 @@ scripts/deploy.sh --preflight    # guards only: .env complete, *_ASSET derive to
 scripts/deploy.sh --no-winddown  # leave the repo contract this run replaces open
 PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh   # deploy attested wasm from attest.yml instead of building
 scripts/test/deploy-guards.test.sh              # offline tests for the guards below (21 checks)
+scripts/deploy.sh --plan         # print every tx this run would send against the live state; send nothing, write nothing
+NETWORK=mainnet scripts/deploy.sh --plan        # mainnet profile, plan only (Mainnet runbook, below)
+scripts/test/mainnet-profile.test.sh            # key loader + mainnet refusals (25 checks; OFFLINE=1 skips the Horizon reads)
 ```
+
+`--plan` runs every read (wasm fetch, views, Horizon) and prints each tx a real run would send, numbered, with the role that signs it (admin, issuer, feeder, friendbot) and addresses or IDs only, never a secret. A contract it would deploy shows as `PLANNED_<wasm>`. A no-op run prints `nothing to send`. It writes no `.env`, `testnet.json`, README or bindings.
+
+**Keys (Raven R10).** The admin, guardian, issuer and oracle feeder keys (`ADMIN_*`, `GUARDIAN_*`, `ISSUER_*`, `FEEDER_*`) are read from the untracked `~/.local/lib/caravel/.env` (override: `CARAVEL_KEYS_FILE`) when it exists, the file the keepers already run on; a role found there takes both its lines from there, the rest come from the tracked `.env`. The start line names the source (`keys: ADMIN GUARDIAN ISSUER from … (untracked)`). Without that file (a teammate's laptop) everything comes from the tracked `.env` as before. An explicit `ENV_FILE` (a throwaway deployment) is used as-is unless `CARAVEL_KEYS_FILE` is set too. A new guardian key is written to `.env` as before and also to the untracked file when that file holds the guardian. `onboard.sh`, `winddown.sh` and `buy-usdc.sh` load keys the same way (`scripts/lib/keys.sh`). `FEEDER_*` (unset today = ADMIN) is the oracle admin that signs `set_price`: a fresh oracle gets it as admin, and `nav-keeper.sh` signs with `FEEDER_SECRET` when set.
 
 What it does, idempotently (each step reads chain state first and only sends a tx if it differs):
 
@@ -39,6 +46,31 @@ Dry run, 25 Oct, on throwaway keys and a separate `ENV_FILE` (the app's deployme
 
 The mock price goes stale after tBENJI's `max_nav_age_secs` (180 s, set per asset): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## Mainnet runbook (plan only; Raven R10, R12 UA-07)
+
+`NETWORK=mainnet scripts/deploy.sh --plan` prints the mainnet deploy and sends nothing; mainnet without `--plan` refuses. It never reads the tracked `.env` and refuses a key or address copied from it (also from a shell that ran `. ./.env`), a keys file tracked in git, and any `*_SECRET` in its input: mainnet admin and guardian are multisig accounts, and their signers sign the printed XDRs with their own wallets.
+
+1. Write the input file, untracked, `chmod 600`: `~/.local/lib/caravel/mainnet.env` (or `CARAVEL_KEYS_FILE=…`). Addresses and IDs only:
+   ```sh
+   ADMIN_ADDRESS=G…        # multisig: med and high threshold >= 2, no signer meets med alone
+   GUARDIAN_ADDRESS=G…     # multisig, != ADMIN_ADDRESS (#33, OZ-05)
+   TREASURY_ADDRESS=G…     # fee reserve; default ADMIN_ADDRESS
+   USDC_SAC=CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75
+   USDC_ASSET=USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+   ORACLE_ID=C…            # the SEP-40 feed (RedStone for BENJI), base USD
+   FEED_DECIMALS=…         # the feed's decimals(), for the BENJI 0.90 / 1.10 bounds
+   COLLATERAL="BENJI"      # labels; numbers per label from DECISIONS #35 / #32
+   BENJI_TOKEN=CCDSDPD7FXB74PFB2SYCHGQRWLXQRYRTQSPCVSRJ7FAOLOUGWEYAXQ7A   # BENJI SAC on mainnet
+   BENJI_ASSET=BENJI:GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5
+   LIQUIDATORS="G…"        # optional; whitelisted the timelocked way
+   ```
+   Per-asset numbers can be overridden (`BENJI_HAIRCUT_BPS`, `_MARGIN_TRIGGER_BPS`, `_NAV_MOVE_BPS`, `_MAX_OPEN_DEBT`, `_NAV_FLOOR`, `_NAV_CEILING`); SAFO has none (disabled until due diligence, #35) and needs them set. Change a number in DECISIONS first, then in `scripts/lib/mainnet-plan.sh`, which holds the production profile: `day_secs` 86,400, margin window 3 days, grace 1 day, timelock 172,800 s, fee 1,000 bps, discount 100 bps, NAV age 345,600 s, band settle 86,400 s.
+2. Run `NETWORK=mainnet scripts/deploy.sh --plan`. Checks first, all reads: each `*_ASSET` derives to its token under the mainnet passphrase, admin and guardian are multisig on Horizon (signers, thresholds, sequence printed), the contract bounds `discount < trigger < haircut < 10,000` per asset. Any failure: it lists them and prints no plan.
+3. It builds `caravel-repo --features production` into `target/production` (timelock floor 1 day, instance TTL 30 days; the default build, the testnet one, is unchanged; `MAINNET_WASM=` takes an attested wasm instead), then prints the predicted `REPO_ID` (admin + `REPO_SALT`, default from the wasm hash) and the txs as `stellar … --build-only` commands for the admin multisig: upload, deploy with the production config, `set_asset` per collateral, `propose_liquidator` / `execute_liquidator` after the timelock, the treasury USDC trustline if missing. Then the txs other parties sign (the issuer's `set_authorized` of the repo contract and each liquidator), and what testnet does that mainnet does not (mock oracle, `set_price`, tSAFO mock, friendbot, key generation, mints, wind-down, file writes).
+4. Sending stays manual and outside this script: each XDR goes to the signers, then `stellar tx send`. Not before the gates in [docs/mainnet-readiness.md](../docs/mainnet-readiness.md) (issuer approval, a real feed, an audit, legal analysis).
+
+Tested 26 Oct 2026, nothing sent: a plan against public mainnet multisig accounts as stand-ins (3-of-5 admin, 2-of-4 guardian) printed 4 admin txs; both accounts' sequences were the same before and after. A single-key admin, a guardian with one signer of weight 3 against a threshold of 2, a mismatched BENJI SAC and every tracked-key case refuse (`scripts/test/mainnet-profile.test.sh`).
 
 ## `winddown.sh`: close superseded repo contracts (UA-05)
 

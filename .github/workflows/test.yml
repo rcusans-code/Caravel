@@ -35,6 +35,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: cargo test --workspace
         run: cargo test --workspace --locked
+      - name: production feature tests (Raven R12 UA-07; the rest of the suite is demo-profile only)
+        run: cargo test -p caravel-repo --locked --features production production_
       - name: wasm32v1-none release build (stellar contract build)
         run: stellar contract build
       - name: Test snapshots match the committed ones

@@ -20,8 +20,10 @@
 # work. The last posted price per asset lives in NAV_KEEPER_STATE (default
 # ${XDG_STATE_HOME:-~/.local/state}/caravel/nav-keeper-<ORACLE_ID>.state), so
 # a restart keeps it; with no state yet the current price is trusted.
-# Signs set_price with ADMIN_SECRET from ENV_FILE (the oracle admin), passed
-# to the CLI through STELLAR_ACCOUNT so it never shows up in `ps`.
+# Signs set_price with the oracle admin from ENV_FILE: FEEDER_SECRET when the
+# feeder key is split from ADMIN (Raven R10, after oracle set_admin), else
+# ADMIN_SECRET; passed to the CLI through STELLAR_ACCOUNT so it never shows
+# up in `ps`.
 #
 # Attempts are interleaved (tBENJI, tSAFO, then a retry of whichever failed),
 # so one asset's failures never delay the other's push; every CLI call is
@@ -156,7 +158,7 @@ guard_price() { # guard_price LABEL PRICE PIN: 0 = post it (and remember it), 1 
 
 set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
   local label="$1" asset="$2" price="$3" try="$4" out ts
-  if ! out=$(STELLAR_ACCOUNT="$ADMIN_SECRET" cli contract invoke -q --inclusion-fee "$INCLUSION_FEE" \
+  if ! out=$(STELLAR_ACCOUNT="${FEEDER_SECRET:-$ADMIN_SECRET}" cli contract invoke -q --inclusion-fee "$INCLUSION_FEE" \
                --id "$ORACLE_ID" -- set_price --asset "$asset" --price "$price" 2>&1); then
     [[ -z "$out" ]] && out="no output (timed out after ${CLI_TIMEOUT}s?)"
     log "$label set_price attempt $try FAILED: $(grep -v '^[[:space:]]*$' <<<"$out" | tail -n 3 | tr '\n' ' ')"

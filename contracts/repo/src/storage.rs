@@ -19,12 +19,16 @@ const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
 /// XLM). 6 days stays inside the TTL a fresh upload/deploy already has, so
 /// deploy pays no code rent.
 ///
-/// PRODUCTION: set this to [`PROD_INSTANCE_BUMP`].
+/// The `production` cargo feature uses [`PROD_INSTANCE_BUMP`] instead
+/// (Raven R12, UA-07).
+#[cfg(not(feature = "production"))]
 const INSTANCE_BUMP: u32 = 6 * DAY_IN_LEDGERS;
+#[cfg(feature = "production")]
+const INSTANCE_BUMP: u32 = PROD_INSTANCE_BUMP;
 /// Production instance TTL: 30 days, matching persistent entries, so config,
 /// asset settings and open-debt counters cannot lapse while repos live.
 #[allow(dead_code)]
-const PROD_INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
+pub(crate) const PROD_INSTANCE_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const INSTANCE_THRESHOLD: u32 = INSTANCE_BUMP - DAY_IN_LEDGERS;
 const PERSISTENT_BUMP: u32 = 30 * DAY_IN_LEDGERS;
 const PERSISTENT_THRESHOLD: u32 = PERSISTENT_BUMP - DAY_IN_LEDGERS;
