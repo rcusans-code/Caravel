@@ -44,4 +44,7 @@ pub enum Error {
     NotAdminOrGuardian = 23,
     /// `claim` by an address with no parked USDC payout.
     NothingToClaim = 24,
+    /// `claim_in_kind` while the NAV is fresh, or stale for no longer than
+    /// `inkind::NAV_OUTAGE_DAYS` demo/real days: use `liquidate` or wait.
+    NoNavOutage = 25,
 }
