@@ -10,21 +10,28 @@ scripts/deploy.sh --fresh        # force a new oracle + repo contract
 NAV=0.97 scripts/deploy.sh       # also push a tBENJI price (default 1.00, only if none is set)
 SAFO_NAV=1.02 scripts/deploy.sh  # same for tSAFO
 SKIP_BINDINGS=1 scripts/deploy.sh
+scripts/deploy.sh --preflight    # guards only: .env complete, *_ASSET derive to *_SAC; no build, no tx
+scripts/deploy.sh --no-winddown  # leave the repo contract this run replaces open
+PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh   # deploy attested wasm from attest.yml instead of building
+scripts/test/deploy-guards.test.sh              # offline tests for the guards below (21 checks)
 ```
 
 What it does, idempotently (each step reads chain state first and only sends a tx if it differs):
 
-1. `stellar contract build` (repo, oracle, and the tSAFO mock).
+0. Guards (Raven R4): `USDC_ASSET` and `TBENJI_ASSET` are required, and each must derive to its `*_SAC` (`stellar contract id asset`, local), else the run stops before any build or tx (AS-05).
+1. `stellar contract build --meta source_repo=github:rcusans-code/Caravel --meta commit_sha=<HEAD>` (repo, oracle, and the tSAFO mock; `-dirty` is appended when `contracts/` has uncommitted changes). The SEP-46 meta lands on-chain with the next deploy of each contract: `stellar contract info meta --id <REPO_ID> --network testnet` (STD-05). Reuse compares the on-chain wasm without its `contractmetav0` section (`scripts/wasm-code-hash.py`), because `commit_sha` changes the raw hash on every commit; compare wasm by hand the same way.
 2. Tops ADMIN up to 6,000 XLM by merging a friendbot-funded throwaway account into it (testnet rent is steep: a wasm upload costs ~1,000–1,500 XLM).
 3. Mock oracle: reused if the on-chain wasm matches the build, otherwise deployed with admin = ADMIN, base `Other("USD")`, 14 decimals, resolution 60. Sets tBENJI (`Stellar(TBENJI_SAC)`) to 1.00 if it has no price.
    tSAFO (collateral #2, issue #20): `contracts/spiko-mock`, a Spiko-style token (allowlist checked on every transfer, no `approve`/`transfer_from`, issuer pause, 5 decimals like Spiko's mainnet tokens). Reused if the wasm matches, otherwise deployed with admin = ISSUER; `TSAFO_ID` goes into `.env`. Priced at 1.00 if it has none.
 4. Repo contract: reused if wasm and `config()` match, otherwise deployed with the demo profile (#5): fee 1000 bps (#3), liquidation discount 200 bps (#4), `day_secs` 60, margin window 120 s, grace 60 s. Treasury = ADMIN (override with `TREASURY_ADDRESS`). Guardian (#33) is a key of its own, not ADMIN: with no `GUARDIAN_ADDRESS` in `.env`, the run that deploys a new repo contract generates a funded testnet key and writes `GUARDIAN_ADDRESS` / `GUARDIAN_SECRET` to `.env` (never printed). `Config` has no setter, so a reused repo keeps its on-chain guardian and a no-op run stays a no-op; the separate guardian goes live with the next redeploy. Set `GUARDIAN_ADDRESS` yourself to pin one.
 5. `set_asset(tBENJI, { Stellar(TBENJI_SAC), haircut 300 bps, margin trigger 200 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 100,000 USDC, band settle 1,200 s })` (#26: discount ≤ trigger < haircut; #25: staleness is per asset; #31: NAV sanity band; #32: exposure cap) and `set_asset(tSAFO, { Stellar(TSAFO_ID), haircut 3000 bps, margin trigger 2000 bps, enabled, max NAV age 180 s, max NAV move 2,500 bps, max open debt 50,000 USDC, band settle 1,200 s })` (testnet only, DECISIONS #29; override with `MARGIN_TRIGGER_BPS`, `SAFO_MARGIN_TRIGGER_BPS`, `SAFO_HAIRCUT_BPS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, `SAFO_MAX_OPEN_DEBT`, in whole USDC; `BAND_SETTLE_SECS`, `SAFO_BAND_SETTLE_SECS`).
 6. `set_liquidator(LIQUIDATOR, true)`.
-7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`).
+7. Issuer `set_authorized(…, true)` on tBENJI for the repo contract, borrower and liquidator (AUTH_REQUIRED, see `spikes/auth`). For the repo contract a failed `set_authorized`, or `authorized` still false after it, stops the deploy (AS-06: otherwise every tBENJI take fails with the SAC's #11); the wallets only WARN (no trustline yet).
    Issuer `set_whitelisted(…, true)` on tSAFO for the repo contract, the liquidator, the borrower and lender wallets, plus any `TSAFO_HOLDERS` (space-separated). Without the repo contract and every liquidator on the list, takes and liquidations revert with the token's `NotWhitelisted` (#100). Then mints `TSAFO_BORROWER_MINT` (2,000) tSAFO to the borrower if it holds none, and `TSAFO_HOLDER_MINT` (200) to each `TSAFO_HOLDERS` address if it holds none.
 8. Writes `ORACLE_ID`, `REPO_ID`, `TSAFO_ID`, `DEPLOYED_AT` (and a new `GUARDIAN_*`) into `.env` and the public `deployments/testnet.json` (IDs, addresses incl. guardian, params) for the app. The keepers run on a copy of `.env`: re-run the `install -Dm600 .env …` line below after every deploy that changed an ID.
+   A replaced `REPO_ID` is prepended to `superseded` in `deployments/testnet.json` (newest first, kept across runs).
 9. Regenerates TS bindings in `packages/caravel-repo` and `packages/caravel-oracle` when a contract ID changes.
+10. Winds down the repo contract it replaced (`scripts/winddown.sh <old REPO_ID>`, below), after the new one is live; a failure there only WARNs. `--no-winddown` or `WINDDOWN=0` skips it.
 
 Every param can be overridden from the environment (`HAIRCUT_BPS`, `SAFO_HAIRCUT_BPS`, `TSAFO_DECIMALS`, `MAX_NAV_AGE_SECS`, `SAFO_MAX_NAV_AGE_SECS`, `NAV_MOVE_BPS`, `SAFO_NAV_MOVE_BPS`, `MAX_OPEN_DEBT`, …); see the top of the script.
 
@@ -32,6 +39,24 @@ Dry run, 25 Oct, on throwaway keys and a separate `ENV_FILE` (the app's deployme
 
 The mock price goes stale after tBENJI's `max_nav_age_secs` (180 s, set per asset): `nav-keeper.sh` or the TypeScript keeper with `--refresh-nav` (both below) keep it fresh. By hand:
 `stellar contract invoke --network testnet --source-account <admin> --id $ORACLE_ID -- set_price --asset '{"Stellar":"'$TBENJI_SAC'"}' --price 100000000000000`.
+
+## `winddown.sh`: close superseded repo contracts (UA-05)
+
+Contracts are immutable (DECISIONS: versioned redeploys), so every redeploy leaves the old repo contract holding escrowed offers and maybe live repos that the app and keeper no longer show. `deploy.sh` calls this for the contract it replaces; run it by hand for older ones.
+
+```sh
+scripts/winddown.sh --dry-run          # every id in deployments/testnet.json "superseded"; simulate only
+scripts/winddown.sh --dry-run C… C…    # just these
+scripts/winddown.sh                    # send: pause + cancel our offers on every superseded contract
+```
+
+Per contract: (1) `no_new_repos` on every listed asset (admin `set_pause`, else `guardian_set_pause`, else admin `set_asset` with `enabled: false` on pre-#30 contracts), so nobody takes a stale offer; (2) `cancel_offer` for each open offer whose lender key is in `.env` (demo lender and the other burner wallets), which returns the escrowed USDC; (3) lists offers of other lenders (they must call `cancel_offer` on that contract themselves) and live repos (Open / MarginCall / Defaulted), which settle on their own terms: repay, top-up, default and liquidate are never paused by this. `--dry-run` simulates every tx with `--send=no` (simulation records auth instead of checking signatures, so it proves the call logic, not the key). Testnet only; refuses the live `REPO_ID`. Keys go to the CLI only, never printed.
+
+Dry run, 26 Oct, on the 10 superseded contracts: 17 open offers / 1,445 USDC, 11 / 1,100 USDC cancellable with `.env` keys, 6 / 345 USDC held by GDFLRCV4…, 1 Defaulted repo (CCFP3L7T… #8).
+
+## Build provenance (SEP-55): `.github/workflows/attest.yml`
+
+On a `v*` tag or a manual run, the workflow builds the three wasm files with the same meta, attests them (`actions/attest-build-provenance`) and uploads the `contracts-wasm` artifact. To make the testnet contract verifiable, deploy those exact bytes: `gh run download <run-id> -n contracts-wasm -D /tmp/wasm`, then `PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh`; `stellar contract info build --id <REPO_ID> --network testnet` then finds the attestation. A local build carries the meta but no attestation.
 
 ## `onboard.sh`: give a team wallet access and a test allowance
 
