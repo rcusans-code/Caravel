@@ -7,6 +7,7 @@ import { big, contractDataKey, dataKey, normRepo, server, simulateView } from ".
 import type { Repo, Status } from "./book";
 import { toReading, type Asset, type FeedReading } from "./sep40";
 import {
+  COLLATERAL,
   HORIZON_URL,
   LIVE_FEED,
   NETWORK_PASSPHRASE,
@@ -416,6 +417,81 @@ export async function claim(signer: Signer): Promise<TxOutcome<bigint>> {
   const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
   const out = await submit(await c.claim({ who: signer.address }));
   return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+// --- NAV outage fallback: in-kind claim (DECISIONS.md #38) ------------------------
+
+/**
+ * Lender only: takes a Defaulted repo's whole collateral in kind once its NAV
+ * has been stale for 7 contract days past max_nav_age_secs. Returns the
+ * collateral amount. A push the token refuses is parked for claimCollateral.
+ */
+export async function claimInKind(signer: Signer, repoId: bigint): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.claim_in_kind({ repo_id: repoId }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/** Collateral parked for `address` per collateral token id (in-kind claims the token refused); 0 on a contract without it. */
+export async function getClaimableCollateral(address: string): Promise<Record<string, bigint>> {
+  const amounts = await Promise.all(
+    COLLATERAL.map((a) =>
+      readRepo.claimable_collateral({ who: address, asset: a.sac }).then(
+        (r) => big(r.result),
+        () => 0n,
+      ),
+    ),
+  );
+  return Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, amounts[i]]));
+}
+
+/** Sends the signer's parked `asset` to `to` (itself, or an allowlisted custody account). Returns the amount. */
+export async function claimCollateral(signer: Signer, asset: string, to: string): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.claim_collateral({ who: signer.address, asset, to }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/** A `ClaimedInKind` event: the lender took the collateral itself, no sale. */
+export interface InKindClaim {
+  repoId: bigint;
+  lender: string;
+  amount: bigint;
+  /** The token refused the push, so the collateral waits for claim_collateral. */
+  parked: boolean;
+  /** The stale NAV the outage was measured from. */
+  navTimestamp: bigint;
+}
+
+/**
+ * Every `ClaimedInKind` event the RPC still holds for the repo contract, by
+ * repo id. Repo state is `Liquidated` for a sale and an in-kind claim alike;
+ * only the event tells them apart. Starts at the RPC's oldest retained ledger
+ * (testnet keeps about 7 days).
+ */
+export async function getInKindClaims(): Promise<Map<string, InKindClaim>> {
+  const oldest = (await server.getTransaction("0".repeat(64))).oldestLedger;
+  const topics = [[xdr.ScVal.scvSymbol("claimed_in_kind").toXDR("base64"), "*", "*"]];
+  const filters = [{ type: "contract" as const, contractIds: [REPO_ID], topics }];
+  const out = new Map<string, InKindClaim>();
+  const limit = 100;
+  let page = await server.getEvents({ startLedger: oldest, filters, limit });
+  for (let i = 0; i < 20; i++) {
+    for (const e of page.events) {
+      const id = big(scValToNative(e.topic[1]));
+      const d = scValToNative(e.value) as { collateral_amount: bigint; parked: boolean; nav_timestamp: bigint };
+      out.set(String(id), {
+        repoId: id,
+        lender: String(scValToNative(e.topic[2])),
+        amount: big(d.collateral_amount),
+        parked: d.parked === true,
+        navTimestamp: big(d.nav_timestamp),
+      });
+    }
+    if (page.events.length < limit || !page.cursor) break;
+    page = await server.getEvents({ cursor: page.cursor, filters, limit });
+  }
+  return out;
 }
 
 /** Admin only: mock oracle `set_price` (contracts/oracle) for collateral `sac`. */

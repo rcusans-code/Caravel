@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { StrKey } from "@stellar/stellar-sdk";
 import lockup from "../../design/logos/caravel-lockup.svg";
 import {
   ACCOUNTS,
@@ -15,7 +16,7 @@ import {
   type Token,
 } from "./config";
 import * as chain from "./chain";
-import type { AssetConfig, Balances, FeedReading, Nav, Offer, ProtocolConfig, Repo, Status } from "./chain";
+import type { AssetConfig, Balances, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo, Status } from "./chain";
 import { explain } from "./errors";
 import {
   BPS,
@@ -41,6 +42,9 @@ import {
   autoRepayHint,
   checkBand,
   collateralBlock,
+  fmtDuration,
+  inKindWindow,
+  NAV_OUTAGE_DAYS,
   ledgerNow,
   navBadge,
   navBlock,
@@ -91,6 +95,10 @@ export default function App() {
   const [liquidatorOk, setLiquidatorOk] = useState(false);
   // USDC a settlement could not push to this account, waiting for claim().
   const [claimable, setClaimable] = useState(0n);
+  // Collateral an in-kind claim could not push to this account, per token id, waiting for claim_collateral().
+  const [parked, setParked] = useState<Record<string, bigint>>({});
+  // ClaimedInKind events by repo id: a Liquidated repo the lender took in kind, not sold (#38).
+  const [inKind, setInKind] = useState<Map<string, InKindClaim>>(new Map());
   const [loaded, setLoaded] = useState(false);
   // Tab in the URL hash (route.ts, issue #37): read on load, followed on back/forward and hand edits.
   const [route, setRoute] = useState<Route>(() => parseHash(location.hash).route);
@@ -141,14 +149,16 @@ export default function App() {
   const refreshAccount = useCallback(async () => {
     if (!signer) return;
     try {
-      const [b, l, c] = await Promise.all([
+      const [b, l, c, p] = await Promise.all([
         chain.getBalances(signer.address),
         chain.isLiquidator(signer.address),
         chain.getClaimable(signer.address),
+        chain.getClaimableCollateral(signer.address),
       ]);
       setBalances(b);
       setLiquidatorOk(l);
       setClaimable(c);
+      setParked(p);
     } catch (e) {
       setFlash({ tone: "error", title: "Could not read balances", body: explain(e) });
     }
@@ -172,9 +182,17 @@ export default function App() {
     };
   }, [refreshMarket]);
 
+  // Sale or in-kind claim? Only the event says; re-read when a repo turns Liquidated.
+  const liquidatedKey = repos.filter((r) => r.status === "Liquidated").map((r) => String(r.id)).join(",");
+  useEffect(() => {
+    if (!liquidatedKey) return;
+    chain.getInKindClaims().then(setInKind, (e) => console.warn("ClaimedInKind events not read", e));
+  }, [liquidatedKey]);
+
   useEffect(() => {
     setBalances(null);
     setClaimable(0n);
+    setParked({});
     refreshAccount();
     const t = setInterval(refreshAccount, 10_000);
     return () => clearInterval(t);
@@ -235,6 +253,7 @@ export default function App() {
     setSigner(null);
     setBalances(null);
     setClaimable(0n);
+    setParked({});
     setFlash(null);
   };
 
@@ -300,6 +319,7 @@ export default function App() {
     run,
     setFlash,
     refreshAll,
+    inKind,
   };
 
   return (
@@ -387,6 +407,7 @@ export default function App() {
             signer={signer}
             balances={balances}
             claimable={claimable}
+            parked={parked}
             busy={busy}
             run={run}
             refresh={refreshAccount}
@@ -483,6 +504,8 @@ interface Ctx {
   run: <T>(key: string, title: string, fn: () => Promise<T>) => Promise<T | null>;
   setFlash: (f: Flash) => void;
   refreshAll: () => Promise<unknown>;
+  /** ClaimedInKind events by repo id (#38). */
+  inKind: Map<string, InKindClaim>;
 }
 
 function AccountChip({ signer, onDisconnect }: { signer: Signer; onDisconnect: () => void }) {
@@ -505,6 +528,7 @@ function AccountAlerts({
   signer,
   balances,
   claimable,
+  parked,
   busy,
   run,
   refresh,
@@ -514,6 +538,8 @@ function AccountAlerts({
   balances: Balances | null;
   /** Parked USDC payouts for this account (contract claimable()). */
   claimable: bigint;
+  /** Parked collateral per token id (contract claimable_collateral()). */
+  parked: Record<string, bigint>;
   busy: string | null;
   run: Ctx["run"];
   refresh: () => Promise<void>;
@@ -585,6 +611,18 @@ function AccountAlerts({
           the contract kept it for you. Claim it once your account can receive USDC.
         </Alert>
       )}
+      {COLLATERAL.filter((t) => (parked[t.sac] ?? 0n) > 0n).map((t) => (
+        <ParkedCollateral
+          key={t.sac}
+          signer={signer}
+          token={t}
+          amount={parked[t.sac]}
+          balances={balances}
+          busy={busy}
+          run={run}
+          setFlash={setFlash}
+        />
+      ))}
       {balances && !balances.exists && (
         <Alert
           tone="margin"
@@ -633,6 +671,85 @@ function AccountAlerts({
         </Alert>
       )}
     </>
+  );
+}
+
+/**
+ * Collateral an in-kind claim could not push to this account (#38): the token
+ * refused it (tSAFO allowlist, frozen tBENJI trustline). claim_collateral sends
+ * it here or to a custody account the issuer admits.
+ */
+function ParkedCollateral({
+  signer,
+  token,
+  amount,
+  balances,
+  busy,
+  run,
+  setFlash,
+}: {
+  signer: Signer;
+  token: Token;
+  amount: bigint;
+  balances: Balances | null;
+  busy: string | null;
+  run: Ctx["run"];
+  setFlash: Ctx["setFlash"];
+}) {
+  const [to, setTo] = useState("");
+  const key = `claim-col-${token.sac}`;
+  const dest = to.trim();
+  const destErr = dest && !StrKey.isValidEd25519PublicKey(dest) && !StrKey.isValidContract(dest) ? "Enter a G… account or C… contract address." : null;
+  // Sending to yourself while the issuer still refuses you would revert: say so before the wallet opens.
+  const selfBlocked = !dest && collateralBlock(balances, token);
+  const amt = fmtAmount(amount, 2, token.decimals);
+  const onClaim = () =>
+    run(key, `${token.code} not claimed`, async () => {
+      const r = await chain.claimCollateral(signer, token.sac, dest || signer.address);
+      setFlash({
+        tone: "info",
+        title: `${token.code} claimed`,
+        body: `${fmtAmount(r.value, 2, token.decimals)} ${token.code} sent to ${dest ? `${dest.slice(0, 4)}…${dest.slice(-4)}` : "your account"}.`,
+      });
+      return r;
+    });
+  return (
+    <Alert
+      tone="info"
+      title={`${amt} ${token.code} parked for you`}
+      action={
+        <button
+          type="button"
+          className="cv-btn cv-btn--primary cv-btn--sm"
+          data-action="claim-collateral"
+          disabled={!!busy || !!destErr}
+          aria-busy={busy === key ? "true" : undefined}
+          title={selfBlocked || ""}
+          onClick={onClaim}
+        >
+          {busy === key ? "Claiming…" : "Claim"}
+        </button>
+      }
+    >
+      An in-kind claim gave you this collateral, but {token.code} refused the transfer to your account
+      {token.kind === "spiko" ? " (not on the issuer allowlist)" : " (trustline frozen or not authorized)"}, so the contract holds it for
+      you. Claim it to your account once the issuer admits it, or send it to a custody account the issuer admits.
+      <label className={`cv-field app-custody${destErr ? " cv-field--error" : ""}`}>
+        <span className="cv-field__label">Custody address (optional)</span>
+        <span className="cv-field__control">
+          <input
+            id={`custody-${token.sac}`}
+            value={to}
+            onChange={(e) => setTo(e.currentTarget.value)}
+            placeholder="Empty = your account"
+            spellCheck={false}
+            autoComplete="off"
+            data-testid="custody-address"
+          />
+        </span>
+        {(destErr || selfBlocked) && <span className="cv-field__hint">{destErr ?? selfBlocked}</span>}
+      </label>
+    </Alert>
   );
 }
 
@@ -1551,6 +1668,16 @@ function PositionCard({
   }, [nav, dec, debt, repo]);
   const [topUpInput, setTopUpInput] = useState<string | null>(null);
   if (!config) return null;
+  // NAV outage fallback (#38): liquidate needs a fresh NAV; after 7 stale days the lender may take the collateral in kind.
+  const assetCfg = ctx.assets[repo.collateral_asset] ?? null;
+  const win = repo.status === "Defaulted" ? inKindWindow(nav, assetCfg, config.day_secs, now) : null;
+  const outageOpen = win?.state === "open";
+  const outageWaiting = win?.state === "waiting";
+  const opensAtText =
+    win?.opensAt != null ? new Date(win.opensAt * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
+  const outageSpan = `${NAV_OUTAGE_DAYS} ${Number(config.day_secs) >= 86_400 ? "days" : `demo days (${fmtDuration(BigInt(NAV_OUTAGE_DAYS) * config.day_secs)})`}`;
+  const navAgeText = assetCfg ? fmtDuration(assetCfg.max_nav_age_secs) : "its maximum age";
+  const claimedInKind = repo.status === "Liquidated" ? ctx.inKind.get(String(repo.id)) : undefined;
   const live = repo.status === "Open" || repo.status === "MarginCall";
   // repay also works out of Defaulted until a liquidation lands; top-up and auto-repay do not.
   const repayable = live || repo.status === "Defaulted";
@@ -1605,6 +1732,22 @@ function PositionCard({
       });
   };
 
+  const doClaimInKind = async () => {
+    if (!signer) return;
+    const out = await ctx.run(`inkind-${repo.id}`, `Repo #${repo.id} not claimed in kind`, () => chain.claimInKind(signer, repo.id));
+    if (!out) return;
+    // The claim lands even when the token refuses the push: then it is parked for claim_collateral.
+    const parkedNow = (await chain.getClaimableCollateral(signer.address).catch(() => ({}) as Record<string, bigint>))[repo.collateral_asset] ?? 0n;
+    ctx.setFlash({
+      tone: "info",
+      title: `Repo #${String(repo.id).padStart(3, "0")} claimed in kind`,
+      body:
+        parkedNow > 0n
+          ? `${amt(out.value)} ${token.code} is yours, but ${token.code} refused the transfer to this account, so the contract parked it: claim it above, to this account or to a custody account. The debt is closed.`
+          : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${fmtAmount(debt)} USDC debt is closed.`,
+    });
+  };
+
   const doRepay = async () => {
     if (!signer) return;
     const out = await ctx.run(`repay-${repo.id}`, `Repo #${repo.id} not repaid`, () => chain.repay(signer, repo.id));
@@ -1650,11 +1793,27 @@ function PositionCard({
           )}
         </Alert>
       )}
-      {repo.status === "Defaulted" && (
+      {repo.status === "Defaulted" && !outageOpen && !outageWaiting && (
         <Alert tone="info" title="Awaiting liquidation">
           {side === "lent"
             ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${fmtAmount(debt)} USDC debt. Until then the borrower can still repay you in full.`
             : `This repo was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${fmtAmount(debt)} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
+        </Alert>
+      )}
+      {outageWaiting && (
+        <Alert tone="margin" title="Liquidation blocked: the NAV is stale">
+          {`The ${token.code} price is more than ${navAgeText} old, and liquidate needs a fresh NAV, so no liquidator can buy the collateral. `}
+          {side === "lent"
+            ? `If the price stays stale, you can claim the whole ${amt(repo.collateral_amount)} ${token.code} in kind from ${opensAtText} (last NAV + ${navAgeText} + ${outageSpan}). A fresh NAV first reopens the sale. Until then the borrower can still repay you in full.`
+            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} USDC before then to get it all back.`}
+        </Alert>
+      )}
+      {outageOpen && (
+        <Alert tone="margin" title={side === "lent" ? "Claim the collateral in kind" : "The lender can take your collateral in kind"}>
+          {`The ${token.code} price has been stale for more than ${navAgeText} + ${outageSpan}, so liquidate stays blocked. `}
+          {side === "lent"
+            ? `You can take the whole ${amt(repo.collateral_amount)} ${token.code} instead of USDC: no sale, no fee, and the ${fmtAmount(debt)} USDC debt is closed. The borrower can still repay you until you claim.`
+            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no sale and no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it all back.`}
         </Alert>
       )}
         <div>
@@ -1694,8 +1853,11 @@ function PositionCard({
       <div className="cv-row" style={{ justifyContent: "space-between" }}>
         <span className="cv-countdown">
           <span className="cv-field__hint">
-            {repo.status === "Defaulted" ? "Liquidation pending" : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
+            {repo.status === "Defaulted" ? (outageOpen ? "In-kind claim open" : outageWaiting ? "In-kind claim opens in" : "Liquidation pending") : !live ? "Closed" : inMarginCall && toDeadline !== null ? (toDeadline > 0 ? "Top up within" : "Margin window over") : toMaturity > 0 ? "Matures in" : pastGrace ? "Grace over" : "Matured, grace ends in"}
           </span>
+          {outageWaiting && win?.opensAt != null && (
+            <span className="cv-countdown__time">{fmtCountdown(win.opensAt - now, Number(config.day_secs))}</span>
+          )}
           {live && !(pastGrace && !inMarginCall) && (
             <span className="cv-countdown__time">
               {inMarginCall && toDeadline !== null
@@ -1728,7 +1890,20 @@ function PositionCard({
             {busy === `declare-${repo.id}` ? "Declaring" : "Declare default"}
           </button>
         )}
+        {outageOpen && side === "lent" && (
+          <button
+            type="button"
+            className="cv-btn cv-btn--primary cv-btn--sm"
+            disabled={!!busy}
+            title={`Sends claim_in_kind: the ${token.code} comes to you and the repo closes as Liquidated`}
+            onClick={doClaimInKind}
+            data-action="claim-in-kind"
+          >
+            {busy === `inkind-${repo.id}` ? "Claiming" : "Claim collateral in kind"}
+          </button>
+        )}
       </div>
+      {ctx.tx?.key === `inkind-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {ctx.tx?.key === `repay-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {ctx.tx?.key === `declare-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
       {pastGrace && side === "borrowed" && (
@@ -1802,17 +1977,30 @@ function PositionCard({
         />
       )}
       {ctx.tx?.key === `auto-${repo.id}` && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
-      {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config)}</p>}
+      {!repayable && side === "borrowed" && <p className="cv-field__hint">{OUTCOME[repo.status]?.(repo, config, claimedInKind)}</p>}
+      {repo.status === "Liquidated" && side === "lent" && <p className="cv-field__hint">{lenderLiquidated(repo, config, claimedInKind)}</p>}
     </article>
   );
 }
 
-/** What a settled repo meant for the borrower, so a closed card never just says "Closed". */
-const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig) => string>> = {
+/** What a settled repo meant for the borrower, so a closed card never just says "Closed". `k` = its ClaimedInKind event, if any. */
+const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindClaim) => string>> = {
   Repaid: (r) => `Repaid. ${fmtAmount(r.collateral_amount, 2, assetBySac(r.collateral_asset).decimals)} ${assetBySac(r.collateral_asset).code} returned to this wallet.`,
-  Liquidated: (r, c) =>
-    `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
+  Liquidated: (r, c, k) =>
+    k
+      ? `Claimed in kind: not repaid in time while the ${assetBySac(r.collateral_asset).code} NAV was stale, so the lender took the collateral itself. There was no sale, so no surplus came back.`
+      : `Liquidated: not repaid in time, so the ${assetBySac(r.collateral_asset).code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)}. The surplus over the debt was paid to this wallet.`,
 };
+
+/** The lender's line on a Liquidated repo: sold for USDC, or taken in kind (#38). */
+function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim): string {
+  const t = assetBySac(r.collateral_asset);
+  if (!k) return `Liquidated: the ${t.code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)} and the USDC paid you first, up to the debt.`;
+  const amt = `${fmtAmount(k.amount, 2, t.decimals)} ${t.code}`;
+  return k.parked
+    ? `Claimed in kind: ${amt} is yours instead of USDC. ${t.code} refused the transfer to this account, so it was parked for you to claim.`
+    : `Claimed in kind: ${amt} went to this wallet instead of USDC. No sale, no fee; the debt is closed.`;
+}
 
 function AutoRepayToggle({ checked, disabled, busy, onChange, hint }: { checked: boolean; disabled?: boolean; busy?: boolean; onChange: (v: boolean) => void; hint: string }) {
   return (
