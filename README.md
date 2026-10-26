@@ -141,6 +141,9 @@ stateDiagram-v2
 | `default(repo_id) → Status` | anyone | Open / MarginCall → Defaulted, or → Repaid for an auto-repay repo whose debt it can pull; a missed MarginCall → Open when a fresh NAV shows it recovered (#20) | maturity: no; missed MarginCall: yes (clears or confirms the breach, else `StaleNav` / `NavOutOfBand`) | none, or as `auto_repay` |
 | `liquidate(liquidator, repo_id)` | whitelisted liquidator | Defaulted → Liquidated | **yes** | liquidator USDC → contract → lender, treasury, borrower, a failed payout parked for `claim`; collateral → liquidator |
 | `claim(who) → amount` | anyone with a parked payout | — | no | contract USDC → `who` (its whole parked balance; `NothingToClaim` if none) |
+| `claim_in_kind(repo_id) → amount` | the repo's lender | Defaulted → Liquidated | no: needs the NAV stale for more than `max_nav_age_secs` + 7 `day_secs` (`NoNavOutage` otherwise) | collateral → lender, or parked for `claim_collateral` if the token refuses it; no sale, no fee (DECISIONS #38) |
+| `claim_collateral(who, asset, to) → amount` | `who`, with parked collateral | — | no | contract collateral → `to` (an approved custody account may differ from `who`; `NothingToClaim` if none) |
+| `note_nav(asset) → BandCandidate` | anyone (the keeper each tick) | — | — | none (starts the `band_settle_secs` clock on a new NAV level; `NavLevelNoted`) |
 | `set_asset(asset, config)` | admin | — | — | — (sets haircut, staleness, NAV band and exposure cap; DECISIONS #13, #31, #32). Instant for a first listing or a change that only tightens; a loosening fails with `Loosens` (DECISIONS #33) |
 | `set_liquidator(who, allowed)` | admin | — | — | — (removal instant, `LiquidatorSet` event; adding fails with `Loosens` unless already whitelisted, Raven R6) |
 | `propose_liquidator(who) → eta`, `execute_liquidator(who)` | admin; execute from `eta` until `eta + timelock_secs` | — | — | — (the only way to add a liquidator; `LiquidatorProposed`, then `LiquidatorSet`) |
@@ -152,7 +155,7 @@ stateDiagram-v2
 | `propose_asset(asset, config) → eta`, `propose_pause(asset, pause) → eta` | admin | — | — | — (queues any change, loosening included, for `timelock_secs`) |
 | `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` until `eta + timelock_secs` (`ProposalExpired` after) | — | — | — |
 | `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin any time; guardian once per change (`VetoSpent` when the admin re-proposes the change it cancelled) | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `pending_liquidator(who)`, `roles()`, `is_liquidator(who)`, `claimable(who)` | anyone | read only | — | — |
+| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `pending_liquidator(who)`, `roles()`, `is_liquidator(who)`, `claimable(who)`, `claimable_collateral(who, asset)`, `band_candidate(asset)` | anyone | read only | — | — |
 
 Every state-changing call checks status first and fails with a named error otherwise. An offer can be taken once; a repo can be repaid, defaulted or liquidated once.
 
@@ -198,7 +201,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta` until `eta + timelock_secs` (then it expires); the admin can `cancel_*` it any time, the guardian once per change (Raven R6). An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 281 tests (15 oracle, 256 repo, 10 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 309 tests (18 oracle, 280 repo, 11 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
