@@ -16,6 +16,7 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
+import { padTransaction } from "./padding.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const ENV_FILE = process.env.ENV_FILE ?? path.join(ROOT, ".env");
@@ -112,7 +113,7 @@ async function invokeOnce(
   const tx = await build(signer.publicKey(), contractId, method, args);
   const sim = await server.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error);
-  const prepared = rpc.assembleTransaction(tx, sim).build();
+  const prepared = padTransaction(rpc.assembleTransaction(tx, sim).build());
   prepared.sign(signer);
   const sent = await server.sendTransaction(prepared);
   if (sent.status === "ERROR" || sent.status === "TRY_AGAIN_LATER") {
