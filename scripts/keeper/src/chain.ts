@@ -16,6 +16,7 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
+import { errName, txFailReason } from "./errors.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 export const ENV_FILE = process.env.ENV_FILE ?? path.join(ROOT, ".env");
@@ -26,7 +27,7 @@ export const reloadEnv = () => loadEnv({ path: ENV_FILE, quiet: true, override: 
 
 export function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
-  if (!v) throw new Error(`${name} not set in .env`);
+  if (!v) throw new Error(`${name} not set in ${ENV_FILE} (set ENV_FILE to the keeper's .env, e.g. ~/.local/lib/caravel/.env)`);
   return v;
 }
 
@@ -47,9 +48,17 @@ export class ContractError extends Error {
     super(message);
   }
 }
-function toContractError(raw: string): ContractError {
+/**
+ * "contract error #7 InvalidStatus". The name comes from the repo contract's
+ * table, so it is added only for calls to REPO_ID: the oracle and token
+ * contracts number their errors differently.
+ */
+function toContractError(raw: string, contractId?: string): ContractError {
   const m = /Error\(Contract, #(\d+)\)/.exec(raw);
-  return new ContractError(m ? Number(m[1]) : null, m ? `contract error #${m[1]}` : raw.split("\n")[0]);
+  if (!m) return new ContractError(null, raw.split("\n")[0]);
+  const code = Number(m[1]);
+  const name = contractId && contractId === process.env.REPO_ID ? errName(code) : "";
+  return new ContractError(code, `contract error #${code}${name ? ` ${name}` : ""}`);
 }
 
 // ScVal builders for the argument shapes we use.
@@ -74,7 +83,7 @@ export async function view<T = unknown>(
   source = env("ADMIN_ADDRESS"),
 ): Promise<T> {
   const sim = await server.simulateTransaction(await build(source, contractId, method, args));
-  if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error);
+  if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
   const ret = sim.result?.retval;
   return (ret ? scValToNative(ret) : undefined) as T;
 }
@@ -111,7 +120,7 @@ async function invokeOnce(
 ): Promise<{ hash: string; result: unknown }> {
   const tx = await build(signer.publicKey(), contractId, method, args);
   const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error);
+  if (rpc.Api.isSimulationError(sim)) throw toContractError(sim.error, contractId);
   const prepared = rpc.assembleTransaction(tx, sim).build();
   prepared.sign(signer);
   const sent = await server.sendTransaction(prepared);
@@ -120,7 +129,9 @@ async function invokeOnce(
   }
   const done = await server.pollTransaction(sent.hash, { attempts: 30 });
   if (done.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`tx ${done.status} ${txLink(sent.hash)}`);
+    // A FAILED tx landed and was charged: say why (e.g. txFailed/invokeHostFunctionResourceLimitExceeded).
+    const why = done.status === rpc.Api.GetTransactionStatus.FAILED ? txFailReason(done.resultXdr) : "";
+    throw new Error(`tx ${done.status}${why ? ` (${why})` : ""} ${txLink(sent.hash)}`);
   }
   const ret = (done as rpc.Api.GetSuccessfulTransactionResponse).returnValue;
   return { hash: sent.hash, result: ret ? scValToNative(ret) : undefined };
