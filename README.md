@@ -300,6 +300,7 @@ Deployed 2026-10-26T08:27:35Z. The app and the keeper read the same ids from [de
 - **Push payouts.** Repay and liquidation pay lender, treasury and borrower directly. An account that removes its USDC trustline can make those payments fail. Target: hold payouts in the contract for each party to claim.
 - **Staleness means feed liveness.** The rule catches a feed that stopped updating, not a fund that stopped publishing.
 - **Regulatory scope.** This is a testnet demo, not a public offer. Tokenized fund shares are financial instruments and USDC is an e-money token under MiCA; a live deployment needs a legal analysis per issuer and jurisdiction.
+- **Before mainnet.** What is left between testnet and a mainnet beta, split into issuer and other external work and code work: [docs/mainnet-readiness.md](docs/mainnet-readiness.md).
 
 **Roadmap:** dividend pass-through; claimable payouts; a short liquidation delay after default; a lender `claim_collateral` when no liquidator buys; sell only enough collateral to cover the debt; the standard term-repo features: collateral substitution, partial unwind, roll into a new term, and lender termination on an issuer event; timelock the liquidator whitelist and a guardian rotation; a live Reflector or RedStone feed; Spiko USTBL (Tier 1, same permission model as tSAFO); eurSAFO with a EUR/USD feed; passkey smart wallets.
 
