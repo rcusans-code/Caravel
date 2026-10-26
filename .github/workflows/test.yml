@@ -39,13 +39,17 @@ jobs:
         run: stellar contract build
       - name: Test snapshots match the committed ones
         run: |
-          drift="$(git status --porcelain -- 'contracts/*/test_snapshots')"
+          # :(glob) so ** spans test_snapshots/<module>/; --untracked-files=all
+          # so a new snapshot that was never committed counts as drift too.
+          snaps=':(glob)contracts/*/test_snapshots/**'
+          drift="$(git status --porcelain --untracked-files=all -- "$snaps")"
           if [ -n "$drift" ]; then
-            echo "::error::cargo test changed tracked test snapshots. Run cargo test --workspace, review and commit them."
+            echo "::error::cargo test changed or added test snapshots that are not committed. Run cargo test --workspace, review the snapshot diff and commit it."
             echo "$drift" | head -50
-            git diff --stat -- 'contracts/*/test_snapshots' | tail -5
+            git diff --stat -- "$snaps" | tail -5
             exit 1
           fi
+          echo "test snapshots match the committed ones"
 
   keeper:
     runs-on: ubuntu-latest
