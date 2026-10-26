@@ -48,7 +48,7 @@ Status counts: Fixed 4 · Partly fixed 3 · Roadmap 1 · Won't fix 0 · Open 0.
 
 - Severity: Low (reported Medium; lowered on QA review)
 - Status: Fixed in [79b4fae](https://github.com/rcusans-code/Caravel/commit/79b4fae)
-- Location: `contracts/repo/src/lib.rs:437-505`, `contracts/repo/src/lib.rs:397-409`
+- Location: `contracts/repo/src/lib.rs:437-505`, `contracts/repo/src/lib.rs:397-418`
 - Finding: `take_offer` never checks the lender's USDC authorization. In the repro the lender's USDC was frozen after posting an offer: the lender's `cancel_offer` failed, but `take_offer` succeeded and the borrower received 970 USDC from the escrow. A frozen (for example sanctioned) lender's escrow keeps being lent out, and repayments accrue to its claimable balance. QA lowered it: no party loses funds the freeze does not already lock, so this is a compliance gap.
 - Fix: `take_offer` returns `OfferNotFound` when the USDC SAC reports `authorized(lender) == false`; the offer stays stored and becomes takeable again after re-authorization. Regression test: `as03_frozen_lender_offer_cannot_be_taken` in `contracts/repo/src/test_raven_guards.rs`.
 

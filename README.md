@@ -201,7 +201,7 @@ USDC amounts are `i128` in 7-decimal Stellar units; collateral amounts are in th
 - **Exposure is capped per asset** (DECISIONS #32). `take_offer` fails with `CapExceeded` once the asset's open debt would pass `max_open_debt` (exactly at the cap passes); repay, auto-repay and liquidation (shortfall included) free the debt and are never blocked, even after the cap is cut below what is open.
 - **Risk goes up only through a timelock** (DECISIONS #33). The guardian can only tighten, instantly; every loosening, a wider NAV band included, is `propose_*`, then `execute_*` from `eta` until `eta + timelock_secs` (then it expires); the admin can `cancel_*` it any time, the guardian once per change (Raven R6). An instant tightening drops a pending proposal, so it cannot be undone by a change queued earlier.
 
-`cargo test --workspace` runs 309 tests (18 oracle, 280 repo, 11 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
+`cargo test --workspace` runs 311 tests (18 oracle, 282 repo, 11 Spiko-style token), including the three liquidation outcomes (surplus, lender made whole, shortfall) checked to the stroop, the NAV sanity band (a jump up or down blocks take, margin check and liquidation even after nav-keeper re-posts; repay and top-up still work), the exposure cap, the guardian and timelock (every loosening fails on every instant entry point and for the guardian), and the full flow on a Spiko-style token (`test_spiko.rs`): take without `approve`, repay, top-up, default and liquidate, plus rejections for a borrower, liquidator or repo contract off the issuer's allowlist and for a paused token.
 
 ### Parameters
 
@@ -242,7 +242,7 @@ The contract reads a mock feed so the demo can move the NAV on camera. `npm run 
 
 ## Run it
 
-Prerequisites: Rust with the `wasm32v1-none` target and the Stellar CLI 28.x.
+Prerequisites: Rust with the `wasm32v1-none` target, the Stellar CLI 28.x, and Node 20+ for the keeper and the app. You do not need to deploy anything to try it: the contracts below are live on testnet and the [app](https://caravel-repo.pages.dev/app/) runs against them.
 
 ```bash
 rustup target add wasm32v1-none
@@ -260,7 +260,7 @@ Build the contract wasm:
 stellar contract build
 ```
 
-Deploy to testnet (oracle, tSAFO and repo contracts, collateral config, liquidator whitelist, issuer authorization; IDs written to `.env`, `deployments/testnet.json` and the table below). `.env` is committed on purpose: it holds testnet-only burner keys, and no mainnet key exists anywhere in this repo.
+Deploy your own copy to testnet (oracle, tSAFO and repo contracts, collateral config, liquidator whitelist, issuer authorization; IDs written to `.env`, `deployments/testnet.json` and the table below in your checkout; the repo wasm upload costs roughly 1,000–1,500 testnet XLM). `.env` is committed on purpose: it holds testnet-only burner keys, so the keeper and scripts work right after a clone, and no mainnet key exists anywhere in this repo ([Risks: Public testnet keys](#risks-and-limits)).
 
 ```bash
 scripts/deploy.sh
@@ -330,7 +330,7 @@ The Raven audit (26 Oct 2026) fixed its demo-blocking findings on testnet (DECIS
 
 Two internal reviews, published with the status of every finding (fixed with its commit, partly fixed, roadmap, won't fix or open), checked against main. Index, method and counts: [docs/audits/](docs/audits/README.md).
 
-- **Stellar Raven audit** (26 Oct 2026, commit 6827168): ten areas, each against a [Stellar Raven](https://raven.stellar.org) playbook. 89 findings (84 unique; High 4): 52 fixed, 10 partly fixed, 25 roadmap (R10-R15 above), 2 won't fix. [Contract security](docs/audits/contract-security.md) · [Upgrade and admin keys](docs/audits/upgrade-admin.md) · [Assets, SAC and trustlines](docs/audits/assets-sac.md) · [OpenZeppelin patterns](docs/audits/openzeppelin-patterns.md) · [Testing](docs/audits/contract-testing.md) · [SEP/CAP standards](docs/audits/standards-seps.md) · [dApp and wallet UX](docs/audits/dapp-wallet.md) · [Chain data and RPC](docs/audits/data-rpc.md) · [Ecosystem prior art](docs/audits/ecosystem-prior-art.md) · [Landing and docs claims](docs/audits/content-claims.md)
+- **Stellar Raven audit** (26 Oct 2026, commit 6827168): ten areas, each against a [Stellar Raven](https://raven.stellar.org) playbook. 89 findings (84 unique; High 4): 53 fixed, 9 partly fixed, 25 roadmap (R10-R15 above), 2 won't fix. [Contract security](docs/audits/contract-security.md) · [Upgrade and admin keys](docs/audits/upgrade-admin.md) · [Assets, SAC and trustlines](docs/audits/assets-sac.md) · [OpenZeppelin patterns](docs/audits/openzeppelin-patterns.md) · [Testing](docs/audits/contract-testing.md) · [SEP/CAP standards](docs/audits/standards-seps.md) · [dApp and wallet UX](docs/audits/dapp-wallet.md) · [Chain data and RPC](docs/audits/data-rpc.md) · [Ecosystem prior art](docs/audits/ecosystem-prior-art.md) · [Landing and docs claims](docs/audits/content-claims.md)
 - **NAV risk review** (26 Oct 2026): five ways the fund price can hurt a lender or borrower, each reproduced, fixed and merged; four residuals listed. [nav-risk-review.md](docs/audits/nav-risk-review.md)
 
 These are our own reviews; a third-party audit is still outstanding ([docs/mainnet-readiness.md](docs/mainnet-readiness.md)).
@@ -346,7 +346,11 @@ Everything in this repo was written during the hackathon, starting around noon o
 - **Sun 16:35–18:05:** auto-repay at maturity (#30); per-asset NAV staleness (#23); Spiko-style tSAFO as collateral #2 (#25); landing and app on one Pages site; the keeper's NAV-jump hold; pitch deck PDF.
 - **Sun 18:05–20:50:** per-asset pause switches (#33), NAV sanity band (#34), exposure caps (#35), the app's Settle now button (#36); guardian and timelock (#39); rule #20 (a missed margin call clears on a recovered NAV); three testnet redeploys, the last at 20:46.
 - **Sun 20:50–21:10:** the landing's ticker and hero card read live testnet deals.
-- **Mon (plan):** final testnet redeploy, demo video, submission at 11:30 (deadline 12:00).
+- **Sun 21:10–23:05:** eight fixes from an internal attack review (A1–A8: parked USDC payouts on a failed transfer, repay out of Defaulted, a per-asset margin trigger, fresh NAV before a margin-call default, keeper and app hardening); testnet redeploy at 23:02.
+- **Mon 06:00–07:50:** tuned risk numbers with sources ([DECISIONS #35](DECISIONS.md), [config-tuning.md](docs/config-tuning.md)); the NAV risk review's five fixes (ledger-time feed records, band settle on a real move, in-kind claim after a NAV outage, keeper re-post guard, the app's NAV hold; DECISIONS #36–#41); two testnet redeploys; demo video recorded.
+- **Mon 08:15–09:00:** App.tsx split (#38); guardian proposals expire (#41) and a redeploy; in-kind claim UI; [mainnet readiness](docs/mainnet-readiness.md) gap list.
+- **Mon 09:30–10:35:** Raven audit fixes R1–R8 merged (tests and CI, keeper liveness, app error paths, deploy guards, contract guards, governance, docs; [docs/audits/](docs/audits/README.md)); short-borrower auto-repay fix; two testnet redeploys, the last at 10:19.
+- **Mon 11:30:** submission (deadline 12:00).
 
 ## Team
 

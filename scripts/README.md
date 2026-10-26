@@ -134,7 +134,7 @@ scripts/nav-keeper.sh --once     # one push
 scripts/nav-keeper.sh            # loop (INTERVAL=60)
 ```
 
-On sim-server it runs as a systemd user service (linger is on, so it survives logout and reboot):
+On the team's server it runs as a systemd user service (linger is on, so it survives logout and reboot):
 
 ```sh
 install -Dm755 scripts/nav-keeper.sh ~/.local/lib/caravel/nav-keeper.sh   # copy: branch switches cannot break it
@@ -152,7 +152,7 @@ It reads keys and `ORACLE_ID` from `~/.local/lib/caravel/.env` (the unit's `ENV_
 
 **Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000). The balance read is capped at `HORIZON_TIMEOUT` (10 s, `curl --max-time`) and each friendbot / merge CLI call at `TOPUP_TIMEOUT` (60 s), so a hung Horizon or friendbot skips the top-up and the next push still runs (Raven D-02: an uncapped `curl` used to stop every push after the first one).
 
-The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `default` and `liquidate`; on sim-server it runs as `caravel-keeper.service`. The testnet repo contract is deployed from main 72dd78a (all eight attack fixes, a guardian key of its own): margin calls, auto-repay, per-asset NAV staleness (DECISIONS #25), tSAFO collateral (issue #20), pause switches (#28), NAV sanity band (#26), exposure caps (#29) and the rule #20 change (a missed margin call clears at `default` when a fresh NAV shows the loan recovered) are live. Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
+The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `auto_repay`, `default` and `liquidate`; on the team's server it runs as `caravel-keeper.service`. The live testnet contracts are the ones in [`deployments/testnet.json`](../deployments/testnet.json) (`deployedAt` gives the time), and they run every method in the [README's Methods table](../README.md#methods). Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
 
 ## `keeper/`: keeper + NAV setter
@@ -215,7 +215,7 @@ Keys: signs `check_margin` / `default` with `KEEPER_SECRET` (falls back to `LIQU
 
 Demo: with a 100 USDC / 3600 s / 5% offer taken at NAV 1.00 (haircut 3%), the margin call triggers below NAV ≈ 0.9898; `set-nav 0.97` fires it once the -3% price has stood 180 s (NAV jump hold, above) and `default` follows ~120 s later (margin window), then `liquidate`. For a faster demo set `NAV_JUMP_HOLD_SECS=0` in `.env` and restart the keeper.
 
-On sim-server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
+On the team's server it runs as a systemd user service next to `caravel-nav-keeper` (which keeps NAV fresh, so the unit has no `--refresh-nav`):
 
 ```sh
 mkdir -p ~/.local/lib/caravel/keeper   # copy: branch switches cannot break it

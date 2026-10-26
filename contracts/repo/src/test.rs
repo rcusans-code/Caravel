@@ -3325,7 +3325,7 @@ fn constructor_rejects_zero_timelock() {
     assert!(result.is_err());
 }
 
-// --- QA t_08bda0ce: every loosening as the guardian, guardian-only auth -------
+// --- QA: every loosening as the guardian, guardian-only auth ------------------
 
 impl World<'_> {
     /// Authorizes exactly one call, signed by the guardian only.

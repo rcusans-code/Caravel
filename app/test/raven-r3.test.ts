@@ -160,7 +160,7 @@ test("DW-02 meta-v4 FAILED: the status is checked before .result (no TypeError),
         resultXdr: trapped(),
         diagnosticEventsXdr: [errorEvent(REPO, xdr.ScError.sceContract(10))],
       },
-      // What the generated Client does with returnValue === undefined (QA t_d2bbee4f).
+      // What the generated Client does with returnValue === undefined.
       get result(): never {
         throw new TypeError("Cannot read properties of undefined (reading 'switch')");
       },

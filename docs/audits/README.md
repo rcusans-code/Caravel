@@ -24,7 +24,7 @@ Line numbers in each file are at the reviewed commit.
 2. **Reproduce every finding.** Each finding comes with a Rust test, a TypeScript test, a script run or a live read-only testnet query at the reviewed commit, with the numbers it produced. Nothing was sent on mainnet, and audits made no commits.
 3. **Independent QA.** A second pass re-ran every repro, re-opened every cited line and re-rated severity. It lowered 13 severities, raised 1, added 1 finding (Q-01) and found no finding wrong or already fixed. The severities in these files are the QA ones.
 4. **Fix, QA, merge.** Fixes were grouped into batches (R1-R9), each built on its own branch, checked again by a separate QA pass against the original repros, and merged to main with the full test suite green (309 contract tests, 71 keeper tests, 62 app tests at ba3c054). Lower-priority findings went to the roadmap (R10-R15) and are listed under [Production notes](../../README.md#production-notes-raven-audit-roadmap) in the README.
-5. **Verify before publishing.** Every "Fixed in" commit below is on main, and the regression test or changed line it names exists at ba3c054.
+5. **Verify before publishing.** Every "Fixed in" commit below is on main, and the regression test or changed line it names exists at ba3c054. One later fix: CT-03's `AGENTS.md` half landed in [22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2) with the repo cleanup.
 
 The NAV review worked the same way, but by risk "side": a scenario test showing the loss at the reviewed commit, a fix, QA with extra variants, then merge. One side failed QA (a variant broke the first fix) and was reworked before merging.
 
@@ -40,13 +40,13 @@ Status: **Fixed in &lt;commit&gt;** (on main, with a named test or line) · **Pa
 | Upgradeability and admin-key model | [upgrade-admin.md](upgrade-admin.md) | 9 | 2 | 4 | 3 | 0 | 4 | 3 | 2 | 0 | 0 |
 | Stellar assets, SAC and trustlines | [assets-sac.md](assets-sac.md) | 8 | 0 | 2 | 6 | 0 | 4 | 3 | 1 | 0 | 0 |
 | OpenZeppelin secure-contract patterns | [openzeppelin-patterns.md](openzeppelin-patterns.md) | 8 | 1 | 1 | 5 | 1 | 5 | 1 | 1 | 1 | 0 |
-| Soroban testing practice | [contract-testing.md](contract-testing.md) | 8 | 0 | 5 | 3 | 0 | 2 | 1 | 5 | 0 | 0 |
+| Soroban testing practice | [contract-testing.md](contract-testing.md) | 8 | 0 | 5 | 3 | 0 | 3 | 0 | 5 | 0 | 0 |
 | SEP and CAP standards conformance | [standards-seps.md](standards-seps.md) | 7 | 0 | 0 | 6 | 1 | 4 | 0 | 2 | 1 | 0 |
 | dApp, wallet and transaction UX | [dapp-wallet.md](dapp-wallet.md) | 10 | 0 | 5 | 5 | 0 | 6 | 0 | 4 | 0 | 0 |
 | Chain data and RPC usage | [data-rpc.md](data-rpc.md) | 11 | 1 | 2 | 8 | 0 | 5 | 0 | 6 | 0 | 0 |
 | Ecosystem prior art | [ecosystem-prior-art.md](ecosystem-prior-art.md) | 6 | 0 | 3 | 3 | 0 | 4 | 0 | 2 | 0 | 0 |
 | Ecosystem claims in the landing page and docs | [content-claims.md](content-claims.md) | 15 | 1 | 5 | 9 | 0 | 14 | 1 | 0 | 0 | 0 |
-| **Raven audit total** | | **89** | **5** | **28** | **53** | **3** | **52** | **10** | **25** | **2** | **0** |
+| **Raven audit total** | | **89** | **5** | **28** | **53** | **3** | **53** | **9** | **25** | **2** | **0** |
 | NAV risk review | [nav-risk-review.md](nav-risk-review.md) | 9 | 2 | 4 | 3 | 0 | 5 | 0 | 1 | 0 | 3 |
 
 Four root causes show up in two or three areas and are counted in each (CS-02 = AS-02, CS-06 = OZ-03 = STD-03, OZ-01 = UA-01, OZ-02 = UA-02), so the Raven audit has 84 unique findings: High 4, Medium 26, Low 51, Info 3.
@@ -64,7 +64,6 @@ Four root causes show up in two or three areas and are counted in each (CS-02 = 
 - NAV-6: the in-kind fallback does not open when the feed has no usable timestamp. Fix on branch `simon/nav-outage-no-timestamp`, not merged yet (needs a repo redeploy).
 - NAV-7: the app's "Price on hold" badge does not know the band settle path (testnet gap under a minute). Fix on branch `simon/app-band-settle`, not merged yet.
 - NAV-8: a staircase of sub-10% pushes by the feeder key passes the keeper guards (production bands refuse it on-chain). No fix scheduled.
-- CT-03: the CI snapshot check landed, but `AGENTS.md` (the brief for coding agents) still says to leave test snapshots out of review diffs.
 
 ## Not covered
 

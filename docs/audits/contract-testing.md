@@ -1,10 +1,10 @@
 # Soroban testing practice audit
 
-Commit audited: [6827168](https://github.com/rcusans-code/Caravel/tree/6827168115683ecc43f4ddcc8865e65160490210) (26 Oct 2026). Status checked against main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054). Line numbers are at the audited commit.
+Commit audited: [6827168](https://github.com/rcusans-code/Caravel/tree/6827168115683ecc43f4ddcc8865e65160490210) (26 Oct 2026). Status checked against main at [ba3c054](https://github.com/rcusans-code/Caravel/commit/ba3c054); CT-03's second commit, [22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2), landed with the repo cleanup afterwards. Line numbers are at the audited commit.
 
 Scope: the Rust tests of the three contracts (`contracts/*/src/test*.rs` and the in-module tests they rely on), the keeper tests (`scripts/keeper/src/*.test.ts`) and the app tests (`app/test/`). The method was the Stellar Raven (https://raven.stellar.org) smart-contracts playbook from the [stellar-dev-skill](https://github.com/stellar/stellar-dev-skill): `testing.md` (authorization, time and ledger state, events, storage TTL, cross-contract, integration, fuzz and property tests, snapshots, CI, checklist) and the minimal-test section of `SKILL.md`. Findings were reproduced by mutation probes in a scratch worktree of the audited commit: deleting each of the 24 `require_auth` calls one at a time and running that crate's tests, making the wrong address sign (7 mutants), turning the TTL extensions into no-ops, and a seeded 300,000-case invariant sweep over the money maths. An independent QA pass re-ran the probes and re-rated severity.
 
-Bottom line after QA: the suite was broad at the audited commit (241 Rust, 40 keeper and 19 app tests, all green): every public function is called, error paths use `try_`, ledger-time boundaries are exact, and every repo event type is asserted. The gaps were missing layers: 3 of 24 `require_auth` deletions left every test green, nothing asserted a TTL, and no CI ran any test. Those three are fixed on main: the auth and TTL tests exist and a CI workflow runs on every push and PR with a snapshot drift check (green on [ba3c054](https://github.com/rcusans-code/Caravel/actions/runs/40304715427)). The contributor guide's snapshot rule is still unchanged, and the deeper test layers (property, fuzz, keeper decision loop, real oracle) are roadmap R13.
+Bottom line after QA: the suite was broad at the audited commit (241 Rust, 40 keeper and 19 app tests, all green): every public function is called, error paths use `try_`, ledger-time boundaries are exact, and every repo event type is asserted. The gaps were missing layers: 3 of 24 `require_auth` deletions left every test green, nothing asserted a TTL, and no CI ran any test. Those three are fixed on main: the auth and TTL tests exist and a CI workflow runs on every push and PR with a snapshot drift check (green on [ba3c054](https://github.com/rcusans-code/Caravel/actions/runs/40304715427)). The contributor guide's snapshot rule followed in [22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2), and the deeper test layers (property, fuzz, keeper decision loop, real oracle) are roadmap R13.
 
 ## Findings
 
@@ -12,14 +12,14 @@ Bottom line after QA: the suite was broad at the audited commit (241 Rust, 40 ke
 |---|---|---|---|
 | CT-01 | Medium | Deleting 3 of 24 `require_auth` calls leaves every test green | Fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5) |
 | CT-02 | Medium | No CI runs any test | Fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5) |
-| CT-03 | Medium | No test asserts a TTL, and snapshot diffs are excluded from review | Partly fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5) |
+| CT-03 | Medium | No test asserts a TTL, and snapshot diffs are excluded from review | Fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5) and [22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2) |
 | CT-04 | Medium | No fuzz or property tests on the value-moving maths | Roadmap (R13 Test depth) |
 | CT-05 | Medium | The keeper's decision loop and the app's chain layer are untested | Roadmap (R13 Test depth) |
 | CT-06 | Low | Repo tests price against a test mock, not the real oracle contract | Roadmap (R13 Test depth) |
 | CT-07 | Low | Negative auth tests do not check that the failure is an auth error | Roadmap (R13 Test depth) |
 | CT-08 | Low | tSAFO mock events are never asserted | Roadmap (R13 Test depth) |
 
-Status counts: Fixed 2 · Partly fixed 1 · Roadmap 5 · Won't fix 0 · Open 0.
+Status counts: Fixed 3 · Partly fixed 0 · Roadmap 5 · Won't fix 0 · Open 0.
 
 ### CT-01: Deleting 3 of 24 `require_auth` calls leaves every test green
 
@@ -40,10 +40,10 @@ Status counts: Fixed 2 · Partly fixed 1 · Roadmap 5 · Won't fix 0 · Open 0.
 ### CT-03: No test asserts a TTL, and snapshot diffs are excluded from review
 
 - Severity: Medium
-- Status: Partly fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5). The TTL test and the CI snapshot drift check landed. Open: the snapshot rule in `AGENTS.md:28` still says to exclude snapshots from review diffs and to resolve conflicts by taking either side; the planned wording change was not applied on main (DECISIONS #42 states the reviewed-snapshot policy).
+- Status: Fixed in [1a803d5](https://github.com/rcusans-code/Caravel/commit/1a803d5) (the TTL test and the CI snapshot drift check) and [22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2) (the `AGENTS.md` snapshot rule now says to commit snapshots with the change and review their diff whenever contract code changes, as DECISIONS #42 states).
 - Location: `contracts/repo/src/storage.rs:56-66`, `AGENTS.md:28`, `contracts/repo/src/test.rs:1125-1133`
 - Finding: No crate called `get_ttl`. Turning both `extend_ttl` calls into no-ops left 217/217 repo tests green; the only signal was 191 changed snapshot files (`live_until` 103,680 → 4,095 on the instance and 518,400 → 4,095 on persistent keys), which the contributor guide says to leave out of reviews. Advancing 7 days of ledgers and reading still returned the repo, because the test environment surfaced no archival, so expiry was invisible without explicit asserts.
-- Fix: `ttl_is_bumped_on_every_touch` in `contracts/repo/src/test_attack_a1.rs` asserts exact TTLs on the instance, Offer, Repo, AllowanceUntil and Claimable keys after create, take, repay and a parked claim, and after an untouched read 29 days later; each TTL no-op mutant (both sites, instance only, persistent only) now fails it. The CI drift check (CT-02) makes snapshot changes visible again. Remaining: change `AGENTS.md:28` so snapshot diffs are reviewed when contract code changes.
+- Fix: `ttl_is_bumped_on_every_touch` in `contracts/repo/src/test_attack_a1.rs` asserts exact TTLs on the instance, Offer, Repo, AllowanceUntil and Claimable keys after create, take, repay and a parked claim, and after an untouched read 29 days later; each TTL no-op mutant (both sites, instance only, persistent only) now fails it. The CI drift check (CT-02) makes snapshot changes visible again, and `AGENTS.md` tells contributors to review snapshot diffs when contract code changes ([22443e2](https://github.com/rcusans-code/Caravel/commit/22443e2)).
 
 ### CT-04: No fuzz or property tests on the value-moving maths
 

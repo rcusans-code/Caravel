@@ -556,7 +556,7 @@ Team decisions (section 7): F-20 maintenance trigger, F-21 production discount, 
 
 ## 7. Findings that need a DECISIONS.md change
 
-Nothing here edits [DECISIONS.md](../DECISIONS.md). Each item is a proposal for the team chat, because locked rows change only after the team agrees ([DECISIONS.md:3](../DECISIONS.md#L3)). Every proposal carries the default that [mechanics.md](mechanics.md) already assumes, so the document stays consistent either way. Rows 18-22 landed on main after the draft was written; section 7.2 says where they meet v2.
+Nothing here edits [DECISIONS.md](../DECISIONS.md). Each item is a proposal for the team chat, because locked rows change only after the team agrees ([DECISIONS.md:3](https://github.com/rcusans-code/Caravel/blob/306c650/DECISIONS.md?plain=1#L3)). Every proposal carries the default that [mechanics.md](mechanics.md) already assumes, so the document stays consistent either way. Rows 18-22 landed on main after the draft was written; section 7.2 says where they meet v2.
 
 ### 7.1 The five team decisions
 
