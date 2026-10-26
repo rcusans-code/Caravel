@@ -34,10 +34,9 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR",
+    contractId: "CBCPI32GGRYTJPJLWRUKQJKKALXUY236WHFQ5JCN442ZS43CD2VG7R6V",
   }
 } as const
-
 
 /**
  * SEP-40 asset identifier. Same name and shape as Reflector's and as
