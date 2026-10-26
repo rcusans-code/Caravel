@@ -2,7 +2,10 @@
 //!
 //! - Trigger (DECISIONS.md #14, #26): `debt > collateral × NAV × (1 − trigger)`
 //!   with the asset's current `margin_trigger_bps` (discount ≤ trigger <
-//!   haircut).
+//!   haircut), clamped per repo to `repo.haircut_bps − 1` ([`effective_trigger`],
+//!   Raven UA-01/OZ-01): a tightening that raises the trigger to or past a
+//!   live repo's snapshotted haircut (#19) cannot margin-call it at an
+//!   unchanged NAV.
 //! - `check_margin` needs a fresh NAV inside the asset's sanity band (#17,
 //!   #31). The first breach sets
 //!   `margin_call_deadline = now + margin_window_secs` and moves the repo to
@@ -14,8 +17,8 @@
 //!   missing or out-of-band NAV makes `default` wait with the oracle error.
 //! - `top_up` never needs a fresh NAV (#6). It clears a margin call only once
 //!   the initial margin holds again: `ltv_ok` at the repo's snapshotted
-//!   haircut (#19, #20), and the loan is not past the asset's current trigger
-//!   (only binds after the trigger was raised above that haircut, #26). The clear decision uses the last known NAV, stale or
+//!   haircut (#19, #20), and the loan is not past the effective trigger. The
+//!   clear decision uses the last known NAV, stale or
 //!   not; if there is no price at all, or the NAV is outside the sanity band
 //!   (#31), the collateral is still accepted and the call stays open.
 
@@ -24,8 +27,21 @@ use soroban_sdk::{token, Env};
 use crate::{
     errors::Error,
     events, math, oracle, storage,
-    types::{Config, Repo, Status},
+    types::{AssetConfig, Config, Repo, Status},
 };
+
+/// The margin trigger a live repo is checked against: the asset's current
+/// `margin_trigger_bps`, but never at or past the repo's own snapshotted
+/// haircut (Raven UA-01/OZ-01, D3). Without the clamp a tighten-only key
+/// (guardian or admin, instant under #33) could raise the trigger past a
+/// healthy repo's haircut and force a margin call no top-up at that haircut
+/// clears. Every listing and change keeps `trigger < haircut` (#26), so this
+/// only binds on repos opened before a haircut + trigger raise.
+pub fn effective_trigger(asset: &AssetConfig, repo: &Repo) -> u32 {
+    asset
+        .margin_trigger_bps
+        .min(repo.haircut_bps.saturating_sub(1))
+}
 
 /// Returns the repo's status after the check.
 ///
@@ -56,7 +72,7 @@ pub fn check_margin(env: &Env, repo_id: u64) -> Result<Status, Error> {
         repo.collateral_amount,
         nav,
         nav_decimals,
-        asset.margin_trigger_bps,
+        effective_trigger(&asset, &repo),
     )? {
         return Ok(repo.status);
     }
@@ -83,7 +99,7 @@ pub fn check_margin(env: &Env, repo_id: u64) -> Result<Status, Error> {
 /// Moves `amount` collateral from the borrower into the contract. From
 /// `MarginCall`, returns the repo to `Open` (deadline cleared) once
 /// `ltv_ok(debt, collateral, nav, dec, repo.haircut_bps)` holds and the
-/// loan is not past the asset's current margin trigger.
+/// loan is not past the effective margin trigger.
 pub fn top_up(env: &Env, repo_id: u64, amount: i128) -> Result<(), Error> {
     if amount <= 0 {
         return Err(Error::InvalidAmount);
@@ -139,14 +155,14 @@ pub fn recovered(env: &Env, config: &Config, repo: &Repo) -> Result<bool, Error>
         repo.collateral_amount,
         nav,
         nav_decimals,
-        asset.margin_trigger_bps,
+        effective_trigger(&asset, repo),
     )?)
 }
 
-/// `ltv_ok` at the snapshotted haircut and not past the asset's current
-/// margin trigger, on the last known NAV (no staleness check, #6). The
-/// trigger test only binds once a tightening raised the trigger above the
-/// snapshotted haircut (#26); without it such a top-up would clear a call the
+/// `ltv_ok` at the snapshotted haircut and not past the effective margin
+/// trigger, on the last known NAV (no staleness check, #6). With the trigger
+/// clamped below the haircut, `ltv_ok` implies the trigger test; it stays as
+/// the same rule `check_margin` applies, so a top-up never clears a call the
 /// next `check_margin` re-opens with a fresh deadline. No price, no asset
 /// config, or a NAV outside the sanity band (#31) means "cannot tell": not
 /// cleared, but the top-up itself still goes through.
@@ -172,6 +188,6 @@ fn initial_margin_restored(env: &Env, repo: &crate::types::Repo) -> Result<bool,
         repo.collateral_amount,
         nav,
         nav_decimals,
-        asset.margin_trigger_bps,
+        effective_trigger(&asset, repo),
     )?)
 }

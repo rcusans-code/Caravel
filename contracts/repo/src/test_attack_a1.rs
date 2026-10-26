@@ -485,7 +485,9 @@ fn cmp_borrower_deallowlisted_before_repay() {
     );
     let borrower_usdc = w.usdc.balance(&w.borrower);
     assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
-    assert!(w.repo.repo(&repo_id).auto_repay);
+    // Raven CS-01: the refunded pull spent this repo's allowance share, so
+    // the default switches auto-repay off.
+    assert!(!w.repo.repo(&repo_id).auto_repay);
     assert_eq!(w.usdc.balance(&w.borrower), borrower_usdc);
 
     w.oracle
@@ -589,6 +591,9 @@ fn ttl_is_bumped_on_every_touch() {
     assert_eq!(ttl(DataKey::Claimable(w.lender.clone())), ENTRY_TTL);
 
     // A new auto-repay take writes AllowanceUntil at the full bump again.
+    // The lender is re-authorized first: a frozen lender's offer cannot be
+    // taken (Raven AS-03). Its parked balance stays parked until claimed.
+    w.set_usdc_auth(&w.lender, true);
     let second = w.repo.take_offer(&w.borrower, &offer_id, &true);
     assert_eq!(ttl(DataKey::Repo(second)), ENTRY_TTL);
     assert_eq!(ttl(allowance()), ENTRY_TTL);
@@ -601,7 +606,6 @@ fn ttl_is_bumped_on_every_touch() {
     );
     assert_eq!(w.repo.claimable(&w.lender), parked);
     assert_eq!(ttl(DataKey::Claimable(w.lender.clone())), ENTRY_TTL);
-    w.set_usdc_auth(&w.lender, true);
     assert_eq!(w.repo.claim(&w.lender), parked);
     assert_eq!(w.repo.claimable(&w.lender), 0);
     assert!(inst() >= INSTANCE_MIN);

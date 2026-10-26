@@ -2,7 +2,7 @@
 // figure on the position card and the landing hero. Run: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { collateralValue, coverPct } from "../src/format.ts";
+import { collateralValue, coverPct, effectiveTriggerBps } from "../src/format.ts";
 
 // Max-LTV take at a 3% haircut: debt 970.9301370 USDC, 1000.9589042 tBENJI.
 const DEBT = 9_709_301_370n;
@@ -24,4 +24,12 @@ test("trigger on the discount line (pre-#26) crosses at NAV 0.989796", () => {
 
 test("no debt: no cover figure", () => {
   assert.equal(coverPct(1n, 0n, 250n), null);
+});
+
+test("trigger raised past the repo's haircut is clamped to haircut − 1 (Raven UA-01)", () => {
+  assert.equal(effectiveTriggerBps(8_999n, 300), 299n);
+  assert.equal(effectiveTriggerBps(250n, 300), 250n);
+  assert.equal(effectiveTriggerBps(299n, 300n), 299n);
+  // A 3%-haircut repo at NAV 1.00 stays above its line after a 90% re-tier.
+  assert.ok(cover(1.0, effectiveTriggerBps(8_999n, 300)) >= 100);
 });

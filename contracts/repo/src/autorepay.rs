@@ -13,7 +13,9 @@
 //!   trustline) moves nothing and the repo stays live: it defaults as before.
 //!   The collateral goes back next; if that push fails (borrower frozen on
 //!   the collateral token) the USDC is refunded and the repo defaults as
-//!   before instead of reverting `default`. Lender and treasury payouts that
+//!   before instead of reverting `default`, with `auto_repay` switched off:
+//!   the refunded pull already spent its allowance share (Raven CS-01).
+//!   Lender and treasury payouts that
 //!   fail are parked for `claim` (see `payout`).
 //!
 //! One SAC allowance per borrower covers all their opted-in repos: it is sized
@@ -111,12 +113,28 @@ pub fn margin_missed(repo: &Repo, now: u64) -> bool {
             .is_some_and(|deadline| now > deadline)
 }
 
+/// What `try_settle` did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Settle {
+    /// Pulled and settled: the repo is `Repaid`.
+    Settled,
+    /// The pull failed: nothing moved, this repo's allowance share is intact.
+    PullFailed,
+    /// Pulled, then refunded because the collateral could not be returned.
+    /// The `transfer_from` spent this repo's share of the shared allowance
+    /// and the refund does not restore it (Raven CS-01).
+    Refunded,
+}
+
 /// Pulls the debt from the borrower and settles the repo as `Repaid`, exactly
-/// like `repay`. Returns `false` if the pull fails (nothing moved) or the
-/// collateral cannot be returned (the pulled USDC is refunded; the spent
-/// allowance was this repo's share, so the borrower's other opted-in repos
-/// keep their cover). Either way the caller may then default the repo.
-pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, Error> {
+/// like `repay`. Returns `PullFailed` if the pull fails (nothing moved) or
+/// `Refunded` if the collateral cannot be returned (the pulled USDC is
+/// refunded; the spent allowance was this repo's share, so the borrower's
+/// other opted-in repos keep their cover). Either way the caller may then
+/// default the repo; after `Refunded` it must also clear `repo.auto_repay`,
+/// so a later hand `repay` does not take this repo's share off the allowance
+/// a second time.
+pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<Settle, Error> {
     let debt = math::debt(repo.principal, repo.interest)?;
     let split = math::waterfall(debt, repo.principal, repo.interest, config.fee_bps)?;
     let this = env.current_contract_address();
@@ -126,7 +144,7 @@ pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, E
         usdc.try_transfer_from(&this, &repo.borrower, &this, &debt),
         Ok(Ok(()))
     ) {
-        return Ok(false);
+        return Ok(Settle::PullFailed);
     }
     // Collateral legs stay push (#24): a borrower who cannot receive it
     // cannot be auto-repaid, but must not block the default either.
@@ -139,7 +157,7 @@ pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, E
         Ok(Ok(()))
     ) {
         usdc.transfer(&this, &repo.borrower, &debt);
-        return Ok(false);
+        return Ok(Settle::Refunded);
     }
 
     repo.status = Status::Repaid;
@@ -157,5 +175,5 @@ pub fn try_settle(env: &Env, repo: &mut Repo, config: &Config) -> Result<bool, E
         automatic: true,
     }
     .publish(env);
-    Ok(true)
+    Ok(Settle::Settled)
 }

@@ -31,11 +31,16 @@ pub(crate) const TRIGGER_BPS: u32 = 200;
 /// Demo timelock (#33): 2 demo days at 60 s per day.
 pub(crate) const TIMELOCK: u64 = 120;
 
+/// Demo profile. `usdc` is a real 7-decimal SAC and `oracle` a USD-based
+/// mock feed, because the constructor checks both (Raven CS-07, STD-01);
+/// tests that need their own token or feed overwrite them.
 pub(crate) fn demo_config(env: &Env) -> Config {
     Config {
         admin: Address::generate(env),
-        usdc: Address::generate(env),
-        oracle: Address::generate(env),
+        usdc: env
+            .register_stellar_asset_contract_v2(Address::generate(env))
+            .address(),
+        oracle: crate::oracle::mock::setup_mock_oracle(env),
         treasury: Address::generate(env),
         fee_bps: 1_000,
         liquidation_discount_bps: 200,
@@ -3329,7 +3334,8 @@ fn qa_loosenings(tight: &AssetConfig) -> std::vec::Vec<(&'static str, AssetConfi
     c.enabled = true;
     out.push(("cut cap + enable", c));
     let mut c = tight.clone();
-    c.max_nav_age_secs = 1;
+    // Still at least the mock feed's 60 s resolution (Raven STD-02).
+    c.max_nav_age_secs = 60;
     c.haircut_bps = 300;
     out.push(("cut nav age + lower haircut", c));
     out.extend(qa_band_loosenings(tight));
