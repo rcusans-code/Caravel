@@ -36,7 +36,21 @@ import { Alert, DvpReceipt, Field, Live, Skel, StatusPill, TxHash, TxProgress, u
 import { assetLabel } from "./sep40";
 import { onPhase } from "./txphase";
 import { trustlineUi } from "./trustline";
-import { ACCESS_LIMITED, autoRepayHint, collateralBlock, fmtDuration } from "./gates";
+import {
+  ACCESS_LIMITED,
+  autoRepayHint,
+  checkBand,
+  collateralBlock,
+  ledgerNow,
+  navBadge,
+  navBlock,
+  navHealth,
+  navHoldText,
+  takeNavBlock,
+  topUpHoldText,
+  type NavHealth,
+  type PricePoint,
+} from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
 import { demoTab, parseHash, shownTab, toHash, type Route, type Tab } from "./route";
 
@@ -65,6 +79,10 @@ export default function App() {
   const [navs, setNavs] = useState<Record<string, Nav | null>>({});
   // Live SEP-40 reference feed: undefined = loading, null = feed has no price, Error = read failed.
   const [live, setLive] = useState<FeedReading | null | Error | undefined>(undefined);
+  // The feed's last 20 prices per collateral (oracle `prices`), for the NAV band check (#31).
+  const [histories, setHistories] = useState<Record<string, PricePoint[] | null>>({});
+  // Latest ledger close time and the browser second it was read: `now` is ledger time.
+  const [ledger, setLedger] = useState<{ closeTime: number; at: number } | null>(null);
   // Debt of live repos per collateral token, counted against max_open_debt (#32).
   const [openDebt, setOpenDebt] = useState<Record<string, bigint | null>>({});
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -80,7 +98,10 @@ export default function App() {
   const [restored, setRestored] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [now, setNow] = useState(nowSecs());
+  const [tick, setTick] = useState(nowSecs());
+  // Ledger time, not the browser clock: the contract judges NAV age, maturity
+  // and margin deadlines against the ledger close time.
+  const now = ledgerNow(tick, ledger);
   const [tx, setTx] = useState<TxState | null>(null);
 
   // TxProgress: chain.ts reports sign / submit; prepare is set when a write starts.
@@ -94,12 +115,20 @@ export default function App() {
     // Read apart from the book: a failing reference feed must not flag testnet as down.
     chain.getLiveFeed().then(setLive, (e) => setLive(e instanceof Error ? e : new Error(String(e))));
     try {
-      const [n, book, d] = await Promise.all([
+      const [n, book, d, h] = await Promise.all([
         Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))),
         chain.getBook(),
         Promise.all(COLLATERAL.map((a) => chain.getOpenDebt(a.sac))),
+        // Band and clock reads never block the board: on failure the app falls
+        // back to the last price only and the browser clock.
+        Promise.all(COLLATERAL.map((a) => chain.getNavHistory(a.sac).catch(() => null))),
+        chain
+          .getLedgerTime()
+          .then((closeTime) => setLedger({ closeTime, at: nowSecs() }))
+          .catch(() => undefined),
       ]);
       setNavs(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, n[i]])));
+      setHistories(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, h[i]])));
       setOpenDebt(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, d[i]])));
       setOffers(book.offers);
       setRepos(book.repos);
@@ -136,7 +165,7 @@ export default function App() {
       .catch((e) => setFlash({ tone: "error", title: "Could not read the repo contract", body: explain(e) }));
     refreshMarket();
     const t = setInterval(refreshMarket, 10_000);
-    const c = setInterval(() => setNow(nowSecs()), 1_000);
+    const c = setInterval(() => setTick(nowSecs()), 1_000);
     return () => {
       clearInterval(t);
       clearInterval(c);
@@ -240,13 +269,10 @@ export default function App() {
     if (route.tab === "admin" && restored && config && !isAdminNow(signer, config)) navigate({ tab: "offers" }, true);
   }, [route.tab, restored, signer, config, navigate]);
 
-  // NAV staleness is per asset (DECISIONS.md #25); getAssetConfig falls back to
-  // config().max_nav_age_secs on contracts deployed before it.
-  const stale = (sac: string) => {
-    const n = navs[sac];
-    const a = assets[sac];
-    return !!(a && n && now - Number(n.timestamp) > Number(a.max_nav_age_secs));
-  };
+  // NAV state per asset, in the contract's order: no price, future-dated,
+  // stale (#25, per asset; getAssetConfig falls back to config().max_nav_age_secs
+  // on contracts deployed before it), outside the sanity band (#31).
+  const health = (sac: string) => navHealth(navs[sac] ?? null, histories[sac] ?? null, assets[sac] ?? null, now);
   const isAdmin = isAdminNow(signer, config);
   const tab = shownTab(route, isAdmin);
   // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
@@ -264,8 +290,9 @@ export default function App() {
     config,
     assets,
     navs,
+    histories,
     openDebt,
-    stale,
+    health,
     balances,
     busy,
     tx,
@@ -333,11 +360,27 @@ export default function App() {
           {/* All NAV groups sit in one cluster (app-status__navs) so they stay together when the bar wraps. */}
           <div className="app-status__navs">
             {COLLATERAL.map((t) => (
-              <NavStatus key={t.sac} token={t} nav={navs[t.sac] ?? null} now={now} stale={stale(t.sac)} loaded={loaded} />
+              <NavStatus
+                key={t.sac}
+                token={t}
+                nav={navs[t.sac] ?? null}
+                health={health(t.sac)}
+                hold={navHoldText(t.code, health(t.sac), assets[t.sac] ?? null)}
+                loaded={loaded}
+              />
             ))}
             <LiveFeedStatus live={live} now={now} />
           </div>
         </section>
+
+        {COLLATERAL.map((t) => {
+          const text = loaded ? navHoldText(t.code, health(t.sac), assets[t.sac] ?? null) : null;
+          return text ? (
+            <Alert key={t.sac} tone="info" title={`${t.code} price on hold`}>
+              {text}
+            </Alert>
+          ) : null;
+        })}
 
         {signer && (
           <AccountAlerts
@@ -426,10 +469,12 @@ interface Ctx {
   /** Asset config per collateral token id; null = not registered with set_asset. */
   assets: Record<string, AssetConfig | null>;
   navs: Record<string, Nav | null>;
+  /** Oracle `prices(asset, 20)` per collateral, newest first; null = not read. */
+  histories: Record<string, PricePoint[] | null>;
   /** Debt of live repos per collateral token (#32); null = contract has no open_debt(). */
   openDebt: Record<string, bigint | null>;
-  /** NAV for this collateral is older than max_nav_age_secs. */
-  stale: (sac: string) => boolean;
+  /** NAV state for this collateral as the contract would see it. */
+  health: (sac: string) => NavHealth;
   balances: Balances | null;
   busy: string | null;
   /** Live transaction steps for the action with this key (TxProgress). */
@@ -696,20 +741,28 @@ const navDir = (a: string, b: string) => (BigInt(b) > BigInt(a) ? "up" : BigInt(
 function NavStatus({
   token,
   nav,
-  now,
-  stale,
+  health,
+  hold,
   loaded,
 }: {
   token: Token;
   nav: Nav | null;
-  now: number;
-  stale: boolean;
+  health: NavHealth;
+  /** Why the contract holds this price (band / future timestamp), shown on hover. */
+  hold: string | null;
   loaded: boolean;
 }) {
-  const age = nav ? now - Number(nav.timestamp) : null;
+  const age = health.age;
+  const badge = navBadge(health);
   const navRef = useFlash(nav ? String(nav.price) : null, navDir);
   return (
-    <div className="app-status__group" aria-label={`${token.code} NAV`} aria-busy={loaded ? undefined : "true"}>
+    <div
+      className="app-status__group"
+      aria-label={`${token.code} NAV`}
+      aria-busy={loaded ? undefined : "true"}
+      title={hold ?? undefined}
+      data-nav-state={loaded ? health.state : undefined}
+    >
       <span className="app-status__label">{token.code} NAV</span>
       {!loaded ? (
         <Skel w={90} h={14} />
@@ -718,15 +771,7 @@ function NavStatus({
           <span className="app-status__nav app-flashable" data-testid={token.kind === "sac" ? "nav" : `nav-${token.code}`} ref={navRef}>
             {nav ? fmtNav(nav.price, nav.decimals) : "—"}
           </span>
-          {nav ? (
-            stale ? (
-              <Live state="stale" word="Delayed" meta="new loans paused" />
-            ) : (
-              <Live state="on" word="Live" meta="fresh NAV" />
-            )
-          ) : (
-            <Live state="off" word="No price" meta="push one from Admin" />
-          )}
+          <Live state={badge.state} word={badge.word} meta={badge.meta} />
           {age !== null && <span className="cv-field__hint">{fmtAge(age)}</span>}
         </>
       )}
@@ -927,7 +972,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   const token = assetBySac(offer.collateral_asset);
   const asset = ctx.assets[offer.collateral_asset];
   const nav = ctx.navs[offer.collateral_asset] ?? null;
-  const navStale = ctx.stale(offer.collateral_asset);
+  const navH = ctx.health(offer.collateral_asset);
   const [autoRepay, setAutoRepay] = useState(true);
   if (!config || !asset) return null;
   const int = calcInterest(offer.principal, offer.apr_bps, offer.term_secs, config.day_secs);
@@ -945,8 +990,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
   else if (signer.kind !== "demo" && collateralBlock(balances, token)) block = collateralBlock(balances, token);
   else if (signer.address === offer.lender) block = "This is your own offer. Cancel it from Lend instead.";
   else if (!asset.enabled) block = `${token.code} is disabled as collateral right now.`;
-  else if (!nav) block = `The oracle has no ${token.code} price yet.`;
-  else if (navStale) block = `The ${token.code} price is more than ${fmtDuration(asset.max_nav_age_secs)} old. Wait for the next update (or push one from Admin), then try again.`;
+  else if (takeNavBlock(token.code, navH, asset)) block = takeNavBlock(token.code, navH, asset);
   else if (cap !== null && used !== null && used + debt > cap)
     block =
       cap === 0n
@@ -1370,9 +1414,13 @@ function PositionsView({
                 {repos.filter((r) => r.status !== "Repaid" && r.status !== "Liquidated").map((r) => {
                   const token = assetBySac(r.collateral_asset);
                   const rNav = ctx.navs[r.collateral_asset] ?? null;
-                  const rStale = ctx.stale(r.collateral_asset);
+                  // check_margin, liquidate and a missed-call default all need a NAV the contract accepts.
+                  const rBlock = navBlock(token.code, ctx.health(r.collateral_asset), ctx.assets[r.collateral_asset] ?? null);
                   const marginMissed = r.status === "MarginCall" && r.margin_call_deadline !== null && ctx.now > Number(r.margin_call_deadline);
-                  const defaultable = live(r) && (ctx.now > Number(r.maturity_ts + config.grace_secs) || marginMissed);
+                  const matured = ctx.now > Number(r.maturity_ts + config.grace_secs);
+                  const defaultable = live(r) && (matured || marginMissed);
+                  // Maturity defaults never read the NAV; a missed-call default re-checks it (#20).
+                  const defaultBlock = defaultable && !matured ? rBlock : null;
                   return (
                     <tr key={String(r.id)}>
                       <td className="cv-num">#{String(r.id).padStart(3, "0")}</td>
@@ -1388,8 +1436,8 @@ function PositionsView({
                             type="button"
                             className="cv-btn cv-btn--secondary cv-btn--sm"
                             style={{ marginRight: 8 }}
-                            disabled={!!ctx.busy || rStale || !ctx.approved}
-                            title={rStale ? "NAV is stale; check_margin needs a fresh price" : "Raise a margin call if cover is below 100%"}
+                            disabled={!!ctx.busy || !!rBlock || !ctx.approved}
+                            title={rBlock ?? "Raise a margin call if cover is below 100%"}
                             onClick={async () => {
                               const out = await ctx.run(`check-${r.id}`, `Repo #${r.id} not checked`, () => chain.checkMargin(signer!, r.id));
                               if (out)
@@ -1406,8 +1454,8 @@ function PositionsView({
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!defaultable || !!ctx.busy || !ctx.approved}
-                            title={defaultable ? "" : "Before maturity plus grace, and no missed margin call"}
+                            disabled={!defaultable || !!defaultBlock || !!ctx.busy || !ctx.approved}
+                            title={!defaultable ? "Before maturity plus grace, and no missed margin call" : (defaultBlock ?? "")}
                             onClick={async () => {
                               const out = await ctx.run(`default-${r.id}`, `Repo #${r.id} not defaulted`, () => chain.declareDefault(signer!, r.id));
                               if (out)
@@ -1424,8 +1472,8 @@ function PositionsView({
                           <button
                             type="button"
                             className="cv-btn cv-btn--danger cv-btn--sm"
-                            disabled={!liquidatorOk || !!ctx.busy || rStale || !ctx.canHold(r.collateral_asset)}
-                            title={rStale ? "NAV is stale" : token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : ""}
+                            disabled={!liquidatorOk || !!ctx.busy || !!rBlock || !ctx.canHold(r.collateral_asset)}
+                            title={rBlock ?? (token.kind === "spiko" ? `${token.code} only moves to allowlisted wallets: the issuer must allowlist you` : "")}
                             onClick={async () => {
                               const out = await ctx.run(`liq-${r.id}`, `Repo #${r.id} not liquidated`, () => chain.liquidate(signer!, r.id));
                               if (out)
@@ -1478,6 +1526,10 @@ function PositionCard({
   const mayHold = ctx.canHold(repo.collateral_asset);
   const holdBlock = collateralBlock(ctx.balances, token) ?? "";
   const nav = ctx.navs[repo.collateral_asset] ?? null;
+  const navH = ctx.health(repo.collateral_asset);
+  // top_up clears a call only on an in-band NAV (#31); a missed-call default needs a fresh, in-band one (#20).
+  const topUpHold = topUpHoldText(token.code, navH);
+  const defaultHold = navBlock(token.code, navH, ctx.assets[repo.collateral_asset] ?? null);
   const dec = nav ? collateralDecimals(nav.decimals, token.decimals) : 0;
   const amt = (v: bigint) => fmtAmount(v, 2, token.decimals);
   const held = balances ? chain.holding(balances, repo.collateral_asset).amount : null;
@@ -1529,7 +1581,7 @@ function PositionCard({
       ctx.setFlash({
         tone: "info",
         title: `Topped up Repo #${String(repo.id).padStart(3, "0")}`,
-        body: `Added ${amt(topUpAmount)} ${token.code}. ${inMarginCall ? "The margin call clears once collateral is back at the initial margin." : ""}`,
+        body: `Added ${amt(topUpAmount)} ${token.code}. ${inMarginCall ? (topUpHold ?? "The margin call clears once collateral is back at the initial margin.") : ""}`,
       });
     }
   };
@@ -1592,6 +1644,10 @@ function PositionCard({
             : inMarginCall
               ? "The borrower has until the deadline to add collateral; after it, anyone can default the repo."
               : "A margin call can be raised on the next check."}
+          {inMarginCall && side === "borrowed" && topUpHold && <span data-hint="topup-hold"> {topUpHold}</span>}
+          {inMarginCall && side !== "borrowed" && defaultHold && (
+            <span data-hint="default-hold"> Until the price is accepted again the missed call cannot be defaulted; a default at maturity still works.</span>
+          )}
         </Alert>
       )}
       {repo.status === "Defaulted" && (
@@ -1696,7 +1752,9 @@ function PositionCard({
             suffix={token.code}
             error={topUpErr ?? topUpShort}
             hint={
-              topUpNeed !== null && nav
+              inMarginCall && topUpHold
+                ? "Accepted, but it does not clear the margin call while the price is on hold."
+                : topUpNeed !== null && nav
                 ? (
                     <>
                       Add {amt(topUpNeed)} {token.code} to {inMarginCall ? "clear the margin call" : "restore the starting buffer"}.
@@ -1781,10 +1839,14 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
   const current = nav ? Number(nav.price) / 10 ** nav.decimals : 1;
   const v = value ?? current;
   const decimals = nav?.decimals ?? 14;
+  const scaledV = BigInt(Math.round(v * 10_000)) * 10n ** BigInt(decimals - 4);
+  // After the push the band window is this price plus the 19 newest records (#31).
+  const willHold =
+    asset && value !== null ? !checkBand(scaledV, (ctx.histories[sac] ?? []).slice(0, 19), asset).ok : false;
 
   const push = async () => {
     if (!signer) return;
-    const scaled = BigInt(Math.round(v * 10_000)) * 10n ** BigInt(decimals - 4);
+    const scaled = scaledV;
     const out = await ctx.run("nav", "NAV not updated", () => chain.setNav(signer, scaled, sac));
     if (out) {
       setLast({ nav: `${token.code} ${v.toFixed(4)}`, hash: out.hash });
@@ -1855,6 +1917,12 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
             {nav ? ` at ${new Date(Number(nav.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. Push the
             same price again to keep it fresh.
           </span>
+          {willHold && (
+            <span className="cv-field__hint app-block" data-hint="push-hold">
+              This price is outside the {token.code} sanity band against its recent prices: pushing it puts the price on hold, pausing new
+              loans, margin checks and liquidations.
+            </span>
+          )}
         </label>
         <button
           type="button"
