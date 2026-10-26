@@ -129,6 +129,11 @@ body {
   .app-offers td:nth-child(9) { grid-area: take; justify-self: end; }
   .app-offers tr.app-offers__note { display: block; }
   .app-offers tr.app-offers__note td { display: block; padding: var(--space-4) var(--space-3); }
+  /* Fixed first column, so the collateral code starts at the same x whether the term is "7 days" or "30 days". */
+  .app-offers tr:not(.app-offers__note) { grid-template-columns: 64px auto minmax(0, 1fr) auto; }
+  .app-offers tr td:nth-child(4) { white-space: nowrap; text-align: left; }
+  /* Take is the row's action: a full 40 px thumb target. */
+  .app-offers td:nth-child(9) .cv-btn--sm { height: 40px; min-width: 64px; }
   .app-phone { display: inline; }
 }
 
@@ -331,11 +336,12 @@ a:hover { color: var(--primary-hover); }
 .app-take .app-preview .cv-field__hint { flex-basis: 100%; }
 @media (max-width: 760px) { .app-take__act { padding-left: 0; } }
 
-/* Phone tap targets (QA-4): the "i" tips, id links and hash chips keep their size but get a hit area of at least 32 px. */
+/* Phone tap targets (QA-4): the "i" tips, id links and hash chips keep their size but get a bigger hit area
+   (40 px for the "i" tips, at least 32 px for the rest). */
 @media (max-width: 760px) {
   .app-tip__btn, .app-idlink, a.cv-hash { position: relative; }
   .app-tip__btn::after, .app-idlink::after, a.cv-hash::after { content: ""; position: absolute; }
-  .app-tip__btn::after { inset: -7px; }
+  .app-tip__btn::after { inset: -11px; }
   .app-idlink::after { inset: -7px -4px; }
   a.cv-hash::after { inset: -5px 0; }
 }
