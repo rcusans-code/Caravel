@@ -1,0 +1,1340 @@
+{
+ "safo": [
+  [
+   1776211200000,
+   1.003971
+  ],
+  [
+   1776297600000,
+   1.004077
+  ],
+  [
+   1776384000000,
+   1.004185
+  ],
+  [
+   1776470400000,
+   1.004515
+  ],
+  [
+   1776556800000,
+   1.004515
+  ],
+  [
+   1776643200000,
+   1.004515
+  ],
+  [
+   1776729600000,
+   1.004623
+  ],
+  [
+   1776816000000,
+   1.004732
+  ],
+  [
+   1776902400000,
+   1.004947
+  ],
+  [
+   1776988800000,
+   1.005271
+  ],
+  [
+   1777075200000,
+   1.005271
+  ],
+  [
+   1777161600000,
+   1.005271
+  ],
+  [
+   1777248000000,
+   1.005379
+  ],
+  [
+   1777334400000,
+   1.005487
+  ],
+  [
+   1777420800000,
+   1.005596
+  ],
+  [
+   1777507200000,
+   1.006027
+  ],
+  [
+   1777593600000,
+   1.006027
+  ],
+  [
+   1777680000000,
+   1.006027
+  ],
+  [
+   1777766400000,
+   1.006027
+  ],
+  [
+   1777852800000,
+   1.006134
+  ],
+  [
+   1777939200000,
+   1.006244
+  ],
+  [
+   1778025600000,
+   1.00635
+  ],
+  [
+   1778112000000,
+   1.006779
+  ],
+  [
+   1778198400000,
+   1.006779
+  ],
+  [
+   1778284800000,
+   1.006779
+  ],
+  [
+   1778371200000,
+   1.006779
+  ],
+  [
+   1778457600000,
+   1.006885
+  ],
+  [
+   1778544000000,
+   1.006885
+  ],
+  [
+   1778630400000,
+   1.006992
+  ],
+  [
+   1778716800000,
+   1.007101
+  ],
+  [
+   1778803200000,
+   1.007208
+  ],
+  [
+   1778889600000,
+   1.007528
+  ],
+  [
+   1778976000000,
+   1.007528
+  ],
+  [
+   1779062400000,
+   1.007528
+  ],
+  [
+   1779148800000,
+   1.007633
+  ],
+  [
+   1779235200000,
+   1.007739
+  ],
+  [
+   1779321600000,
+   1.007844
+  ],
+  [
+   1779408000000,
+   1.007948
+  ],
+  [
+   1779494400000,
+   1.008366
+  ],
+  [
+   1779580800000,
+   1.008366
+  ],
+  [
+   1779667200000,
+   1.008366
+  ],
+  [
+   1779753600000,
+   1.008366
+  ],
+  [
+   1779840000000,
+   1.00847
+  ],
+  [
+   1779926400000,
+   1.008576
+  ],
+  [
+   1780012800000,
+   1.008683
+  ],
+  [
+   1780099200000,
+   1.009007
+  ],
+  [
+   1780185600000,
+   1.009007
+  ],
+  [
+   1780272000000,
+   1.009007
+  ],
+  [
+   1780358400000,
+   1.009115
+  ],
+  [
+   1780444800000,
+   1.009222
+  ],
+  [
+   1780531200000,
+   1.009331
+  ],
+  [
+   1780617600000,
+   1.009439
+  ],
+  [
+   1780704000000,
+   1.009761
+  ],
+  [
+   1780790400000,
+   1.009761
+  ],
+  [
+   1780876800000,
+   1.009761
+  ],
+  [
+   1780963200000,
+   1.009869
+  ],
+  [
+   1781049600000,
+   1.009977
+  ],
+  [
+   1781136000000,
+   1.010085
+  ],
+  [
+   1781222400000,
+   1.010192
+  ],
+  [
+   1781308800000,
+   1.010513
+  ],
+  [
+   1781395200000,
+   1.010513
+  ],
+  [
+   1781481600000,
+   1.010513
+  ],
+  [
+   1781568000000,
+   1.01062
+  ],
+  [
+   1781654400000,
+   1.010729
+  ],
+  [
+   1781740800000,
+   1.010839
+  ],
+  [
+   1781827200000,
+   1.011272
+  ],
+  [
+   1781913600000,
+   1.011272
+  ],
+  [
+   1782000000000,
+   1.011272
+  ],
+  [
+   1782086400000,
+   1.011272
+  ],
+  [
+   1782172800000,
+   1.011381
+  ],
+  [
+   1782259200000,
+   1.01149
+  ],
+  [
+   1782345600000,
+   1.011599
+  ],
+  [
+   1782432000000,
+   1.011708
+  ],
+  [
+   1782518400000,
+   1.012036
+  ],
+  [
+   1782604800000,
+   1.012036
+  ],
+  [
+   1782691200000,
+   1.012036
+  ],
+  [
+   1782777600000,
+   1.012146
+  ],
+  [
+   1782864000000,
+   1.012255
+  ],
+  [
+   1782950400000,
+   1.012364
+  ],
+  [
+   1783036800000,
+   1.012808
+  ],
+  [
+   1783123200000,
+   1.012808
+  ],
+  [
+   1783209600000,
+   1.012808
+  ],
+  [
+   1783296000000,
+   1.012808
+  ],
+  [
+   1783382400000,
+   1.012919
+  ],
+  [
+   1783468800000,
+   1.013029
+  ],
+  [
+   1783555200000,
+   1.013139
+  ],
+  [
+   1783641600000,
+   1.013248
+  ],
+  [
+   1783728000000,
+   1.013574
+  ],
+  [
+   1783814400000,
+   1.013574
+  ],
+  [
+   1783900800000,
+   1.013574
+  ],
+  [
+   1783987200000,
+   1.013787
+  ],
+  [
+   1784073600000,
+   1.013787
+  ],
+  [
+   1784160000000,
+   1.013894
+  ],
+  [
+   1784246400000,
+   1.013894
+  ],
+  [
+   1784332800000,
+   1.014333
+  ],
+  [
+   1784419200000,
+   1.014333
+  ],
+  [
+   1784505600000,
+   1.014333
+  ],
+  [
+   1784592000000,
+   1.014443
+  ],
+  [
+   1784678400000,
+   1.014552
+  ],
+  [
+   1784764800000,
+   1.01466
+  ],
+  [
+   1784851200000,
+   1.014769
+  ],
+  [
+   1784937600000,
+   1.015098
+  ],
+  [
+   1785024000000,
+   1.015098
+  ],
+  [
+   1785110400000,
+   1.015098
+  ],
+  [
+   1785196800000,
+   1.015208
+  ],
+  [
+   1785283200000,
+   1.015318
+  ],
+  [
+   1785369600000,
+   1.015428
+  ],
+  [
+   1785456000000,
+   1.015538
+  ],
+  [
+   1785542400000,
+   1.015874
+  ],
+  [
+   1785628800000,
+   1.015874
+  ],
+  [
+   1785715200000,
+   1.015874
+  ],
+  [
+   1785801600000,
+   1.015986
+  ],
+  [
+   1785888000000,
+   1.016099
+  ],
+  [
+   1785974400000,
+   1.016211
+  ],
+  [
+   1786060800000,
+   1.016324
+  ],
+  [
+   1786147200000,
+   1.01666
+  ],
+  [
+   1786233600000,
+   1.01666
+  ],
+  [
+   1786320000000,
+   1.01666
+  ],
+  [
+   1786406400000,
+   1.016772
+  ],
+  [
+   1786492800000,
+   1.016884
+  ],
+  [
+   1786579200000,
+   1.016996
+  ],
+  [
+   1786665600000,
+   1.017108
+  ],
+  [
+   1786752000000,
+   1.017443
+  ],
+  [
+   1786838400000,
+   1.017443
+  ],
+  [
+   1786924800000,
+   1.017443
+  ],
+  [
+   1787011200000,
+   1.017554
+  ],
+  [
+   1787097600000,
+   1.017666
+  ],
+  [
+   1787184000000,
+   1.017779
+  ],
+  [
+   1787270400000,
+   1.017891
+  ],
+  [
+   1787356800000,
+   1.018226
+  ],
+  [
+   1787443200000,
+   1.018226
+  ],
+  [
+   1787529600000,
+   1.018226
+  ],
+  [
+   1787616000000,
+   1.018338
+  ],
+  [
+   1787702400000,
+   1.018451
+  ],
+  [
+   1787788800000,
+   1.018563
+  ],
+  [
+   1787875200000,
+   1.018676
+  ],
+  [
+   1787961600000,
+   1.019013
+  ],
+  [
+   1788048000000,
+   1.019013
+  ],
+  [
+   1788134400000,
+   1.019013
+  ],
+  [
+   1788220800000,
+   1.019125
+  ],
+  [
+   1788307200000,
+   1.019242
+  ],
+  [
+   1788393600000,
+   1.019355
+  ],
+  [
+   1788480000000,
+   1.019468
+  ],
+  [
+   1788566400000,
+   1.01992
+  ],
+  [
+   1788652800000,
+   1.01992
+  ],
+  [
+   1788739200000,
+   1.01992
+  ],
+  [
+   1788825600000,
+   1.019913
+  ],
+  [
+   1788912000000,
+   1.019913
+  ],
+  [
+   1788998400000,
+   1.020146
+  ],
+  [
+   1789084800000,
+   1.020258
+  ],
+  [
+   1789171200000,
+   1.020595
+  ],
+  [
+   1789257600000,
+   1.020595
+  ],
+  [
+   1789344000000,
+   1.020595
+  ],
+  [
+   1789430400000,
+   1.020707
+  ],
+  [
+   1789516800000,
+   1.02082
+  ],
+  [
+   1789603200000,
+   1.020932
+  ],
+  [
+   1789689600000,
+   1.021045
+  ],
+  [
+   1789776000000,
+   1.021385
+  ],
+  [
+   1789862400000,
+   1.021385
+  ],
+  [
+   1789948800000,
+   1.021385
+  ],
+  [
+   1790035200000,
+   1.021505
+  ],
+  [
+   1790121600000,
+   1.021623
+  ],
+  [
+   1790208000000,
+   1.021741
+  ],
+  [
+   1790294400000,
+   1.021859
+  ],
+  [
+   1790380800000,
+   1.022219
+  ],
+  [
+   1790467200000,
+   1.022219
+  ],
+  [
+   1790553600000,
+   1.022219
+  ],
+  [
+   1790640000000,
+   1.022338
+  ],
+  [
+   1790726400000,
+   1.022459
+  ],
+  [
+   1790812800000,
+   1.022578
+  ],
+  [
+   1790899200000,
+   1.022697
+  ],
+  [
+   1790985600000,
+   1.02306
+  ],
+  [
+   1791072000000,
+   1.02306
+  ],
+  [
+   1791158400000,
+   1.02306
+  ],
+  [
+   1791244800000,
+   1.023176
+  ],
+  [
+   1791331200000,
+   1.023292
+  ],
+  [
+   1791417600000,
+   1.023415
+  ],
+  [
+   1791504000000,
+   1.023534
+  ],
+  [
+   1791590400000,
+   1.024012
+  ],
+  [
+   1791676800000,
+   1.024012
+  ],
+  [
+   1791763200000,
+   1.024012
+  ],
+  [
+   1791849600000,
+   1.024012
+  ],
+  [
+   1791936000000,
+   1.024133
+  ],
+  [
+   1792022400000,
+   1.024252
+  ],
+  [
+   1792108800000,
+   1.024372
+  ],
+  [
+   1792195200000,
+   1.024734
+  ],
+  [
+   1792281600000,
+   1.024734
+  ],
+  [
+   1792368000000,
+   1.024734
+  ],
+  [
+   1792454400000,
+   1.024854
+  ],
+  [
+   1792540800000,
+   1.024975
+  ],
+  [
+   1792627200000,
+   1.025093
+  ],
+  [
+   1792713600000,
+   1.025214
+  ],
+  [
+   1792800000000,
+   1.025573
+  ],
+  [
+   1792886400000,
+   1.025573
+  ],
+  [
+   1792972800000,
+   1.025573
+  ],
+  [
+   1792997630000,
+   1.025573
+  ]
+ ],
+ "spiko-amundi-overnight-swap-fund-eur": null,
+ "rows": [
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USTB (Superstate) reserve; borrow USDC/RLUSD/GHO",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "88% / 90% / 3%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "USTB supplyInfo maxLTV 0.88, liquidationThreshold 0.90, liquidationBonus 0.03",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USTB/GHO E-Mode (id 2)",
+   "parameter": "max LTV / LT / liquidation penalty",
+   "value": "90% / 92% / 3%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "eModeCategories id 2 'USTB GHO' 0.90 / 0.92 / 0.03",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USCC (Superstate) reserve",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "85% / 88% / 5%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "USCC supplyInfo 0.85 / 0.88 / 0.05",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USCC/GHO E-Mode (id 4)",
+   "parameter": "max LTV / LT / liquidation penalty",
+   "value": "87% / 90% / 5%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "eModeCategories id 4 'USCC GHO' 0.87 / 0.90 / 0.05",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "JTRSY (Centrifuge) reserve",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "86% / 88% / 3.5%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "JTRSY supplyInfo 0.86 / 0.88 / 0.035",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "JTRSY/GHO E-Mode (id 8)",
+   "parameter": "max LTV / LT / liquidation penalty",
+   "value": "89% / 91% / 3.5%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "eModeCategories id 8 'JTRSY GHO' 0.89 / 0.91 / 0.035",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "JAAA (Centrifuge AAA CLO) reserve",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "87% / 89% / 5%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "JAAA supplyInfo 0.87 / 0.89 / 0.05",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "JAAA reserve, Risk Steward change",
+   "parameter": "LTV/LT/LB before -> after",
+   "value": "81/86/5 -> 87/89/5",
+   "source_url": "https://governance.aave.com/t/risk-stewards-jaaa-reserve-parameter-update-on-aave-v3-horizon-2026-10-15/25854",
+   "quote_or_field": "\"We propose raising the JAAA reserve-level LTV from 81% to 87% and LT from 86% to 89% on Horizon, while keeping the 5% liquidation bonus.\" Sized for a \"three-business-day exit window\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USYC (Circle) reserve",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "88% / 90% / 3.1%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "USYC supplyInfo 0.88 / 0.90 / 0.031",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "VBILL (VanEck) reserve",
+   "parameter": "max LTV / LT / liquidation bonus",
+   "value": "88% / 90% / 3%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "VBILL supplyInfo 0.88 / 0.90 / 0.03",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "VBILL/GHO E-Mode (id 1)",
+   "parameter": "max LTV / LT / liquidation penalty",
+   "value": "90% / 92% / 3%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "eModeCategories id 1 'VBILL GHO' 0.90 / 0.92 / 0.03",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "USDC, RLUSD, GHO (borrowed)",
+   "parameter": "reserve factor (protocol share of interest)",
+   "value": "10%",
+   "source_url": "https://api.v3.aave.com/graphql",
+   "quote_or_field": "borrowInfo reserveFactor 0.10 for USDC, RLUSD, GHO",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Aave Horizon",
+   "market_or_asset": "all RWA collateral",
+   "parameter": "oracle safeguard / staleness",
+   "value": "Chainlink NAV feeds with DON-level price bounds; no staleness threshold published",
+   "source_url": "https://aave.com/docs/aave-v3/horizon",
+   "quote_or_field": "\"pre-defined upper and lower price bounds are configured for each RWA price feed at the Decentralized Oracle Network (DON) level... If it is outside the bounds, the DON rejects the update\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "wUSCC/USDC (Ethereum 0x96905763...)",
+   "parameter": "LLTV / protocol fee",
+   "value": "98% / 0%",
+   "source_url": "https://blue-api.morpho.org/graphql",
+   "quote_or_field": "lltv 980000000000000000; state.fee 0; supplyAssetsUsd ~7.84M",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "wJAAA/USDC (Ethereum 0xb55c0ebe...)",
+   "parameter": "LLTV / protocol fee",
+   "value": "98% / 0%",
+   "source_url": "https://blue-api.morpho.org/graphql",
+   "quote_or_field": "lltv 980000000000000000; fee 0; supplyAssetsUsd ~2.32M",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "EUTBL/EURCV (Ethereum 0xaa7231d6...)",
+   "parameter": "LLTV / protocol fee",
+   "value": "96.5% / 0% (EUR loan, no FX leg)",
+   "source_url": "https://blue-api.morpho.org/graphql",
+   "quote_or_field": "lltv 965000000000000000; fee 0; supplyAssetsUsd ~2.95M",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "eurSAFO/EURCV (Ethereum 0x36da61bf...)",
+   "parameter": "LLTV / protocol fee",
+   "value": "94.5% / 0% (EUR loan, no FX leg)",
+   "source_url": "https://blue-api.morpho.org/graphql",
+   "quote_or_field": "lltv 945000000000000000; fee 0; supplyAssetsUsd ~0.69M",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "liquidation incentive formula",
+   "parameter": "LIF",
+   "value": "LIF = min(1.15, 1/(0.3*LLTV + 0.7)): 98% -> 0.6%, 96.5% -> 1.06%, 94.5% -> 1.68%",
+   "source_url": "https://docs.morpho.org/learn/concepts/liquidation/",
+   "quote_or_field": "\"LIF=min(M, 1/(β*LLTV+(1−β))), with β=0.3 and M=1.15\"; \"The entire LIF goes to the liquidator; Morpho protocol doesn't take a fee\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Morpho",
+   "market_or_asset": "USTBL, JTRSY, BUIDL, USDY, USTB, USYC markets",
+   "parameter": "LLTV",
+   "value": "only empty or unlisted markets (86%-98%, under $10 supplied)",
+   "source_url": "https://blue-api.morpho.org/graphql",
+   "quote_or_field": "markets(where:{search:...}) supplyAssetsUsd 0-3",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 2 'Etherfuse RWA' / USTRY",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 6000 (max LTV 60%, haircut 40%); liquidation_threshold 7000 (liq. haircut 30%); liquidation_bonus 600; liquidation_fees 1200; can_be_borrowed false; supply_cap 2500000000000; borrow_cap 0; enabled (no flag = true); spoke curve target_hf 1.15, hf_for_max_bonus 0.9, liquidation_bonus_factor_bps 1500",
+   "quote_or_field": "spokes.json[\"2\"].assets.USTRY.{ltv,liquidation_threshold,liquidation_bonus,supply_cap,borrow_cap,liquidation_fees}; liquidation_curve L91",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L97-L106",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 2 'Etherfuse RWA' / CETES",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 6000 (haircut 40%); liquidation_threshold 7000 (liq. haircut 30%); liquidation_bonus 600; liquidation_fees 1200; can_be_borrowed false; supply_cap 15000000000000; borrow_cap 0; enabled true; curve as spoke 2",
+   "quote_or_field": "spokes.json[\"2\"].assets.CETES",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L108-L117",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 2 'Etherfuse RWA' / USDC (borrow side)",
+   "parameter": "LTV / LT / liquidation bonus / caps",
+   "value": "ltv 7600; liquidation_threshold 8000; liquidation_bonus 400; liquidation_fees 1000; can_be_collateral false; can_be_borrowed true; supply_cap 14960000000000; borrow_cap 2300000000000",
+   "quote_or_field": "spokes.json[\"2\"].assets.USDC",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L119-L128",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 3 'Spiko RWA' / SPIKOEUTBL, SPIKOUSTBL, SPIKOUKTBL, SPIKOSAFO, SPIKOEURSAFO, SPIKOGBPSAFO",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 6000 (haircut 40%); liquidation_threshold 7000 (liq. haircut 30%); liquidation_bonus 600; liquidation_fees 1200; can_be_borrowed false; borrow_cap 0; per-asset enabled false AND spoke-level enabled false (L290); supply_cap EUTBL 50000000000, USTBL 50000000000, UKTBL 25000000000, SAFO 50000000000, EURSAFO 50000000000, GBPSAFO 25000000000; curve target_hf 1.15, hf_for_max_bonus 0.9, factor 1500",
+   "quote_or_field": "spokes.json[\"3\"].assets.SPIKO*.{ltv,liquidation_threshold,liquidation_bonus,liquidation_fees,supply_cap,borrow_cap,enabled}; \"enabled\": false at L290",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L167-L290",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 3 'Spiko RWA' / USDC (borrow side)",
+   "parameter": "LTV / LT / caps",
+   "value": "ltv 7600; liquidation_threshold 8000; liquidation_bonus 400; liquidation_fees 1000; supply_cap 19590000000000; borrow_cap 18000000000000; spoke disabled",
+   "quote_or_field": "spokes.json[\"3\"].assets.USDC",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L245-L254",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 4 'Centrifuge RWA' / DEJTRSY",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 6000 (haircut 40%); liquidation_threshold 7000 (liq. haircut 30%); liquidation_bonus 600; liquidation_fees 1200; can_be_borrowed false; supply_cap 100000000000000000000000; borrow_cap 0; enabled true; curve target_hf 1.15, hf_for_max_bonus 0.9, factor 1500 (L294)",
+   "quote_or_field": "spokes.json[\"4\"].assets.DEJTRSY",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L300-L309",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 4 'Centrifuge RWA' / DEJAAA",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 6000 (haircut 40%); liquidation_threshold 7000 (liq. haircut 30%); liquidation_bonus 600; liquidation_fees 1200; can_be_borrowed false; supply_cap 100000000000000000000000; borrow_cap 0; enabled true",
+   "quote_or_field": "spokes.json[\"4\"].assets.DEJAAA",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L311-L320",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 4 'Centrifuge RWA' / USDC (borrow side)",
+   "parameter": "LTV / LT / caps",
+   "value": "ltv 7600; liquidation_threshold 8000; liquidation_bonus 400; liquidation_fees 1000; supply_cap 9970000000000; borrow_cap 1230000000000",
+   "quote_or_field": "spokes.json[\"4\"].assets.USDC",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L322-L331",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 5 'Stables & FX' / USDY",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 8000 (max LTV 80%, haircut 20%); liquidation_threshold 8500 (liq. haircut 15%); liquidation_bonus 500; liquidation_fees 1000; can_be_borrowed false; supply_cap 44000000000000; borrow_cap 0; enabled true; spoke curve target_hf 1.02, hf_for_max_bonus 0.8, liquidation_bonus_factor_bps 10000 (L370)",
+   "quote_or_field": "spokes.json[\"5\"].assets.USDY",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L431-L440",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 5 'Stables & FX' / all 6 Spiko assets",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 8000 (haircut 20%); liquidation_threshold 8500 (liq. haircut 15%); liquidation_bonus 500; liquidation_fees 1000; can_be_borrowed false; borrow_cap 0; per-asset enabled false; supply_cap EUTBL/USTBL/SAFO/EURSAFO 40000000000, UKTBL/GBPSAFO 25000000000",
+   "quote_or_field": "spokes.json[\"5\"].assets.SPIKO*",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L442-L513",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 5 'Stables & FX' / USDC (collateral and borrow)",
+   "parameter": "LTV / LT / caps",
+   "value": "ltv 8800 (haircut 12%); liquidation_threshold 9200; liquidation_bonus 400; liquidation_fees 1000; supply_cap 149600000000000; borrow_cap 112200000000000",
+   "quote_or_field": "spokes.json[\"5\"].assets.USDC",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L376-L385",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "spoke 7 'Ondo RWA' / USDY",
+   "parameter": "LTV / LT / liquidation bonus / caps / enabled",
+   "value": "ltv 8000 (haircut 20%); liquidation_threshold 8500 (liq. haircut 15%); liquidation_bonus 500; liquidation_fees 1000; can_be_borrowed false; supply_cap 3000000000000; borrow_cap 0; enabled true; curve target_hf 1.15, hf_for_max_bonus 0.9, factor 1000 (L671)",
+   "quote_or_field": "spokes.json[\"7\"].assets.USDY",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/spokes.json#L677-L686",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "USDC market (hub 1)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600 (16h); min_sanity_price_wad 950000000000000000 / max_sanity_price_wad 1050000000000000000 (0.95-1.05); sources Reflector (max_stale_seconds 3600) + RedStone (57600); tolerance upper_ratio_bps 10500 / lower_ratio_bps 9524; reserve_factor 1000 (10% of interest)",
+   "quote_or_field": "markets.json USDC: max_price_stale_seconds L122, min/max_sanity_price_wad L160-L161, reserve_factor L172",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L117-L172",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "USTRY market (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600 (16h); min_sanity_price_wad 984400000000000000 / max_sanity_price_wad 1155600000000000000 (0.9844-1.1556 = ±8.00% around 1.07, static); sources Scaled(Reflector factor max_stale_seconds 7200) + RedStone Fundamental (57600); tolerance 10500/9524; reserve_factor 2500",
+   "quote_or_field": "markets.json USTRY: L746, L795-L796, L807",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L741-L807",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "CETES market (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600; min_sanity_price_wad 61548000000000000 / max_sanity_price_wad 72252000000000000 (0.061548-0.072252 = ±8.00% around 0.0669, static); sources Scaled(Reflector 7200s) + RedStone (57600s); tolerance 10500/9524; reserve_factor 2500",
+   "quote_or_field": "markets.json CETES: L818, L867-L868, L879",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L813-L879",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "USDY market (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600; min_sanity_price_wad 1080000000000000000 / max_sanity_price_wad 1320000000000000000 (1.08-1.32 = ±10.00% around 1.20, static); single source RedStone (57600s); tolerance 10500/9524; reserve_factor 2500",
+   "quote_or_field": "markets.json USDY: L890, L911-L912, L923",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L885-L923",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "DEJTRSY market (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600; min_sanity_price_wad 990000000000000000 / max_sanity_price_wad 1210000000000000000 (0.99-1.21 = ±10.00% around 1.10, static); single source RedStone (57600s); reserve_factor 2500",
+   "quote_or_field": "markets.json DEJTRSY: L658, L679-L680, L691",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L653-L691",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "DEJAAA market (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor",
+   "value": "max_price_stale_seconds 57600; min_sanity_price_wad 990000000000000000 / max_sanity_price_wad 1210000000000000000 (0.99-1.21 = ±10.00%, static); single source RedStone (57600s); reserve_factor 2500",
+   "quote_or_field": "markets.json DEJAAA: L702, L723-L724, L735",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L697-L735",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "all 6 Spiko markets (hub 2)",
+   "parameter": "oracle staleness / sanity band / reserve factor / enabled",
+   "value": "max_price_stale_seconds 57600 (16h); single source Xoxno Feed (max_stale_seconds 57600); static bands ±8.00%: EUTBL 1.11055-1.30369, USTBL 1.00165-1.17585, UKTBL 1.26105-1.48036, SAFO 0.931885-1.09395, EURSAFO 1.06118-1.24573, GBPSAFO 1.24832-1.46542; tolerance 10500/9524; reserve_factor 2500; market enabled false",
+   "quote_or_field": "markets.json SPIKO*: e.g. SPIKOEUTBL max_price_stale_seconds L388, min/max_sanity_price_wad L409-L410, reserve_factor L421, \"enabled\": false L425",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/configs/mainnet/markets.json#L383-L650",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "Liqvid deal share LIQVID1039 (testnet; daily NAV, no market price)",
+   "parameter": "listing params for daily-NAV collateral",
+   "value": "LTV 5000 (haircut 50%); LT 5300; base bonus 500; liquidation fee 0; curve H 1.06, K 0.90, f 598; band floor 0.849×R, ceiling 1.03×R; asset and feed staleness 93,600 s (26h); supply cap floor($1M/ceiling); borrow cap 0",
+   "quote_or_field": "'| Asset staleness | 93,600 s | `max_price_stale_seconds` |' (L28); '| Band floor | 0.849 × R |' (L26); '| Band ceiling | 1.03 × R |' (L27)",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/docs/reference/runbooks/liqvid-listing-params.md#L16-L31",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "XOXNO Lending (Stellar)",
+   "market_or_asset": "Liqvid daily-NAV collateral",
+   "parameter": "stated reasoning",
+   "value": "One NAV per day, no market price. LT/LTV = 1.06, so liquidation starts on a NAV drop of more than 5.66%. The earlier LT 6000 with a ±5% band failed: the trigger price (-16.67%) was outside the band and the oracle refused it. A single-source band must satisfy (max-min)/(max+min) <= 1000 bps (MAX_SINGLE_SOURCE_SANITY_BAND_BPS) and be at least 50 bps (MIN_SANITY_BAND_BPS). The floor is set so that a borrower at max LTV reaches the full-bonus HF at the floor. The ceiling 1.03R < LT/LTV keeps a borrow made at the ceiling above HF 1. The band is re-centred by a timelocked owner proposal when NAV leaves 0.99R-1.015R; the listing is frozen below 0.95R. Daily private-credit NAV moves slowly (~55 days for +1.5% at 10%/yr).",
+   "quote_or_field": "'The issuer posts one NAV each day. The share has no market price.' (L4-L5); 'A daily NAV of private credit moves slowly.' (L149)",
+   "source_url": "https://github.com/XOXNO/rs-lending-xlm/blob/30d599055741c426af984d9c9c9c35f3101f1509/docs/reference/runbooks/liqvid-listing-params.md#L1-L160",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Etherfuse' CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "parameter": "backstop take rate / status",
+   "value": "bstop_rate 2000000 (20% of interest); status 4 (Admin Frozen); min_collateral 500000000000000; max_positions 6",
+   "quote_or_field": "get_config(): bstop_rate=2000000, status=4 (Stellar RPC)",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Etherfuse' / USTRY",
+   "parameter": "c_factor / l_factor",
+   "value": "c_factor 9000000 (0.90); l_factor 9000000; max_util 9000000; supply_cap 95000000000000; enabled true; max LTV vs USDC debt 0.90×0.95 = 85.5% (haircut 14.5%)",
+   "quote_or_field": "get_reserve(CBLV4ATSIWU67CFSQU2NVRKINQIKUZ2ODSZBUJTJ43VJVRSBTZYOPNUR).config",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Etherfuse' / CETES",
+   "parameter": "c_factor / l_factor",
+   "value": "c_factor 8000000 (0.80); l_factor 8000000; max_util 9000000; supply_cap 1600000000000000; enabled true; max LTV vs USDC 0.80×0.95 = 76% (haircut 24%)",
+   "quote_or_field": "get_reserve(CAL6ER2TI6CTRAY6BFXWNWA7WTYXUXTQCHUBCIBU5O6KM3HJFG6Z6VXV).config",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Etherfuse' / TESOURO",
+   "parameter": "c_factor / l_factor",
+   "value": "c_factor 8000000 (0.80); l_factor 8000000; max_util 9000000; supply_cap 239000000000000; enabled true; max LTV vs USDC 76% (haircut 24%)",
+   "quote_or_field": "get_reserve(CD6M4R2322BYCY2LNWM74PEBQAQ63SA3DUJLI3L4225U4ZVCLMSCBCIS).config",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Etherfuse' / USDC",
+   "parameter": "c_factor / l_factor",
+   "value": "c_factor 9500000; l_factor 9500000 (0.95); max_util 9500000; supply_cap 100000000000000",
+   "quote_or_field": "get_reserve(CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75).config",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'YieldBlox' CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS",
+   "parameter": "backstop take rate / status",
+   "value": "bstop_rate 0 (0%); status 3 (On-Ice)",
+   "quote_or_field": "get_config(): bstop_rate=0, status=3",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'YieldBlox' / USTRY, CETES, USDC",
+   "parameter": "c_factor / l_factor",
+   "value": "USTRY c_factor 0, l_factor 9000000, max_util 8000000, supply_cap 2500000000000 (not collateral); CETES c_factor 0, l_factor 8000000, max_util 8000000, supply_cap 200000000000000 (not collateral); USDC c_factor 9500000, l_factor 9500000, max_util 9500000",
+   "quote_or_field": "get_reserve(asset).config.c_factor / .l_factor",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Fixed' CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD (v2)",
+   "parameter": "backstop take rate / status / USDC",
+   "value": "bstop_rate 2000000 (20%); status 3 (On-Ice); reserves XLM/USDC/EURC only (no RWA); USDC c_factor 9500000, l_factor 9500000, max_util 9000000",
+   "quote_or_field": "get_config(), get_reserve_list()",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Blend (Stellar)",
+   "market_or_asset": "pool 'Fixed v2.1' CBAKAZUEJBAFA2DCGBRS2WKJT3FNIMJBHTFL76AY7XMAVEINQNNIQWAO (only v2.1 reward-zone pool)",
+   "parameter": "backstop take rate / status / USDC",
+   "value": "bstop_rate 2000000 (20%); status 1 (Active); reserves XLM/USDC/EURC only (no RWA); USDC c_factor 9500000, l_factor 9500000, max_util 9000000",
+   "quote_or_field": "BackstopConfig(CCS4AZ5ORM6VLLPJTJUFRNXWBMHOO3L5WHHRPL2ZMILE35ZDMQFHOQMJ).rewardZone; get_config()",
+   "source_url": "https://mainnet.blend.capital/dashboard/?poolId=CBAKAZUEJBAFA2DCGBRS2WKJT3FNIMJBHTFL76AY7XMAVEINQNNIQWAO",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "ixlmustry-ixlmusdc (USTRY / USDC)",
+   "parameter": "MCR / liquidation spread / price max age / protocol fee",
+   "value": "mcr_maintenance \"1.2\" → max LTV 83.33% (haircut 16.67%); mcr_liquidation \"1.11111111111111111111111111111111111111\" → liq. LTV 90% (liq. haircut 10%); liquidation_maximum_spread \"0.1\" (10%); price_maximum_age \"60s\"; yield_weights inherited supply 4 : revenue 1 → 20% of interest to protocol",
+   "quote_or_field": "[market] L20-L24",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/v1/ixlmustry-ixlmusdc.toml#L19-L27",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "ixlmcetes-ixlmusdc (CETES / USDC)",
+   "parameter": "MCR / liquidation spread / price max age / protocol fee",
+   "value": "mcr_maintenance \"1.25\" → max LTV 80% (haircut 20%); mcr_liquidation \"1.1765\" → liq. LTV 85% (liq. haircut 15%); liquidation_maximum_spread \"0.1\"; price_maximum_age \"60s\"; 20% protocol (inherited yield_weights)",
+   "quote_or_field": "[market] L20-L24",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/v1/ixlmcetes-ixlmusdc.toml#L19-L27",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "ixlmdejaaa-ixlmusdc and ixlmdejtrsy-ixlmusdc (deJAAA, deJTRSY / USDC)",
+   "parameter": "MCR / liquidation spread / price max age / protocol fee",
+   "value": "mcr_maintenance \"1.2\" → max LTV 83.33% (haircut 16.67%); mcr_liquidation \"1.111…\" → liq. LTV 90%; liquidation_maximum_spread \"0.1\"; price_maximum_age \"60s\"; 20% protocol (inherited); oracle RedStone *_FUNDAMENTAL/USD only",
+   "quote_or_field": "[market] L20-L24 in each file",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/v1/ixlmdejaaa-ixlmusdc.toml#L19-L27",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "ixlmdejaaa-ixlmusdc-1 / -2 (deJAAA / USDC)",
+   "parameter": "MCR / liquidation spread / price max age / protocol fee",
+   "value": "mcr_maintenance \"1.07\" → max LTV 93.46% (haircut 6.54%); mcr_liquidation \"1.05\" → liq. LTV 95.24% (liq. haircut 4.76%); liquidation_maximum_spread \"0.025\" (2.5%); price_maximum_age not set → \"120s\" from mainnet.toml L10; yield_weights supply 19 : revenue 1 → 5% protocol; rates: -1 Linear 3.3% flat, -2 Piecewise base 0.03 kink 0.9",
+   "quote_or_field": "-1 [market] L19-L23, L27; -2 L20-L24, L28",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/v1/ixlmdejaaa-ixlmusdc-1.toml#L18-L27",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "ixlmdejtrsy-ixlmusdc-1 (deJTRSY / USDC)",
+   "parameter": "MCR / liquidation spread / price max age / protocol fee",
+   "value": "mcr_maintenance \"1.07\" → max LTV 93.46% (haircut 6.54%); mcr_liquidation \"1.05\" → liq. LTV 95.24%; liquidation_maximum_spread \"0.025\"; price_maximum_age 120s (inherited); 5% protocol (supply 19 : revenue 1); Linear 3% flat",
+   "quote_or_field": "[market] L19-L23, L27",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/v1/ixlmdejtrsy-ixlmusdc-1.toml#L18-L27",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Templar Protocol (NEAR; bridged Stellar assets)",
+   "market_or_asset": "all v1 mainnet markets (profile default)",
+   "parameter": "default price max age / protocol fee / reference tolerance",
+   "value": "price_maximum_age \"120s\"; reference_tolerance \"0.015\"; origination_fee Flat 0; yield_weights { supply = 4, static = { \"revenue.tmplr.near\" = 1 } } → 20% of interest to protocol",
+   "quote_or_field": "profiles/mainnet.toml [market] L8-L16",
+   "source_url": "https://github.com/Templar-Protocol/contracts/blob/df751d48878f7ce1e1bcefd8ce33ae93cd9f1269/deployments/profiles/mainnet.toml#L8-L16",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Ondo Flux Finance",
+   "market_or_asset": "OUSG collateral (Compound v2 fork)",
+   "parameter": "collateral factor / liquidation incentive / reserve factor",
+   "value": "92% / 5% / 0% (genesis parameters, Jan 2023)",
+   "source_url": "https://forum.fluxfinance.com/t/fip-00-genesis-governance-proposal/31",
+   "quote_or_field": "\"Collateral Factor (LTV): ~90%~ 92%\"; \"Reserve Factor: 0%\"; \"Liquidation Incentive: 5% (Compound V2 uses 8%)\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Ondo Flux Finance",
+   "market_or_asset": "OUSG",
+   "parameter": "collateral factor (third-party read)",
+   "value": "92%, close factor 50%, liquidation premium 5% (May 2023)",
+   "source_url": "https://llamarisk.substack.com/p/asset-risk-assessment-ondo-and-flux",
+   "quote_or_field": "\"At the moment, the OUSG Collateral Factor is set to 92%, the Close Factor to 50%, and Liquidation Premium to 5%.\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Maple Finance",
+   "market_or_asset": "institutional overcollateralized loans",
+   "parameter": "margin call cure window",
+   "value": "24 hours to top up to the Initial Collateral Level; liquidation via OTC desks",
+   "source_url": "https://docs.maple.finance/maple-institutional-for-lenders/defaults-and-impairments-1",
+   "quote_or_field": "\"If collateral value falls to the Margin Call Level, the borrower is automatically notified and has 24 hours to top up and restore collateralization to the Initial Collateral Level.\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "US tri-party repo (FRBNY Staff Report 506)",
+   "market_or_asset": "US Treasury collateral, 2008-2010 data",
+   "parameter": "average dealer margin (haircut)",
+   "value": "2% (some dealers 0-1%, one 5%)",
+   "source_url": "https://www.newyorkfed.org/medialibrary/media/research/staff_reports/sr506.pdf",
+   "quote_or_field": "\"While the average dealer faces a margin of 2% for U.S. Treasuries, some dealers negotiated margins of 1% or even 0%.\"",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Federal Reserve discount window",
+   "market_or_asset": "US Treasury bills/notes/bonds, duration 0-1y",
+   "parameter": "lendable value (% of market value)",
+   "value": "99% (1% haircut)",
+   "source_url": "https://www.frbdiscountwindow.org/generalpages/historical_margins/2026/07012026_securities_table",
+   "quote_or_field": "Securities Valuation and Margins Table effective July 1, 2026: 'Bills, Notes, Bonds, Floating Rate Notes, and Inflation-Indexed | 99'",
+   "date_checked": "2026-10-26"
+  },
+  {
+   "competitor": "Federal Reserve discount window",
+   "market_or_asset": "Foreign government AAA-BBB, foreign-denominated, duration 0-1y",
+   "parameter": "lendable value (% of market value)",
+   "value": "94% (6% haircut)",
+   "source_url": "https://www.frbdiscountwindow.org/generalpages/historical_margins/2026/07012026_securities_table",
+   "quote_or_field": "'AAA-BBB rated - Foreign Denominated | 94'",
+   "date_checked": "2026-10-26"
+  }
+ ]
+}

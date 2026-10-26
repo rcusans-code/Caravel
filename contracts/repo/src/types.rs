@@ -89,6 +89,29 @@ pub struct AssetConfig {
     /// top-up, liquidate) are never blocked, and lowering the cap below the
     /// open debt leaves live repos untouched. Must be ≥ 0.
     pub max_open_debt: i128,
+    /// Settle time for a real NAV move past the band (nav-review side
+    /// band-real-move): a latest NAV outside the `max_nav_move_bps` window is
+    /// still accepted once it has stood this many seconds of ledger time, as
+    /// measured by the repo's own `note_nav` clock ([`BandCandidate`]), never
+    /// by feed timestamps. Production 86_400 (24 h), demo 1_200. Raising it
+    /// is a tightening (instant); lowering it waits out the timelock (#33).
+    /// `u64::MAX` turns the settle path off (window roll only). Must be > 0.
+    pub band_settle_secs: u64,
+}
+
+/// The NAV level the repo has watched stand, per oracle asset (nav-review
+/// side band-real-move). `note_nav` sets it to the latest NAV with
+/// `since` = ledger now, and restarts it whenever the latest NAV, or any
+/// feed record stamped at or after `since`, is more than
+/// `max_nav_move_bps` away from `price`. Stored apart from `AssetConfig`
+/// so `set_asset` never restarts the clock.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BandCandidate {
+    /// NAV in the feed's own scale.
+    pub price: i128,
+    /// Ledger timestamp when the repo first saw this level.
+    pub since: u64,
 }
 
 /// Per-asset emergency switches (DECISIONS.md #30), stored apart from

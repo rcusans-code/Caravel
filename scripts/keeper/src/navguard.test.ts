@@ -104,7 +104,7 @@ test("T12 latch keeps the pre-jump anchor; a correction to it is released", () =
   assert.equal(h.reason, "latched");
   assert.equal(h.needsAck, true);
   assert.equal(h.anchor, px(1.0));
-  // Without the latch (keeper restart) the same history is released.
+  // Without the latch (no persisted state, launder.test.ts L1) the same history is released.
   assert.equal(run(TWENTY, 2310).hold, false);
   // The correction to 1.00 is measured against the latch anchor: no ack needed.
   const changed = [rec(1.0, 2320), ...TWENTY.slice(0, 19)];

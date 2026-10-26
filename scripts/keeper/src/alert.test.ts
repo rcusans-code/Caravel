@@ -50,3 +50,26 @@ test("alert on the first failing tick, then every repeatTicks", () => {
   assert.deepEqual(due, [3, 6, 9]);
   assert.deepEqual([3, 4, 100].filter((n) => alertDue(n, false, 0)), [3]);
 });
+
+// keeper.ts actionFailed: a repo action (default, auto_repay, check_margin)
+// that fails is tracked under `repo:<id>:<action>` in the constant state
+// "fail"; the error text (new tx hash every tick) is only in the message.
+test("an action failing every tick with a new message alerts on tick 3", () => {
+  const t = new StuckTracker();
+  const due: boolean[] = [];
+  for (let tick = 1; tick <= 3; tick++) {
+    // the ALERT text (tx …/tx/<hash>) differs each tick; the tracked state is always "fail"
+    due.push(alertDue(t.see("repo:5:default", "fail"), false, 180));
+    t.end();
+  }
+  assert.deepEqual(due, [false, false, true]);
+});
+
+test("an action failing one tick then gone (race, e.g. #7 InvalidStatus) resets and never alerts", () => {
+  const t = new StuckTracker();
+  assert.equal(alertDue(t.see("repo:5:default", "fail"), false, 180), false);
+  t.end();
+  t.end(); // next tick: repo 5 is Defaulted, the default branch is not reached
+  t.end();
+  assert.equal(t.see("repo:5:default", "fail"), 1);
+});

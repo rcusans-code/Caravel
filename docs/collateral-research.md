@@ -32,13 +32,15 @@ One-liner: **Stellar holds billions in permissioned fund shares that no on-chain
 
 Haircut = quality of the underlying asset × the weakest link above it. Caravel's demo uses a 3% haircut on tBENJI; these are the haircut ranges for a real asset list.
 
-| Tier | Assets | Underlying asset | Weakest link | Proposed haircut | Caravel status |
-|---|---|---|---|---|---|
-| 1 | BENJI, gBENJI, Spiko USTBL, WTGXX | US T-bills / govt money-market fund | approved holders only; business-day redemption | 3–5% | **demo asset (tBENJI)**, launch target |
-| 2 | USDY, USTRY, deJTRSY, SWEEP | US T-bills/notes | offshore issuer, bridge, minimums | 8–15% | open to anyone, so no permission problem to solve; XOXNO and Orbit already take USTRY |
-| 3 | EUTBL, EURCV | euro sovereign bills / SG deposit | FX against a USDC loan | Tier 1 haircut + FX haircut | needs a EUR/USD price feed |
-| 4 | CETES, TESOURO, USDT0 | EM sovereign debt / mixed reserves | sovereign + FX risk | 25–35% | later |
-| 5 | **eurSAFO / SAFO**, deJAAA | stocks/bonds behind a bank swap; CLOs | bank-swap counterparty; risk-asset basket | 30–50% or excluded | see §4 |
+**Decided 26 Oct 2026 ([DECISIONS #35](../DECISIONS.md)):** the last column holds the tuned numbers (haircut / margin trigger), sized on 20 years of NAV, rate and FX data against named competitor terms; the data, script and sources are in [config-tuning.md](config-tuning.md). The proposed ranges are kept as research history.
+
+| Tier | Assets | Underlying asset | Weakest link | Proposed haircut | Caravel status | Decided (#35) |
+|---|---|---|---|---|---|---|
+| 1 | BENJI, gBENJI, Spiko USTBL, WTGXX | US T-bills / govt money-market fund | approved holders only; business-day redemption | 3–5% | **demo asset (tBENJI)**, launch target | BENJI, USTBL 3% / 2% |
+| 2 | USDY, USTRY, deJTRSY, SWEEP | US T-bills/notes | offshore issuer, bridge, minimums | 8–15% | open to anyone, so no permission problem to solve; XOXNO and Orbit already take USTRY | USDY 3% / 2% (rate risk as Tier 1; issuer risk in the $2M cap) |
+| 3 | EUTBL, EURCV | euro sovereign bills / SG deposit | FX against a USDC loan | Tier 1 haircut + FX haircut | needs a EUR/USD price feed | EUTBL 12% / 8.5% |
+| 4 | CETES, TESOURO, USDT0 | EM sovereign debt / mixed reserves | sovereign + FX risk | 25–35% | later | CETES 23.5% / 18.5% |
+| 5 | **eurSAFO / SAFO**, deJAAA | stocks/bonds behind a bank swap; CLOs | bank-swap counterparty; risk-asset basket | 30–50% or excluded | see §4 | SAFO not enabled; testnet tSAFO 30% / 20% |
 
 Store the tier and haircut per asset in contract config, not per offer, so lenders can't undercut the floor.
 
@@ -90,7 +92,7 @@ How this maps to the collateral we target:
 What it means for Caravel:
 1. **Gating is not our edge.** XOXNO already supports an issuer-allowlisted fund token in tested code: the pool, holders and liquidators must all be allowlisted ([liqvid_rwa_collateral.rs](https://github.com/XOXNO/rs-lending-xlm/blob/30d59905/tests/test-harness/tests/controller/liqvid_rwa_collateral.rs)). Its six Spiko markets are configured but `"enabled": false` on mainnet ([markets.json#L425](https://github.com/XOXNO/rs-lending-xlm/blob/main/configs/mainnet/markets.json#L425)), and no public reason was found.
 2. **The barrier is issuer approval, not code.** Writing the whitelist check is cheap. What is hard is getting Franklin or Spiko to approve the contract and every liquidator: legal and onboarding work for each issuer.
-3. **Our design keeps the approval small.** Lenders hold only USDC and never the fund share, so they need no KYC. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
+3. **Our design keeps the approval small.** Lenders hold only USDC, so they need no KYC to lend; only the NAV-outage in-kind claim (DECISIONS #38) needs the lender or its custody account approved. The issuer approves one escrow contract, the borrowers (already its holders) and the whitelisted liquidators (Decision 7).
 4. **Pitch line:** "gated *and* on the fund's clock". Fixed term and NAV-timed margin calls are what no live lender offers. Gating alone is not. The edge is the fixed term, not the fixed rate: see §8.
 
 ## 8. Our edge: a term that matches redemption time, not a fixed rate (supports the Innovation pitch)

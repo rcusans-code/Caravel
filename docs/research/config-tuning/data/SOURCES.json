@@ -1,0 +1,60 @@
+{
+  "fetched_at": "2026-10-26T07:00Z",
+  "files": {
+    "fred_DEXUSEU.csv": {
+      "what": "USD per EUR, noon buying rate (EUTBL FX leg)",
+      "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXUSEU",
+      "page": "https://fred.stlouisfed.org/series/DEXUSEU"
+    },
+    "fred_DEXMXUS.csv": {
+      "what": "MXN per USD, noon buying rate (CETES FX leg)",
+      "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXMXUS",
+      "page": "https://fred.stlouisfed.org/series/DEXMXUS"
+    },
+    "fred_DTB3.csv": {
+      "what": "3-month T-bill secondary market rate, % (T-bill fund shadow-NAV model)",
+      "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3",
+      "page": "https://fred.stlouisfed.org/series/DTB3"
+    },
+    "fred_SP500.csv": {
+      "what": "S&P 500 index (SAFO swap-counterparty stress proxy; FRED keeps 10 years)",
+      "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500",
+      "page": "https://fred.stlouisfed.org/series/SP500"
+    },
+    "token_franklin-templeton-benji.csv": {
+      "what": "BENJI (Franklin OnChain U.S. Government Money Fund)",
+      "url": "https://coins.llama.fi/chart/coingecko:franklin-templeton-benji?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/franklin-templeton-benji"
+    },
+    "token_spiko-us-t-bills-money-market-fund.csv": {
+      "what": "USTBL (Spiko US T-Bills MMF)",
+      "url": "https://coins.llama.fi/chart/coingecko:spiko-us-t-bills-money-market-fund?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/spiko-us-t-bills-money-market-fund"
+    },
+    "token_ondo-us-dollar-yield.csv": {
+      "what": "USDY (Ondo US Dollar Yield) - market price, not Ondo's NAV oracle",
+      "url": "https://coins.llama.fi/chart/coingecko:ondo-us-dollar-yield?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/ondo-us-dollar-yield"
+    },
+    "token_eutbl.csv": {
+      "what": "EUTBL (Spiko EU T-Bills MMF), in USD",
+      "url": "https://coins.llama.fi/chart/coingecko:eutbl?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/eutbl"
+    },
+    "token_cetes.csv": {
+      "what": "CETES (Etherfuse), in USD",
+      "url": "https://coins.llama.fi/chart/coingecko:cetes?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/cetes"
+    },
+    "token_safo.csv": {
+      "what": "SAFO (Spiko Amundi Overnight Swap Fund, USD class)",
+      "url": "https://coins.llama.fi/chart/coingecko:safo?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/safo"
+    },
+    "token_spiko-amundi-overnight-swap-fund-eur.csv": {
+      "what": "eurSAFO (same fund, EUR class), in USD",
+      "url": "https://coins.llama.fi/chart/coingecko:spiko-amundi-overnight-swap-fund-eur?start=<now - k*499 days>&span=500&period=1d&searchWidth=600  (k = 1..3)",
+      "page": "https://www.coingecko.com/en/coins/spiko-amundi-overnight-swap-fund-eur"
+    }
+  }
+}

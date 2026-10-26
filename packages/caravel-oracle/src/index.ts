@@ -34,7 +34,7 @@ if (typeof window !== "undefined") {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CBMVY3VXOU3KZR7FFTIDNGQZ4T7HC7JQBGHAOQBCKHOHZOQNR6QHIIWW",
+    contractId: "CAOZIVOF5PVCIEFFZJ7FYFFJTUZ56HH5B2UIFSIWAQF4AR7BOMC5GMHR",
   }
 } as const
 
@@ -109,22 +109,20 @@ export interface Client {
 
   /**
    * Construct and simulate a set_price transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Record `price` for `asset` at the current ledger time.
+   * Record `price` for `asset` at the current ledger time. Within the
+   * newest record's `resolution` slot it replaces that record (price and
+   * timestamp); in a later slot it appends a record. Older records are
+   * never touched, so re-posting cannot flush the history faster than one
+   * record per `resolution` seconds.
    */
   set_price: ({asset, price}: {asset: Asset, price: i128}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a resolution transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Nominal update interval in seconds (informational for the mock).
+   * Update interval in seconds: the history keeps at most one record per
+   * `resolution` slot of ledger time.
    */
   resolution: (options?: MethodOptions) => Promise<AssembledTransaction<u32>>
-
-  /**
-   * Construct and simulate a set_price_at transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
-   * Record `price` for `asset` at an explicit `timestamp`, e.g. an old
-   * one to demo a stale NAV. Kept sorted; an equal timestamp overwrites.
-   */
-  set_price_at: ({asset, price, timestamp}: {asset: Asset, price: i128, timestamp: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
 }
 export class Client extends ContractClient {
@@ -157,9 +155,8 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAAIZGVjaW1hbHMAAAAAAAAAAQAAAAQ=",
         "AAAAAAAAADtNb3N0IHJlY2VudCBwcmljZSwgb3IgYE5vbmVgIGlmIHRoZSBhc3NldCB3YXMgbmV2ZXIgcHJpY2VkLgAAAAAJbGFzdHByaWNlAAAAAAAAAQAAAAAAAAAFYXNzZXQAAAAAAAfQAAAABUFzc2V0AAAAAAAAAQAAA+gAAAfQAAAACVByaWNlRGF0YQAAAA==",
         "AAAAAAAAAAAAAAAJc2V0X2FkbWluAAAAAAAAAQAAAAAAAAAJbmV3X2FkbWluAAAAAAAAEwAAAAA=",
-        "AAAAAAAAADZSZWNvcmQgYHByaWNlYCBmb3IgYGFzc2V0YCBhdCB0aGUgY3VycmVudCBsZWRnZXIgdGltZS4AAAAAAAlzZXRfcHJpY2UAAAAAAAACAAAAAAAAAAVhc3NldAAAAAAAB9AAAAAFQXNzZXQAAAAAAAAAAAAABXByaWNlAAAAAAAACwAAAAEAAAPpAAAAAgAAAAM=",
-        "AAAAAAAAAEBOb21pbmFsIHVwZGF0ZSBpbnRlcnZhbCBpbiBzZWNvbmRzIChpbmZvcm1hdGlvbmFsIGZvciB0aGUgbW9jaykuAAAACnJlc29sdXRpb24AAAAAAAAAAAABAAAABA==",
-        "AAAAAAAAAIdSZWNvcmQgYHByaWNlYCBmb3IgYGFzc2V0YCBhdCBhbiBleHBsaWNpdCBgdGltZXN0YW1wYCwgZS5nLiBhbiBvbGQKb25lIHRvIGRlbW8gYSBzdGFsZSBOQVYuIEtlcHQgc29ydGVkOyBhbiBlcXVhbCB0aW1lc3RhbXAgb3ZlcndyaXRlcy4AAAAADHNldF9wcmljZV9hdAAAAAMAAAAAAAAABWFzc2V0AAAAAAAH0AAAAAVBc3NldAAAAAAAAAAAAAAFcHJpY2UAAAAAAAALAAAAAAAAAAl0aW1lc3RhbXAAAAAAAAAGAAAAAQAAA+kAAAACAAAAAw==",
+        "AAAAAAAAATBSZWNvcmQgYHByaWNlYCBmb3IgYGFzc2V0YCBhdCB0aGUgY3VycmVudCBsZWRnZXIgdGltZS4gV2l0aGluIHRoZQpuZXdlc3QgcmVjb3JkJ3MgYHJlc29sdXRpb25gIHNsb3QgaXQgcmVwbGFjZXMgdGhhdCByZWNvcmQgKHByaWNlIGFuZAp0aW1lc3RhbXApOyBpbiBhIGxhdGVyIHNsb3QgaXQgYXBwZW5kcyBhIHJlY29yZC4gT2xkZXIgcmVjb3JkcyBhcmUKbmV2ZXIgdG91Y2hlZCwgc28gcmUtcG9zdGluZyBjYW5ub3QgZmx1c2ggdGhlIGhpc3RvcnkgZmFzdGVyIHRoYW4gb25lCnJlY29yZCBwZXIgYHJlc29sdXRpb25gIHNlY29uZHMuAAAACXNldF9wcmljZQAAAAAAAAIAAAAAAAAABWFzc2V0AAAAAAAH0AAAAAVBc3NldAAAAAAAAAAAAAAFcHJpY2UAAAAAAAALAAAAAQAAA+kAAAACAAAAAw==",
+        "AAAAAAAAAGZVcGRhdGUgaW50ZXJ2YWwgaW4gc2Vjb25kczogdGhlIGhpc3Rvcnkga2VlcHMgYXQgbW9zdCBvbmUgcmVjb3JkIHBlcgpgcmVzb2x1dGlvbmAgc2xvdCBvZiBsZWRnZXIgdGltZS4AAAAAAApyZXNvbHV0aW9uAAAAAAAAAAAAAQAAAAQ=",
         "AAAAAAAAAAAAAAANX19jb25zdHJ1Y3RvcgAAAAAAAAQAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAEYmFzZQAAB9AAAAAFQXNzZXQAAAAAAAAAAAAACGRlY2ltYWxzAAAABAAAAAAAAAAKcmVzb2x1dGlvbgAAAAAABAAAAAA=" ]),
       options
     )
@@ -174,7 +171,6 @@ export class Client extends ContractClient {
         lastprice: this.txFromJSON<Option<PriceData>>,
         set_admin: this.txFromJSON<null>,
         set_price: this.txFromJSON<Result<void>>,
-        resolution: this.txFromJSON<u32>,
-        set_price_at: this.txFromJSON<Result<void>>
+        resolution: this.txFromJSON<u32>
   }
 }

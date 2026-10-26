@@ -20,6 +20,6 @@ Or automatically: `.github/workflows/pages.yml` deploys on every push to `main` 
 
 **Links to the app.** In `index.html` the demo buttons point to `#launch`. The deploy build (`app/scripts/build-pages.mjs`) rewrites the ones labelled *Try the demo*, *Borrow against fund shares*, *Lend at a fixed rate*, *Or try the testnet demo* and *Testnet demo* to `/app/` in the published copy, so nothing needs hand-editing here. If a re-export renames those buttons, update the `CTAS` list in that script (the build fails if none match and warns for each missing one).
 
-When re-exporting, keep the `<style id="pin-light">` block in `<head>`: it holds the page in its light theme when a viewer is in dark mode.
+When re-exporting, keep the `<style id="pin-light">` block in `<head>`: it holds the page in its light theme when a viewer is in dark mode. Also keep `pointer-events:none` on `.hero-band`: the band is pulled up over the hero buttons, and without it the engraving swallows mouse clicks on *Borrow against fund shares* and *Lend at a fixed rate* at desktop widths (the hero card sets `pointer-events: auto` itself).
 
 The canvas is the source of truth. Edit there, then re-export, rather than hand-editing `index.html`.

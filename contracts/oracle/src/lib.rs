@@ -7,8 +7,14 @@
 //! this mock or at a live Reflector/RedStone feed by changing only the
 //! contract ID (DECISIONS.md #2, #22).
 //!
-//! Prices are pushed by the admin with `set_price` (stamped with the ledger
-//! time) or `set_price_at` (explicit timestamp, for staleness demos).
+//! Prices are pushed by the admin with `set_price`, always stamped with the
+//! ledger time: the history cannot be backdated, future-dated or rewritten.
+//! One record per `resolution` slot (`timestamp / resolution`, like
+//! Reflector's periods): a second push in the same slot replaces only the
+//! newest record, so the last [`MAX_HISTORY`] records always span more than
+//! `(MAX_HISTORY - 2) × resolution` seconds of ledger time. That is what makes
+//! the repo's NAV band window (DECISIONS.md #31) a time window the feeder key
+//! cannot flush faster (nav-review 2026-10-26, side feed-rewrite).
 //!
 //! Decimals are set in the constructor. The deploy script uses 14, the same
 //! as Reflector, so NAV math is identical against the mock and a live feed.
@@ -104,10 +110,11 @@ impl MockOracle {
         env.storage().instance().get(&DataKey::Decimals).unwrap()
     }
 
-    /// Nominal update interval in seconds (informational for the mock).
+    /// Update interval in seconds: the history keeps at most one record per
+    /// `resolution` slot of ledger time.
     pub fn resolution(env: Env) -> u32 {
         extend_instance(&env);
-        env.storage().instance().get(&DataKey::Resolution).unwrap()
+        read_resolution(&env)
     }
 
     /// Price in effect at `timestamp`: the newest record with
@@ -151,16 +158,13 @@ impl MockOracle {
 
     // --- admin ------------------------------------------------------------
 
-    /// Record `price` for `asset` at the current ledger time.
+    /// Record `price` for `asset` at the current ledger time. Within the
+    /// newest record's `resolution` slot it replaces that record (price and
+    /// timestamp); in a later slot it appends a record. Older records are
+    /// never touched, so re-posting cannot flush the history faster than one
+    /// record per `resolution` seconds.
     pub fn set_price(env: Env, asset: Asset, price: i128) -> Result<(), Error> {
-        let ts = env.ledger().timestamp();
-        write_price(&env, asset, price, ts)
-    }
-
-    /// Record `price` for `asset` at an explicit `timestamp`, e.g. an old
-    /// one to demo a stale NAV. Kept sorted; an equal timestamp overwrites.
-    pub fn set_price_at(env: Env, asset: Asset, price: i128, timestamp: u64) -> Result<(), Error> {
-        write_price(&env, asset, price, timestamp)
+        write_price(&env, asset, price)
     }
 
     pub fn admin(env: Env) -> Address {
@@ -185,6 +189,10 @@ fn read_admin(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Admin).unwrap()
 }
 
+fn read_resolution(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::Resolution).unwrap()
+}
+
 fn read_assets(env: &Env) -> Vec<Asset> {
     env.storage()
         .instance()
@@ -200,7 +208,7 @@ fn read_history(env: &Env, asset: &Asset) -> Option<Vec<PriceData>> {
     Some(history)
 }
 
-fn write_price(env: &Env, asset: Asset, price: i128, timestamp: u64) -> Result<(), Error> {
+fn write_price(env: &Env, asset: Asset, price: i128) -> Result<(), Error> {
     read_admin(env).require_auth();
     if price <= 0 {
         return Err(Error::InvalidPrice);
@@ -218,16 +226,15 @@ fn write_price(env: &Env, asset: Asset, price: i128, timestamp: u64) -> Result<(
         }
     };
 
-    // Insert keeping oldest-first order; equal timestamp replaces.
+    // Ledger time only: oldest first, one record per resolution slot.
+    let timestamp = env.ledger().timestamp();
+    let resolution = u64::from(read_resolution(env));
     let rec = PriceData { price, timestamp };
-    let mut idx = history.len();
-    while idx > 0 && history.get_unchecked(idx - 1).timestamp > timestamp {
-        idx -= 1;
-    }
-    if idx > 0 && history.get_unchecked(idx - 1).timestamp == timestamp {
-        history.set(idx - 1, rec);
-    } else {
-        history.insert(idx, rec);
+    match history.last() {
+        Some(newest) if newest.timestamp / resolution >= timestamp / resolution => {
+            history.set(history.len() - 1, rec);
+        }
+        _ => history.push_back(rec),
     }
     while history.len() > MAX_HISTORY {
         history.pop_front();

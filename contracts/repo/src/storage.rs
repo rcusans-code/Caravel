@@ -6,7 +6,9 @@
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::types::{AssetConfig, Config, Offer, Pause, PendingAsset, PendingPause, Repo};
+use crate::types::{
+    Asset, AssetConfig, BandCandidate, Config, Offer, Pause, PendingAsset, PendingPause, Repo,
+};
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
 
@@ -42,6 +44,9 @@ pub enum DataKey {
     /// Admin change waiting out the timelock (#33). At most one per asset.
     PendingAsset(Address),
     PendingPause(Address),
+    /// NAV level `note_nav` watched stand, per oracle asset (side
+    /// band-real-move). Kept apart from `Asset` so `set_asset` never resets it.
+    BandCandidate(Asset),
     // persistent
     Offer(u64),
     Repo(u64),
@@ -51,6 +56,10 @@ pub enum DataKey {
     /// USDC a payout could not push to this address (frozen account, closed
     /// trustline). Paid out by `claim`.
     Claimable(Address),
+    /// Collateral (holder, token) an in-kind claim could not push to the
+    /// lender (permissioned token refused it, frozen trustline). Paid out by
+    /// `claim_collateral`.
+    ClaimableCollateral(Address, Address),
 }
 
 pub fn extend_instance(env: &Env) {
@@ -142,6 +151,20 @@ pub fn remove_pending_pause(env: &Env, asset: &Address) {
     env.storage()
         .instance()
         .remove(&DataKey::PendingPause(asset.clone()));
+}
+
+// --- NAV band settle clock (side band-real-move) -----------------------------
+
+pub fn read_band_candidate(env: &Env, asset: &Asset) -> Option<BandCandidate> {
+    env.storage()
+        .instance()
+        .get(&DataKey::BandCandidate(asset.clone()))
+}
+
+pub fn write_band_candidate(env: &Env, asset: &Asset, candidate: &BandCandidate) {
+    env.storage()
+        .instance()
+        .set(&DataKey::BandCandidate(asset.clone()), candidate);
 }
 
 // --- exposure (#32) ---------------------------------------------------------
@@ -286,4 +309,30 @@ pub fn remove_claimable(env: &Env, who: &Address) {
     env.storage()
         .persistent()
         .remove(&DataKey::Claimable(who.clone()));
+}
+
+// --- parked collateral (in-kind claims) -------------------------------------
+
+pub fn read_claimable_collateral(env: &Env, who: &Address, token: &Address) -> i128 {
+    let key = DataKey::ClaimableCollateral(who.clone(), token.clone());
+    let amount = env.storage().persistent().get(&key).unwrap_or(0);
+    if amount > 0 {
+        extend_persistent(env, &key);
+    }
+    amount
+}
+
+/// Adds `amount` of `token` to `who`'s parked collateral. Saturates, like
+/// [`add_claimable`]: the tokens are already in the contract.
+pub fn add_claimable_collateral(env: &Env, who: &Address, token: &Address, amount: i128) {
+    let key = DataKey::ClaimableCollateral(who.clone(), token.clone());
+    let total = read_claimable_collateral(env, who, token).saturating_add(amount);
+    env.storage().persistent().set(&key, &total);
+    extend_persistent(env, &key);
+}
+
+pub fn remove_claimable_collateral(env: &Env, who: &Address, token: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::ClaimableCollateral(who.clone(), token.clone()));
 }

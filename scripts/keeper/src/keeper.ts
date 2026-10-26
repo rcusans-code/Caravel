@@ -16,15 +16,18 @@
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 // A state that blocks a payout (liquidator short of USDC, NAV stale or out of
 // band at liquidation, issuer pause, contract or liquidator off the token
-// allowlist) fails and sends an ALERT once it lasts > 2 ticks (alert.ts).
+// allowlist) fails and sends an ALERT once it lasts > 2 ticks (alert.ts); so
+// does an auto_repay / default / check_margin that fails 3 ticks in a row.
 import { readFileSync } from "node:fs";
 import { Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { alertDue, sendAlert, StuckTracker, stuckFails } from "./alert.js";
 import { ContractError, ENV_FILE, Err, env, invoke, keypair, log, outcomeOf, stellarAsset, txLink, u64, view } from "./chain.js";
-import { describeHold, navHold, type NavLatch, type PriceData } from "./navguard.js";
+import { describeHold, navHold, type PriceData } from "./navguard.js";
+import { emptyNavState, loadNavState, navStatePath, saveNavState, serializeNavState, type NavState } from "./navstate.js";
 import { onceExitCode } from "./once.js";
 import { setNav } from "./set-nav.js";
+import { type BandCandidate, noteNeeded, noteUnsupported } from "./settleclock.js";
 
 type Status = "Open" | "MarginCall" | "Repaid" | "Defaulted" | "Liquidated";
 interface Repo {
@@ -99,7 +102,11 @@ const startRepoId = fileRepoId();
 const NAV_JUMP_BPS = BigInt(process.env.NAV_JUMP_BPS || 200);
 const NAV_JUMP_ACK_BPS = BigInt(process.env.NAV_JUMP_ACK_BPS || 1000);
 const PRICE_HISTORY = 20; // oracle MAX_HISTORY: ~19 min at 60 s re-posts
-const navLatch: NavLatch = new Map();
+// Latch + last released price per asset, persisted (navstate.ts) so a restart
+// after nav-keeper re-posted a bad price 20 times still holds it.
+const NAV_STATE_FILE = navStatePath(ORACLE_ID);
+let navState: NavState = emptyNavState();
+let navStateSaved = "";
 const navSeen = new Map<string, string>(); // asset id -> last logged guard state
 
 /** NAV_JUMP_ACK from the .env file (falls back to process.env): exact oracle price integers. */
@@ -122,7 +129,49 @@ const navAcks = (): Set<bigint> => {
 };
 
 /** NAV jump state of one asset this tick: why NAV-driven actions are held, or null. */
-type Guard = { why: string; kind: string } | null;
+type Guard = { why: string; kind: string; needsHuman?: boolean } | null;
+
+const levelSeen = new Map<string, string>(); // asset id -> last logged note_nav state
+
+/**
+ * Band settle clock (side band-real-move): the repo accepts a NAV outside the
+ * #31 window once its level stood `band_settle_secs`, timed from the first
+ * `note_nav` that saw it. Simulates `note_nav` per asset and sends it only
+ * when the level would change, so a quiet feed costs nothing.
+ */
+async function noteNavs(cfg: Cfg) {
+  for (const a of ASSETS) {
+    const id = new Address(a.id).toScVal();
+    let state: string;
+    let line: string | null = null;
+    try {
+      const sim = await view<BandCandidate>(REPO_ID, "note_nav", [id]);
+      const stored = await view<BandCandidate | null>(REPO_ID, "band_candidate", [id]);
+      if (!noteNeeded(stored, sim)) {
+        state = `level ${sim.price} since ${sim.since}`;
+      } else {
+        const { hash } = await send(signer, REPO_ID, "note_nav", [id]);
+        state = `noted ${sim.price}`;
+        line = `nav-level    ${a.label} level ${fmt(sim.price, cfg.decimals)} noted: band settle clock started  ${txLink(hash)}`;
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (e instanceof DryRun) {
+        state = "dry-run";
+      } else if (e instanceof ContractError && e.code === Err.NoPrice) {
+        state = "no-price";
+      } else if (noteUnsupported(msg)) {
+        state = "unsupported";
+        line = `nav-level    ${a.label} note_nav not on the deployed contract (redeploy from main): band settle clock off, window roll only`;
+      } else {
+        state = "failed";
+        fail(`note_nav ${a.label} FAILED: ${msg}`);
+      }
+    }
+    if (line && levelSeen.get(a.id) !== state) log(line);
+    levelSeen.set(a.id, state);
+  }
+}
 
 /** Read prices(asset, 20) and decide the hold; a failed read holds (fail closed). */
 async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): Promise<Guard> {
@@ -130,13 +179,17 @@ async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): 
   let state: string;
   try {
     const hist = (await view<PriceData[] | null>(ORACLE_ID, "prices", [stellarAsset(a.id), nativeToScVal(PRICE_HISTORY, { type: "u32" })])) ?? [];
-    const h = navHold(hist, t, { asset: a.id, jumpBps: NAV_JUMP_BPS, ackBps: NAV_JUMP_ACK_BPS, holdSecs: cfg.holdSecs, acks }, navLatch);
+    const trusted = navState.trusted.get(a.id);
+    const h = navHold(hist, t, { asset: a.id, jumpBps: NAV_JUMP_BPS, ackBps: NAV_JUMP_ACK_BPS, holdSecs: cfg.holdSecs, acks, trusted }, navState.latch);
     state = `${h.reason} ${h.current}`;
     if (h.hold) {
       const ack = h.needsAck ? `, set NAV_JUMP_ACK=${h.current} in .env to release` : "";
-      g = { kind: state, why: describeHold(h, cfg.holdSecs, cfg.decimals) + ack };
-    } else if (h.reason === "acked" && navSeen.get(a.id) !== state) {
-      log(`nav-jump     ${a.label} ${describeHold(h, cfg.holdSecs, cfg.decimals)} released by NAV_JUMP_ACK=${h.current}`);
+      g = { kind: state, why: describeHold(h, cfg.holdSecs, cfg.decimals) + ack, needsHuman: h.needsAck || h.reason === "future-dated" };
+    } else {
+      if (h.current !== null) navState.trusted.set(a.id, h.current);
+      if (h.reason === "acked" && navSeen.get(a.id) !== state) {
+        log(`nav-jump     ${a.label} ${describeHold(h, cfg.holdSecs, cfg.decimals)} released by NAV_JUMP_ACK=${h.current}`);
+      }
     }
   } catch (e) {
     state = "read-failed";
@@ -145,6 +198,22 @@ async function navGuard(a: Collateral, t: bigint, cfg: Cfg, acks: Set<bigint>): 
   }
   navSeen.set(a.id, state);
   return g;
+}
+
+/** Write the guard state when it changed (never under --dry-run); a failed write is logged once. */
+let navStateWriteFailed = false;
+function persistNavState() {
+  if (DRY) return;
+  const body = serializeNavState(ORACLE_ID, navState);
+  if (body === navStateSaved) return;
+  try {
+    saveNavState(NAV_STATE_FILE, body);
+    navStateSaved = body;
+    navStateWriteFailed = false;
+  } catch (e) {
+    if (!navStateWriteFailed) log(`nav-jump     state write to ${NAV_STATE_FILE} FAILED (${(e as Error).message}): a restart would forget the latch`);
+    navStateWriteFailed = true;
+  }
 }
 
 /** --dry-run: the tx the keeper would have sent, not sent. */
@@ -256,14 +325,28 @@ async function tick(cfg: Cfg) {
   }
 
   const t = now();
+  // NAV jump hold per asset, read once per tick (before refresh-nav: a price
+  // that needs a human is not re-stamped as fresh).
+  const acks = navAcks();
+  const guards = new Map<string, Guard>();
+  for (const a of ASSETS) guards.set(a.id, await navGuard(a, t, cfg, acks));
+  persistNavState();
+
   const navs = new Map<string, PriceData | null>();
   for (const a of ASSETS) {
     const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [stellarAsset(a.id)]).catch(() => null);
     navs.set(a.id, last);
     const age = last ? t - last.timestamp : null;
-    if (REFRESH_NAV && DRY && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+    const due = REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS);
+    const g = guards.get(a.id);
+    if (due && g?.needsHuman) {
+      // Re-posting would launder it: 20 re-posts fill the contract's band
+      // window and the pre-jump price leaves the history (keeper-launder).
+      const why = `refresh-nav  ${a.label} not re-posted: ${g.why}`;
+      stuck(`refresh:${a.id}`, g.kind, why, why);
+    } else if (due && DRY) {
       log(`dry-run      would re-post ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)`);
-    } else if (REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS)) {
+    } else if (due) {
       try {
         const { hash } = await setNav(last.price, a.id);
         log(`refresh-nav  re-posted ${a.label} ${fmt(last.price, cfg.decimals)} (was ${age}s old)  ${txLink(hash)}`);
@@ -274,11 +357,7 @@ async function tick(cfg: Cfg) {
   }
 
   await issuerWatch();
-
-  // NAV jump hold per asset, read once per tick.
-  const acks = navAcks();
-  const guards = new Map<string, Guard>();
-  for (const a of ASSETS) guards.set(a.id, await navGuard(a, t, cfg, acks));
+  await noteNavs(cfg);
 
   const repos = await liveRepos();
   const next = new Map<bigint, string>();
@@ -327,7 +406,7 @@ async function tick(cfg: Cfg) {
           // NotDue: ledger time lags the wall clock by a few seconds.
           note(next, r.id, "pending", `auto-repay   repo ${r.id} not yet due on-chain (ledger clock lag), retrying`);
           continue;
-        } else fail(`auto-repay   repo ${r.id} FAILED: ${(e as Error).message}`);
+        } else actionFailed(r.id, "auto_repay", e as Error, "lender unpaid until it repays or default runs");
       }
     }
 
@@ -369,7 +448,7 @@ async function tick(cfg: Cfg) {
         else if (out === "out-of-band") note(next, r.id, "band-default", `skip         repo ${r.id} default: NavOutOfBand (NAV outside the ${asset.label} sanity band, #31), retrying`);
         // A missed margin call defaults only on a fresh, in-band NAV that confirms the breach (A4).
         else if (e instanceof ContractError && e.code === Err.NoPrice) note(next, r.id, "pending", `default      repo ${r.id} missed margin call waits for a fresh NAV (NoPrice), retrying`);
-        else fail(`default      repo ${r.id} FAILED: ${(e as Error).message}`);
+        else actionFailed(r.id, "default", e as Error, "lender unpaid");
         continue;
       }
       await liquidateRepo({ ...r, status: "Defaulted" }, asset, cfg, { last, navAge: last ? now() - last.timestamp : null, guard }, next);
@@ -408,7 +487,7 @@ async function tick(cfg: Cfg) {
         // maturity default + liquidate still do.
         note(next, r.id, "no-margin", `skip         repo ${r.id} check_margin: NotImplemented on the deployed contract (redeploy from main); maturity default still runs`);
       } else {
-        fail(`check_margin repo ${r.id} FAILED: ${(e as Error).message}`);
+        actionFailed(r.id, "check_margin", e as Error, "margin call not raised");
       }
     }
   }
@@ -422,6 +501,19 @@ let failures = 0;
 function fail(line: string) {
   failures++;
   log(line);
+}
+
+/**
+ * A repo action (auto_repay, default, check_margin) failed with a real error:
+ * log it like any failure, and track it as a stuck state so a failure that
+ * repeats every tick ALERTs after STUCK_TICKS ticks (a one-tick race, e.g. an
+ * InvalidStatus after someone else defaulted the repo, never does). The state
+ * is the constant "fail", never the message: the tx hash differs each tick.
+ * Daemon mode only: under --once the fail() line and the exit code report it.
+ */
+function actionFailed(id: bigint, action: string, err: Error, impact: string) {
+  fail(`${action.padEnd(12)} repo ${id} FAILED: ${err.message}`);
+  if (!ONCE) stuck(`repo:${id}:${action}`, "fail", `${action} repo ${id} failing every tick: ${err.message}; ${impact}`);
 }
 
 /** Record a repo's state; log the line only when the state changed since the last tick. */
@@ -506,11 +598,21 @@ async function main() {
     holdSecs: BigInt(process.env.NAV_JUMP_HOLD_SECS || BigInt(config.margin_window_secs ?? 120n) + 60n),
   };
   const whitelisted = await view<boolean>(REPO_ID, "is_liquidator", [new Address(liquidator.publicKey()).toScVal()]);
+  const loaded = loadNavState(NAV_STATE_FILE, ORACLE_ID);
+  navState = loaded.state;
+  navStateSaved = loaded.error ? "" : serializeNavState(ORACLE_ID, navState);
+  if (loaded.error) {
+    const msg = `nav-jump state unreadable (${loaded.error}), starting with no latch: a bad NAV re-posted 20 times while the keeper was down is not held`;
+    log(`ALERT        ${msg}`);
+    pendingAlerts.push(sendAlert(`caravel-keeper ${REPO_ID.slice(0, 6)}…: ${msg}`, log));
+  }
+  const latched = [...navState.latch.keys()].map((id) => assetOf(id).label);
   log(
     `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} env ${ENV_FILE} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}${DRY ? " DRY-RUN (no tx sent)" : ""}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")}, margin trigger ${ASSETS.map((a) => `${a.label} ${a.triggerBps}bps`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps` +
+      `, nav state ${NAV_STATE_FILE}${latched.length ? ` (latched: ${latched.join(", ")})` : ""}` +
       `, alerts ${process.env.ALERT_CMD ? `via ${process.env.ALERT_CMD}` : "journal only (no ALERT_CMD)"}`,
   );
   for (;;) {

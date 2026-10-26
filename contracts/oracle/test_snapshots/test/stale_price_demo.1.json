@@ -13,7 +13,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_price_at",
+              "function_name": "set_price",
               "args": [
                 {
                   "vec": [
@@ -27,9 +27,6 @@
                 },
                 {
                   "i128": "100000000000000"
-                },
-                {
-                  "u64": "5000"
                 }
               ]
             }

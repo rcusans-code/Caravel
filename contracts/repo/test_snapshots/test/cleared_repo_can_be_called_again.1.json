@@ -64,6 +64,14 @@
                   "map": [
                     {
                       "key": {
+                        "symbol": "band_settle_secs"
+                      },
+                      "val": {
+                        "u64": "1200"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "enabled"
                       },
                       "val": {
@@ -901,6 +909,14 @@
                       },
                       "val": {
                         "map": [
+                          {
+                            "key": {
+                              "symbol": "band_settle_secs"
+                            },
+                            "val": {
+                              "u64": "1200"
+                            }
+                          },
                           {
                             "key": {
                               "symbol": "enabled"

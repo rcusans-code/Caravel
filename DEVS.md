@@ -17,7 +17,35 @@ Deadline: submit **Mon 11:30**, feature freeze **Mon 08:00**.
 
 ---
 
-## Status at Sun 18:20 (checked against `main` 0c284f0)
+## Status at Mon 06:50 WET (checked against `main` 96d4d61)
+
+**Live on testnet** (redeployed Sun 22:59 UTC after the 8 attack fixes): repo `CDMLJAW5…`, oracle `CBMVY3VX…`, tSAFO `CBZOHBJ6…`, separate guardian. Full IDs in `deployments/testnet.json`; the README table is written from it. App: https://caravel-repo.pages.dev/app/ (landing at `/`).
+
+**Done since Sun 18:20**
+- PRs #33–#36 merged: per-asset pause switches, NAV sanity band, per-asset exposure cap, Settle now button.
+- Attack fixes A1–A8 merged (claimable USDC payouts, guardian + timelock for loosening asset config, DECISIONS #33), then redeployed.
+- Hardening: `take_offer_twice_is_rejected` test on main (e1898ca); `liquidate` stays blocked on stale NAV (DECISIONS #34, `## Open` now reads "None."). DECISIONS #20 matches the shipped rule (NAV recovery clears a missed margin call at default).
+- Live SEP-40 feed shown in the app next to the mock NAVs, reference only (96d4d61).
+- 242 tests pass (`cargo test --workspace`: oracle 14, repo 218, spiko-mock 10); app 23 tests.
+- Demo video recorded.
+
+**Still open**
+
+| Owner | Item | State |
+|---|---|---|
+| Bohdan Che | G5 polish | Partial. Loading skeletons on the offers table, NAVs, live feed and repos; `fmtAmount` (2 dp for USDC) used throughout. Left: copy pass with Bohdan Koldun; at 390 px the Offers table clips its Collateral column. |
+| Simon | Issue #41, guardian timelock follow-ups | PR #51 (`simon/issue-41`) open, not merged. |
+| Simon | Issues #37 (tab in URL hash), #38 (split App.tsx) | Cards filed, not started on main. |
+| Simon | NAV-side fixes on `simon/nav-feed-rewrite`, `simon/nav-nav-ux`, `simon/nav-keeper-launder`, `simon/nav-nav-outage` | Pushed, in QA/merge, not on main yet. |
+| Misha | README `take_offer` DvP tx link | Contract IDs are in the README; no tx link yet. |
+| Bohdan Koldun | Mentor round 1 | Monday morning. |
+| Bohdan Koldun | Submission answers | Written after the mentor round. |
+| Bohdan Koldun | Deck | Mostly done (`docs/caravel-pitch.pdf`). |
+| Bohdan Koldun | Lock-in, rehearsals, README final sign-off, submit | Not recorded in the repo. |
+
+---
+
+## Status at Sun 18:20 (checked against `main` 0c284f0) (superseded by Mon 06:50 above)
 
 **Done and live on testnet** (redeployed Sun 18:00: repo `CCFP3L7T…`, oracle `CAQK3QD4…`, tSAFO `CA75VXSU…`; full IDs in `deployments/testnet.json`)
 
@@ -108,7 +136,7 @@ Work in `contracts/repo/src/lib.rs`. `math.rs` already has the formulas and test
 - [x] `default` / `liquidate`: anyone can call `default` after maturity + grace, or once `margin_call_deadline` (set by Misha's `check_margin`) has passed; only whitelisted liquidators can `liquidate`; pays NAV × (1 − discount); waterfall; `Shortfall` event when proceeds fall short (#4). *Done when: made-whole, surplus and shortfall tests pass.*
 
 **G4 · by Mon 06:00**
-- [ ] 🔄 Hardening: auth on every state-changing call, no double take, only valid status transitions, TTL bumps on offers and repos. In the code; missing a take-twice test and a sign-off.
+- [x] Hardening: auth on every state-changing call, no double take, only valid status transitions, TTL bumps on offers and repos. Take-twice test `take_offer_twice_is_rejected` merged in e1898ca (QA passed); attack fixes A1–A8 merged.
 
 **→ Bohdan Koldun** by Sun 20:00: five lines on the state machine (which call moves a repo from which status to which), for the README diagram.
 
@@ -130,7 +158,7 @@ You own the price path end to end: oracle → NAV client → margin call → kee
 - [x] Keeper script (TS): call `check_margin` on open repos every 10 s, then `default` once the margin window or maturity + grace passes; plus a NAV setter CLI (`set-nav 0.97`). *Done when: a margin call fires with nobody touching anything.*
 
 **G3 · by Sun 23:30**
-- [x] Read one live Reflector or RedStone testnet SEP-40 feed through the same client, to prove swapping feeds is config only (#2). *Done when: the live price shows next to the mock NAV.* Read by `scripts/keeper/src/feeds.ts`; not shown in the app yet.
+- [x] Read one live Reflector or RedStone testnet SEP-40 feed through the same client, to prove swapping feeds is config only (#2). *Done when: the live price shows next to the mock NAV.* Read by `scripts/keeper/src/feeds.ts` and shown in the app next to the mock NAV, reference only (96d4d61).
 
 **G4 · by Mon 06:00**
 - [x] Reset and seed script: 2 open offers + 1 repo close to maturity, so a demo restarts in under 2 minutes.
@@ -164,7 +192,7 @@ Until Misha's 16:30 handoff, build against mock data shaped like the contract ty
 - [x] A stellar.expert link on every transaction, especially the `take_offer` DvP.
 
 **G5 · by Mon 08:00**
-- [ ] Polish: empty and loading states, number formatting (7 decimals in, 2 shown for USDC), copy pass with Bohdan Koldun.
+- [ ] 🔄 Polish: empty and loading states, number formatting (7 decimals in, 2 shown for USDC), copy pass with Bohdan Koldun. Empty states, loading skeletons and `fmtAmount` are in; left: copy pass, Offers table clips its Collateral column at 390 px.
 
 **→ Bohdan Koldun** by Mon 06:30: the app URL and a seeded state ready for the video.
 

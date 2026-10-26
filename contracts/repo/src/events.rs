@@ -19,6 +19,20 @@ pub struct AssetConfigured {
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
+    pub band_settle_secs: u64,
+}
+
+/// `note_nav` started the band settle clock on a new NAV level (side
+/// band-real-move). Unless the level moves again, a price within the band of
+/// `price` is accepted from `since + band_settle_secs` even if the feed's
+/// window still disagrees: the guardian's window to pause a bad push.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NavLevelNoted {
+    #[topic]
+    pub oracle_asset: crate::types::Asset,
+    pub price: i128,
+    pub since: u64,
 }
 
 /// Admin set an asset's pause switches (DECISIONS.md #30).
@@ -46,6 +60,7 @@ pub struct AssetChangeProposed {
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
     pub max_open_debt: i128,
+    pub band_settle_secs: u64,
 }
 
 /// Admin queued a pause change behind the timelock (DECISIONS.md #33).
@@ -70,7 +85,8 @@ pub struct ProposalExecuted {
     pub kind: Symbol,
 }
 
-/// A proposal was dropped: cancelled by admin or guardian, or superseded
+/// A proposal was dropped: cancelled by admin or guardian, replaced by a
+/// new proposal of the same kind (`by` = admin, issue #41), or superseded
 /// by an instant change to the same asset (`by` made that change).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,6 +237,36 @@ pub struct PayoutParked {
 pub struct Claimed {
     #[topic]
     pub who: Address,
+    pub amount: i128,
+}
+
+/// NAV outage fallback: the lender took a Defaulted repo's collateral in
+/// kind (no sale, no fee, no borrower surplus). The repo is `Liquidated`.
+/// `parked` = the token refused the push to the lender (permissioned token,
+/// frozen trustline); it waits for `claim_collateral`. `nav_timestamp` is
+/// the stale NAV the outage was measured from.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimedInKind {
+    #[topic]
+    pub repo_id: u64,
+    #[topic]
+    pub lender: Address,
+    pub collateral_asset: Address,
+    pub collateral_amount: i128,
+    pub parked: bool,
+    pub nav_timestamp: u64,
+}
+
+/// `who` collected its parked collateral of `collateral_asset`, sent to `to`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollateralClaimed {
+    #[topic]
+    pub who: Address,
+    #[topic]
+    pub collateral_asset: Address,
+    pub to: Address,
     pub amount: i128,
 }
 

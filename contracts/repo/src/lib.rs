@@ -3,13 +3,16 @@
 //! Caravel: fixed-term, fixed-rate USDC repo against tokenized Treasuries.
 //!
 //! State machine: Open → MarginCall → Open (top-up) | Repaid | Defaulted → Liquidated,
-//! and Defaulted → Repaid while no liquidation has landed.
+//! and Defaulted → Repaid while no liquidation has landed. Defaulted →
+//! Liquidated is a sale (`liquidate`, fresh NAV) or, after a NAV outage,
+//! the lender's in-kind claim (`claim_in_kind`).
 //! An opted-in repo settles as Repaid instead of Defaulted when its USDC
 //! allowance covers the debt (auto-repay, DECISIONS.md #27).
 
 mod autorepay;
 mod errors;
 mod events;
+mod inkind;
 mod margin;
 pub mod math;
 mod oracle;
@@ -32,14 +35,20 @@ mod test_attack_a4;
 #[cfg(test)]
 mod test_attack_a8;
 #[cfg(test)]
+mod test_band_real_move;
+#[cfg(test)]
+mod test_feed_rewrite;
+#[cfg(test)]
+mod test_nav_outage;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env};
 
 pub use errors::Error;
 pub use types::{
-    Asset, AssetConfig, Config, DefaultReason, Offer, Pause, PendingAsset, PendingPause, Repo,
-    Status,
+    Asset, AssetConfig, BandCandidate, Config, DefaultReason, Offer, Pause, PendingAsset,
+    PendingPause, Repo, Status,
 };
 
 #[contract]
@@ -113,6 +122,40 @@ impl CaravelRepo {
         storage::read_claimable(&env, &who)
     }
 
+    /// Collateral of `asset` parked for `who` because an in-kind claim could
+    /// not push it (permissioned token refused, frozen trustline);
+    /// `claim_collateral` pays it out. 0 if none.
+    pub fn claimable_collateral(env: Env, who: Address, asset: Address) -> i128 {
+        storage::extend_instance(&env);
+        storage::read_claimable_collateral(&env, &who, &asset)
+    }
+
+    /// The NAV level the repo has watched stand for `asset`'s oracle asset
+    /// and since when (side band-real-move), if `note_nav` ever ran.
+    pub fn band_candidate(env: Env, asset: Address) -> Result<Option<BandCandidate>, Error> {
+        storage::extend_instance(&env);
+        let config = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
+        Ok(storage::read_band_candidate(&env, &config.oracle_asset))
+    }
+
+    // --- anyone: NAV band settle clock (side band-real-move) --------------
+
+    /// Starts or keeps the band settle clock for collateral `asset`. Anyone
+    /// can call it; keeper and nav-keeper call it every tick. If the latest
+    /// NAV (or a feed record since the clock started) has moved more than
+    /// `max_nav_move_bps` from the stored level, the level restarts at the
+    /// latest NAV with `since` = ledger now (`NavLevelNoted`); else nothing
+    /// changes. A latest NAV outside the #31 window is then accepted by
+    /// `take_offer`, `check_margin`, `default`, `liquidate` and `top_up`
+    /// once the level has stood `band_settle_secs`. Returns the level in
+    /// force. Errors: `AssetNotSupported`, `NoPrice`.
+    pub fn note_nav(env: Env, asset: Address) -> Result<BandCandidate, Error> {
+        let asset = storage::read_asset(&env, &asset).ok_or(Error::AssetNotSupported)?;
+        let config = storage::read_config(&env);
+        storage::extend_instance(&env);
+        oracle::note_nav(&env, &config, &asset)
+    }
+
     // --- anyone owed a parked payout --------------------------------------
 
     /// Pays `who` its whole parked USDC balance and returns the amount.
@@ -130,6 +173,35 @@ impl CaravelRepo {
         let usdc = storage::read_config(&env).usdc;
         token::Client::new(&env, &usdc).transfer(&env.current_contract_address(), &who, &amount);
         events::Claimed { who, amount }.publish(&env);
+        Ok(amount)
+    }
+
+    /// Sends `who`'s whole parked balance of collateral `asset` to `to` and
+    /// returns the amount. `who` signs; `to` may differ, so a lender a
+    /// permissioned token never admits can route it to an admitted custody
+    /// account. `NothingToClaim` if nothing is parked; if the token still
+    /// refuses `to`, the call reverts and the balance stays parked.
+    pub fn claim_collateral(
+        env: Env,
+        who: Address,
+        asset: Address,
+        to: Address,
+    ) -> Result<i128, Error> {
+        who.require_auth();
+        let amount = storage::read_claimable_collateral(&env, &who, &asset);
+        if amount <= 0 {
+            return Err(Error::NothingToClaim);
+        }
+        storage::remove_claimable_collateral(&env, &who, &asset);
+        storage::extend_instance(&env);
+        token::Client::new(&env, &asset).transfer(&env.current_contract_address(), &to, &amount);
+        events::CollateralClaimed {
+            who,
+            collateral_asset: asset,
+            to,
+            amount,
+        }
+        .publish(&env);
         Ok(amount)
     }
 
@@ -154,7 +226,8 @@ impl CaravelRepo {
     /// Instant only for a first listing (no offer can exist on an unlisted
     /// asset) or a change that only tightens (#33: disable, raise the
     /// haircut or the margin trigger, lower the NAV age or the cap, narrow
-    /// the NAV band). Anything
+    /// the NAV band, raise `band_settle_secs`). Requires
+    /// `band_settle_secs > 0`. Anything
     /// that loosens fails with `Loosens`: use `propose_asset`. An instant
     /// change drops a pending proposal for the asset, so it cannot undo the
     /// change later.
@@ -189,7 +262,7 @@ impl CaravelRepo {
 
     /// The guardian's instant `set_asset` on a listed asset: disable it,
     /// raise the haircut or the margin trigger, lower the NAV age or the cap,
-    /// narrow the NAV band. Fails with
+    /// narrow the NAV band, raise `band_settle_secs`. Fails with
     /// `Loosens` if any field adds risk, `AssetNotSupported` if unlisted.
     pub fn guardian_set_asset(env: Env, asset: Address, config: AssetConfig) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
@@ -215,14 +288,16 @@ impl CaravelRepo {
     // --- admin, timelocked (#33): every change that adds risk -------------
 
     /// Queues `config` for `asset`; `execute_asset` applies it from the
-    /// returned `eta` (now + `timelock_secs`). A new proposal replaces the
-    /// pending one and restarts the clock.
+    /// returned `eta` (now + `timelock_secs`) until `eta + timelock_secs`,
+    /// then it expires. A new proposal replaces the pending one (with a
+    /// `ProposalCancelled` for it) and restarts the clock.
     pub fn propose_asset(env: Env, asset: Address, config: AssetConfig) -> Result<u64, Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         validate_asset(&protocol, &config)?;
         let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
+        drop_pending_asset(&env, &asset, &protocol.admin);
         storage::write_pending_asset(
             &env,
             &asset,
@@ -242,19 +317,20 @@ impl CaravelRepo {
             nav_floor: config.nav_floor,
             nav_ceiling: config.nav_ceiling,
             max_open_debt: config.max_open_debt,
+            band_settle_secs: config.band_settle_secs,
         }
         .publish(&env);
         Ok(eta)
     }
 
-    /// Applies the pending asset change once its `eta` has passed.
+    /// Applies the pending asset change from its `eta` until
+    /// `eta + timelock_secs` (`TimelockNotDone` before, `ProposalExpired`
+    /// after).
     pub fn execute_asset(env: Env, asset: Address) -> Result<(), Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
         let pending = storage::read_pending_asset(&env, &asset).ok_or(Error::NoProposal)?;
-        if env.ledger().timestamp() < pending.eta {
-            return Err(Error::TimelockNotDone);
-        }
+        check_window(&env, &protocol, pending.eta)?;
         validate_asset(&protocol, &pending.config)?;
         storage::extend_instance(&env);
         storage::remove_pending_asset(&env, &asset);
@@ -279,7 +355,9 @@ impl CaravelRepo {
     }
 
     /// Queues pause switches for `asset` (typically clearing one);
-    /// `execute_pause` applies them from the returned `eta`.
+    /// `execute_pause` applies them from the returned `eta` until
+    /// `eta + timelock_secs`. Replacing a pending one works as in
+    /// `propose_asset`.
     pub fn propose_pause(env: Env, asset: Address, pause: Pause) -> Result<u64, Error> {
         let protocol = storage::read_config(&env);
         protocol.admin.require_auth();
@@ -288,6 +366,7 @@ impl CaravelRepo {
         }
         let eta = eta(&env, &protocol)?;
         storage::extend_instance(&env);
+        drop_pending_pause(&env, &asset, &protocol.admin);
         storage::write_pending_pause(
             &env,
             &asset,
@@ -306,13 +385,12 @@ impl CaravelRepo {
         Ok(eta)
     }
 
-    /// Applies the pending pause change once its `eta` has passed.
+    /// Applies the pending pause change in the same window as `execute_asset`.
     pub fn execute_pause(env: Env, asset: Address) -> Result<(), Error> {
-        storage::read_config(&env).admin.require_auth();
+        let protocol = storage::read_config(&env);
+        protocol.admin.require_auth();
         let pending = storage::read_pending_pause(&env, &asset).ok_or(Error::NoProposal)?;
-        if env.ledger().timestamp() < pending.eta {
-            return Err(Error::TimelockNotDone);
-        }
+        check_window(&env, &protocol, pending.eta)?;
         storage::extend_instance(&env);
         storage::remove_pending_pause(&env, &asset);
         events::ProposalExecuted {
@@ -737,6 +815,9 @@ impl CaravelRepo {
     /// liquidator pays the proceeds into the contract; a lender, treasury or
     /// borrower payout that fails (frozen account) is parked for `claim` and
     /// the liquidation still lands.
+    ///
+    /// A stale NAV stays blocking however long the outage lasts; the lender's
+    /// way out of a long outage is `claim_in_kind`.
     pub fn liquidate(env: Env, liquidator: Address, repo_id: u64) -> Result<(), Error> {
         liquidator.require_auth();
         if !storage::is_liquidator(&env, &liquidator) {
@@ -810,6 +891,61 @@ impl CaravelRepo {
         }
         Ok(())
     }
+
+    // --- lender, NAV outage fallback --------------------------------------
+
+    /// The lender takes a Defaulted repo's whole collateral in kind once the
+    /// asset's NAV has been stale for more than `inkind::NAV_OUTAGE_DAYS`
+    /// days (`day_secs` each) past `max_nav_age_secs`; `liquidate` stays
+    /// blocked on a stale NAV. No sale: no fee, no borrower surplus, the
+    /// whole debt leaves `open_debt` and the repo is `Liquidated`
+    /// (`ClaimedInKind` event). If the token refuses the push to the lender
+    /// (permissioned token, frozen trustline) the collateral is parked for
+    /// `claim_collateral` and the claim still lands. Returns the collateral
+    /// amount. Lender signs.
+    ///
+    /// `InvalidStatus` unless Defaulted, `Paused` under `no_seize` (#30),
+    /// `NoNavOutage` while the NAV is fresh or not stale long enough,
+    /// `NoPrice` if the feed has no price. Until the claim lands the borrower
+    /// can still `repay`, which needs no NAV.
+    pub fn claim_in_kind(env: Env, repo_id: u64) -> Result<i128, Error> {
+        let mut repo = storage::read_repo(&env, repo_id).ok_or(Error::RepoNotFound)?;
+        if repo.status != Status::Defaulted {
+            return Err(Error::InvalidStatus);
+        }
+        repo.lender.require_auth();
+        seize_allowed(&env, &repo.collateral_asset)?;
+        let asset =
+            storage::read_asset(&env, &repo.collateral_asset).ok_or(Error::AssetNotSupported)?;
+        let config = storage::read_config(&env);
+        let nav_timestamp = inkind::nav_outage(&env, &config, &asset)?;
+
+        repo.status = Status::Liquidated;
+        storage::write_repo(&env, &repo);
+        storage::release_open_debt(
+            &env,
+            &repo.collateral_asset,
+            repo.principal.saturating_add(repo.interest),
+        );
+        storage::extend_instance(&env);
+
+        let pushed = inkind::push_or_park(
+            &env,
+            &repo.collateral_asset,
+            &repo.lender,
+            repo.collateral_amount,
+        );
+        events::ClaimedInKind {
+            repo_id,
+            lender: repo.lender,
+            collateral_asset: repo.collateral_asset,
+            collateral_amount: repo.collateral_amount,
+            parked: !pushed,
+            nav_timestamp,
+        }
+        .publish(&env);
+        Ok(repo.collateral_amount)
+    }
 }
 
 /// `no_new_repos` stops new offers and takes (#30).
@@ -838,6 +974,7 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
         || config.max_nav_age_secs == 0
         || !band_ok(config)
         || config.max_open_debt < 0
+        || config.band_settle_secs == 0
     {
         return Err(Error::InvalidConfig);
     }
@@ -846,7 +983,7 @@ fn validate_asset(protocol: &Config, config: &AssetConfig) -> Result<(), Error> 
 
 /// True when `new` adds no risk over `old`: same oracle mapping, not
 /// re-enabled, haircut and margin trigger (#26) not lower, NAV age and cap
-/// not higher, NAV band (#31) not wider.
+/// not higher, NAV band (#31) not wider, band settle time not shorter.
 fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
     new.oracle_asset == old.oracle_asset
         && (old.enabled || !new.enabled)
@@ -854,6 +991,7 @@ fn asset_tightens(old: &AssetConfig, new: &AssetConfig) -> bool {
         && new.margin_trigger_bps >= old.margin_trigger_bps
         && new.max_nav_age_secs <= old.max_nav_age_secs
         && new.max_open_debt <= old.max_open_debt
+        && new.band_settle_secs >= old.band_settle_secs
         && band_tightens(old, new)
 }
 
@@ -904,6 +1042,7 @@ fn apply_asset(env: &Env, asset: Address, config: &AssetConfig) {
         nav_floor: config.nav_floor,
         nav_ceiling: config.nav_ceiling,
         max_open_debt: config.max_open_debt,
+        band_settle_secs: config.band_settle_secs,
     }
     .publish(env);
 }
@@ -948,6 +1087,21 @@ fn eta(env: &Env, protocol: &Config) -> Result<u64, Error> {
         .timestamp()
         .checked_add(protocol.timelock_secs)
         .ok_or(Error::MathOverflow)
+}
+
+/// A proposal executes from `eta` through `eta + timelock_secs` inclusive,
+/// so a queued loosening cannot sit unused and fire long after the change
+/// was announced (issue #41). Expiry is derived, not stored: `PendingAsset`
+/// / `PendingPause` and `Config` keep their shape.
+fn check_window(env: &Env, protocol: &Config, eta: u64) -> Result<(), Error> {
+    let now = env.ledger().timestamp();
+    if now < eta {
+        return Err(Error::TimelockNotDone);
+    }
+    if now > eta.saturating_add(protocol.timelock_secs) {
+        return Err(Error::ProposalExpired);
+    }
+    Ok(())
 }
 
 fn admin_or_guardian(env: &Env, caller: &Address) -> Result<(), Error> {

@@ -60,6 +60,7 @@ fn asset_cfg(token: &Address, haircut_bps: u32) -> AssetConfig {
         nav_floor: None,
         nav_ceiling: None,
         max_open_debt: NO_CAP,
+        band_settle_secs: crate::test::SETTLE_SECS,
         margin_trigger_bps: TRIGGER_BPS,
     }
 }

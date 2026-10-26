@@ -114,6 +114,7 @@ fn world_with_decimals<'a>(decimals: u32) -> World<'a> {
             nav_floor: None,
             nav_ceiling: None,
             max_open_debt: NO_CAP,
+            band_settle_secs: crate::test::SETTLE_SECS,
         },
     );
 
@@ -463,4 +464,100 @@ fn borrower_removed_after_take_cannot_repay_but_lender_recovers() {
         w.usdc.balance(&w.lender),
         10_000 * UNIT - PRINCIPAL + LENDER_DUE
     );
+}
+
+// --- NAV outage: in-kind claim on a permissioned token (nav-review side 3) ---
+
+/// First second the in-kind claim opens for a NAV posted at NOW:
+/// 1_000 + 180 s age + 7 demo days of 60 s, plus one.
+const OUTAGE_OPEN: u64 = NOW + 180 + crate::inkind::NAV_OUTAGE_DAYS * 60 + 1;
+
+/// The feed stops, the repo defaults and the lender, whom Spiko never
+/// allowlisted, claims in kind. The token refuses the push, so the claim
+/// still lands (Liquidated, open_debt released) and the tSAFO is parked.
+/// Collecting it to the lender keeps failing `NotWhitelisted`; collecting
+/// it to an allowlisted custody account works, once.
+#[test]
+fn in_kind_claim_refused_by_allowlist_parks_then_routes_to_custody() {
+    let w = world();
+    let repo_id = w.take();
+    w.env.ledger().set_timestamp(MATURED);
+    assert_eq!(w.repo.default(&repo_id), Status::Defaulted);
+    assert_eq!(
+        w.repo.try_liquidate(&w.liquidator, &repo_id),
+        Err(Ok(Error::StaleNav))
+    );
+
+    w.env.ledger().set_timestamp(OUTAGE_OPEN);
+    assert_eq!(w.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
+    std::println!(
+        "[nav-outage] spiko, lender not allowlisted: status={:?} open_debt={} \
+         parked_for_lender={} lender_safo={} contract_safo={}",
+        w.repo.repo(&repo_id).status,
+        w.repo.open_debt(&w.safo.address),
+        w.repo.claimable_collateral(&w.lender, &w.safo.address),
+        w.safo.balance(&w.lender),
+        w.safo.balance(&w.repo.address),
+    );
+    assert_eq!(w.repo.repo(&repo_id).status, Status::Liquidated);
+    assert_eq!(w.repo.open_debt(&w.safo.address), 0);
+    assert_eq!(
+        w.repo.claimable_collateral(&w.lender, &w.safo.address),
+        TAKE_COLLATERAL
+    );
+    assert_eq!(w.safo.balance(&w.lender), 0);
+    assert_eq!(w.safo.balance(&w.repo.address), TAKE_COLLATERAL);
+
+    assert_eq!(
+        w.repo
+            .try_claim_collateral(&w.lender, &w.safo.address, &w.lender),
+        spiko(SpikoError::NotWhitelisted)
+    );
+    assert_eq!(
+        w.repo.claimable_collateral(&w.lender, &w.safo.address),
+        TAKE_COLLATERAL
+    );
+
+    let custody = Address::generate(&w.env);
+    w.safo.set_whitelisted(&custody, &true);
+    assert_eq!(
+        w.repo
+            .claim_collateral(&w.lender, &w.safo.address, &custody),
+        TAKE_COLLATERAL
+    );
+    assert_eq!(w.safo.balance(&custody), TAKE_COLLATERAL);
+    assert_eq!(w.safo.balance(&w.repo.address), 0);
+    assert_eq!(
+        w.repo
+            .try_claim_collateral(&w.lender, &w.safo.address, &custody),
+        Err(Ok(Error::NothingToClaim))
+    );
+}
+
+/// Issuer pause during the outage: the push fails `Paused`, the claim
+/// parks it; after `unpause` the lender, allowlisted meanwhile, collects.
+#[test]
+fn in_kind_claim_on_paused_token_parks_until_unpause() {
+    let w = world();
+    let repo_id = w.take();
+    w.env.ledger().set_timestamp(MATURED);
+    w.repo.default(&repo_id);
+    w.safo.set_whitelisted(&w.lender, &true);
+    w.safo.pause();
+
+    w.env.ledger().set_timestamp(OUTAGE_OPEN);
+    assert_eq!(w.repo.claim_in_kind(&repo_id), TAKE_COLLATERAL);
+    assert_eq!(
+        w.repo.claimable_collateral(&w.lender, &w.safo.address),
+        TAKE_COLLATERAL
+    );
+    assert_eq!(
+        w.repo
+            .try_claim_collateral(&w.lender, &w.safo.address, &w.lender),
+        spiko(SpikoError::Paused)
+    );
+    w.safo.unpause();
+    w.repo
+        .claim_collateral(&w.lender, &w.safo.address, &w.lender);
+    assert_eq!(w.safo.balance(&w.lender), TAKE_COLLATERAL);
 }
