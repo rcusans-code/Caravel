@@ -701,13 +701,31 @@ function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim | null): s
     : `Claimed in kind: ${amt} went to this wallet instead of USDC. No sale, no fee; the debt is closed.`;
 }
 
-export function AutoRepayToggle({ checked, disabled, busy, onChange, hint }: { checked: boolean; disabled?: boolean; busy?: boolean; onChange: (v: boolean) => void; hint: string }) {
+export function AutoRepayToggle({
+  checked,
+  disabled,
+  busy,
+  onChange,
+  hint,
+  detail,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  busy?: boolean;
+  onChange: (v: boolean) => void;
+  hint: string;
+  /** The fine print behind the one-line hint, in a Tip. */
+  detail?: string | null;
+}) {
   return (
     <label className="app-check" aria-busy={busy || undefined}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} data-action="auto-repay" />
       <span>
         <span className="app-check__label">{busy ? "Updating auto-repay" : "Auto-repay at maturity"}</span>
-        <span className="cv-field__hint">{hint}</span>
+        <span className="cv-field__hint">
+          {hint}
+          {detail && <Tip>{detail}</Tip>}
+        </span>
       </span>
     </label>
   );

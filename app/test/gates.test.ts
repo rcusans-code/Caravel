@@ -2,7 +2,7 @@
 // Run: npm test (plain node --test, no bundler).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { autoRepayHint, collateralBlock, fmtDuration, staleNavText } from "../src/gates.ts";
+import { autoRepayDetail, autoRepayHint, collateralBlock, fmtDuration, pauseBlock, staleNavText } from "../src/gates.ts";
 
 type Balances = NonNullable<Parameters<typeof collateralBlock>[0]>;
 
@@ -57,12 +57,21 @@ test("fmtDuration", () => {
   assert.equal(fmtDuration(45), "45 s");
 });
 
-test("auto-repay hint states the approve amount, expiry and that grace still applies", () => {
-  const on = autoRepayHint({ on: true, debt: "100.96", code: "tBENJI", graceSecs: 60, discount: "2.0%" });
+test("auto-repay hint is one sentence; its tip states the approve amount, expiry and that grace still applies", () => {
+  const hint = autoRepayHint({ on: true, debt: "100.96", code: "tBENJI", graceSecs: 60, discount: "2.0%" });
+  assert.equal(hint, "At maturity we pull 100.96 USDC and return your tBENJI.");
+  const on = autoRepayDetail({ on: true, debt: "100.96", code: "tBENJI", graceSecs: 60, discount: "2.0%" })!;
   assert.match(on, /approves the contract to pull 100\.96 USDC/);
   assert.match(on, /expires about 1 day after maturity plus grace/);
   assert.match(on, /1 minute grace still applies/);
   assert.doesNotMatch(on, /the loan defaults\.$/);
   const off = autoRepayHint({ on: false, debt: "100.96", code: "tBENJI", graceSecs: 60, discount: "2.0%" });
   assert.match(off, /Repay 100\.96 USDC yourself by maturity \(plus 1 minute grace\)/);
+  assert.equal(autoRepayDetail({ on: false, debt: "100.96", code: "tBENJI", graceSecs: 60, discount: "2.0%" }), null);
+});
+
+test("no_new_repos pause blocks Post and Take before the wallet opens; repay and top-up still work", () => {
+  assert.equal(pauseBlock("tBENJI", { no_new_repos: true }), "New tBENJI loans are paused by the admin. Repay and top-up still work.");
+  assert.equal(pauseBlock("tBENJI", { no_new_repos: false }), null);
+  assert.equal(pauseBlock("tBENJI", null), null);
 });

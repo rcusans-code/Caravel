@@ -279,6 +279,11 @@ export function inKindWindow(
   return { state: now - ts > Number(asset.max_nav_age_secs) ? "waiting" : "fresh", opensAt };
 }
 
+/** The asset's `no_new_repos` pause switch (#30), said before the wallet opens: Post and Take would fail with Paused. */
+export function pauseBlock(code: string, asset: { no_new_repos?: boolean } | null): string | null {
+  return asset?.no_new_repos ? `New ${code} loans are paused by the admin. Repay and top-up still work.` : null;
+}
+
 /** Why Take is blocked by the NAV, or null. */
 export const takeNavBlock = (code: string, h: NavHealth, asset: BandAsset | null) => navBlock(code, h, asset);
 
@@ -297,8 +302,7 @@ export function topUpHoldText(code: string, h: NavHealth): string | null {
   );
 }
 
-/** The auto-repay toggle hint on Take: what is approved, until when, and that grace still applies. */
-export function autoRepayHint(o: {
+type AutoRepayTerms = {
   on: boolean;
   /** Formatted debt, e.g. "100.96". */
   debt: string;
@@ -306,10 +310,19 @@ export function autoRepayHint(o: {
   graceSecs: number | bigint;
   /** Formatted liquidation discount, e.g. "2.0%". */
   discount: string;
-}): string {
+};
+
+/** The auto-repay toggle hint on Take, one sentence; the approval and grace detail is in autoRepayDetail (a Tip). */
+export function autoRepayHint(o: AutoRepayTerms): string {
   const grace = fmtDuration(o.graceSecs);
-  if (!o.on)
-    return `Repay ${o.debt} USDC yourself by maturity (plus ${grace} grace), or your ${o.code} is sold at a ${o.discount} discount.`;
+  if (!o.on) return `Repay ${o.debt} USDC yourself by maturity (plus ${grace} grace), or your ${o.code} is sold at a ${o.discount} discount.`;
+  return `At maturity we pull ${o.debt} USDC and return your ${o.code}.`;
+}
+
+/** What turning auto-repay on approves, until when, and that grace still applies; null when off. */
+export function autoRepayDetail(o: AutoRepayTerms): string | null {
+  if (!o.on) return null;
+  const grace = fmtDuration(o.graceSecs);
   return (
     `Taking the offer also approves the contract to pull ${o.debt} USDC from this wallet; the approval expires about 1 day after maturity plus grace. ` +
     `At maturity it takes the USDC and gives your ${o.code} back. ` +

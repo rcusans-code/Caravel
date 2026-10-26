@@ -107,7 +107,30 @@ body {
   background: var(--surface-sunken);
   border: 1px solid var(--line);
 }
-.app-block { color: var(--defaulted); margin: 0; }
+.app-block { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; color: var(--defaulted); font-size: 13px; line-height: 18px; }
+.app-block__icon { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--defaulted); font: 600 12px/1 var(--font-sans); box-sizing: border-box; }
+.app-nowrap { white-space: nowrap; }
+/* Offers board on phones: each offer is two lines (amount · APR · term, then collateral · haircut and Take),
+   so Take is always on screen without sideways scrolling. Lender and status (always Open) drop out. */
+.app-phone { display: none; }
+@media (max-width: 640px) {
+  .app-offers thead { display: none; }
+  .app-offers, .app-offers tbody { display: block; }
+  .app-offers tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "id amt amt apr" "term coll hc take"; align-items: center; gap: 2px var(--space-3); padding: var(--space-3); border-bottom: 1px solid var(--line); }
+  .app-offers tbody tr:last-child { border-bottom: 0; }
+  .app-offers td { padding: 0; border: 0; text-align: left; }
+  .app-offers td:nth-child(1) { grid-area: id; }
+  .app-offers td:nth-child(2) { grid-area: amt; font-size: 15px; font-weight: 500; }
+  .app-offers td:nth-child(3) { grid-area: apr; justify-self: end; }
+  .app-offers td:nth-child(4) { grid-area: term; color: var(--ink-muted); }
+  .app-offers td:nth-child(5) { grid-area: hc; color: var(--ink-muted); }
+  .app-offers td:nth-child(6) { grid-area: coll; }
+  .app-offers td:nth-child(7), .app-offers td:nth-child(8) { display: none; }
+  .app-offers td:nth-child(9) { grid-area: take; justify-self: end; }
+  .app-offers tr.app-offers__note { display: block; }
+  .app-offers tr.app-offers__note td { display: block; padding: var(--space-4) var(--space-3); }
+  .app-phone { display: inline; }
+}
 
 .app-check { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); align-items: start; cursor: pointer; }
 .app-check > span { display: flex; flex-direction: column; gap: 2px; }

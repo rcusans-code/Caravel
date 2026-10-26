@@ -2,14 +2,16 @@ import { useState } from "react";
 import { COLLATERAL, assetBySac } from "../config";
 import * as chain from "../chain";
 import type { Offer } from "../chain";
-import { BPS, fmtAmount, fmtPct, fmtTerm, interest as calcInterest, parseAmount, protocolFee } from "../format";
-import { Field, TxHash, TxProgress } from "../ui";
+import { BPS, fmtAmount, fmtPct, fmtTerm, idRef, interest as calcInterest, parseAmount, protocolFee } from "../format";
+import { Field, TxHash, TxSlot } from "../ui";
 import { CONNECT, type Ctx } from "../ctx";
-import { usdcBlock } from "../gates";
+import { pauseBlock, usdcBlock } from "../gates";
 
-/** Full 7-decimal USDC, trailing zeros trimmed to 2 dp. Rounding each figure to 2 dp separately
- *  made the summary not add up (0.25 interest − 0.02 fee shown beside 250.22, not 250.23). */
+/** Full 7-decimal USDC, trailing zeros trimmed to 2 dp: the exact figure, on hover. */
 const fmtExact = (v: bigint) => fmtAmount(v, 7).replace(/(\.\d\d\d*?)0+$/, "$1");
+/** Summary figure: 2 dp like the rest of the app, 4 below 1 USDC so small interest stays visible. Rounded
+ *  figures need not add up to the cent, so each carries its exact value in `title`. */
+const fmtSummary = (v: bigint) => fmtAmount(v, v < 10_000_000n ? 4 : 2);
 
 export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   const { config, signer, balances, busy } = ctx;
@@ -46,6 +48,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
     block = `You hold ${fmtAmount(balances.usdc)} USDC, less than ${fmtAmount(principal)} USDC.`;
   else if (config && !asset) block = `${token.code} is not registered as collateral on this deployment.`;
   else if (asset && !asset.enabled) block = `${token.code} is disabled as collateral right now.`;
+  else if (pauseBlock(token.code, asset)) block = pauseBlock(token.code, asset);
 
   const post = async () => {
     if (!signer || !principal || errAmount || errDays || errApr) return;
@@ -102,15 +105,24 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
           <dl className="cv-terms">
             <div>
               <dt>Interest</dt>
-              <dd>{fmtExact(int)} USDC</dd>
+              <dd title={`${fmtExact(int)} USDC`}>
+                {fmtSummary(int)}
+                <span className="cv-unit">USDC</span>
+              </dd>
             </div>
             <div>
               <dt>Protocol fee</dt>
-              <dd>{fmtExact(fee)} USDC</dd>
+              <dd title={`${fmtExact(fee)} USDC`}>
+                {fmtSummary(fee)}
+                <span className="cv-unit">USDC</span>
+              </dd>
             </div>
             <div>
-              <dt>You receive</dt>
-              <dd>{principal ? fmtExact(principal + int - fee) : "—"} USDC</dd>
+              <dt>Back at maturity</dt>
+              <dd title={principal ? `${fmtExact(principal + int - fee)} USDC: principal + interest − fee` : undefined}>
+                {principal ? fmtSummary(principal + int - fee) : "—"}
+                <span className="cv-unit">USDC</span>
+              </dd>
             </div>
           </dl>
           <button
@@ -122,11 +134,16 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
             {busy === "post" ? "Posting offer" : "Post offer"}
           </button>
           </div>
-          {block && <p className="cv-field__hint app-block">{block}</p>}
-          {ctx.tx?.key === "post" && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+          {block && (
+            <p className="app-block">
+              <span className="app-block__icon" aria-hidden="true">!</span>
+              <span>{block}</span>
+            </p>
+          )}
+          <TxSlot tx={ctx.tx} keys={["post"]} demo={signer?.kind === "demo"} dismiss={ctx.dismissTx} />
           {posted && (
             <p className="cv-row small" data-testid="posted">
-              Offer #{String(posted.id)} posted <TxHash kind="TX" value={posted.hash} />
+              Offer {idRef(posted.id)} posted <TxHash kind="TX" value={posted.hash} />
             </p>
           )}
         </form>
@@ -135,7 +152,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
           <h2 className="heading">Your open offers</h2>
           {cancelled && (
             <p className="cv-row small">
-              Offer #{String(cancelled.id)} cancelled <TxHash kind="TX" value={cancelled.hash} />
+              Offer {idRef(cancelled.id)} cancelled <TxHash kind="TX" value={cancelled.hash} />
             </p>
           )}
           <div className="cv-table-wrap">
@@ -154,13 +171,13 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                 {mine.length === 0 && (
                   <tr>
                     <td colSpan={6} className="app-empty">
-                      {signer ? "No open offers from this account." : "Connect to see your offers."}
+                      {signer ? "No open offers from this account." : `${CONNECT} to see your offers.`}
                     </td>
                   </tr>
                 )}
                 {mine.map((o) => (
                   <tr key={String(o.id)}>
-                    <td className="cv-num">#{String(o.id).padStart(3, "0")}</td>
+                    <td className="cv-num">{idRef(o.id)}</td>
                     <td className="r cv-num">{fmtAmount(o.principal)}</td>
                     <td className="r cv-num" style={{ color: "var(--brand)" }}>
                       {fmtPct(o.apr_bps)}
@@ -171,11 +188,11 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
                       <button
                         type="button"
                         className="cv-btn cv-btn--secondary cv-btn--sm"
-                        aria-label={`Cancel offer #${o.id}`}
+                        aria-label={`Cancel offer ${idRef(o.id)}`}
                         disabled={!!busy}
                         aria-busy={busy === `cancel-${o.id}` ? "true" : undefined}
                         onClick={async () => {
-                          const out = await ctx.run(`cancel-${o.id}`, `Offer #${o.id} not cancelled`, () => chain.cancelOffer(signer!, o.id));
+                          const out = await ctx.run(`cancel-${o.id}`, `Offer ${idRef(o.id)} not cancelled`, () => chain.cancelOffer(signer!, o.id));
                           if (out) setCancelled({ id: o.id, hash: out.hash });
                         }}
                       >
@@ -187,6 +204,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
               </tbody>
             </table>
           </div>
+          <TxSlot tx={ctx.tx} keys={mine.map((o) => `cancel-${o.id}`)} demo={signer?.kind === "demo"} dismiss={ctx.dismissTx} />
         </div>
       </div>
     </section>

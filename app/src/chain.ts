@@ -71,6 +71,8 @@ export interface AssetConfig {
   nav_ceiling: bigint | null;
   /** Band settle time (side band-real-move): a new level accepted once it has stood this long; null = contract without it. */
   band_settle_secs: bigint | null;
+  /** Pause switch `no_new_repos` (#30): create_offer and take_offer refuse with Paused. Absent/false on a contract without pause(). */
+  no_new_repos?: boolean;
 }
 
 export interface Nav {
@@ -142,6 +144,8 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     if (/Error\(Contract, #8\)/.test(String((e as Error)?.message ?? e))) return null;
     throw e;
   }
+  // Pause switches (#30) live apart from AssetConfig; a contract without pause() has none.
+  const pause = await simulateView<{ no_new_repos?: boolean } | null>(REPO_ID, "pause", new Address(sac).toScVal()).catch(() => null);
   // Contracts deployed before DECISIONS.md #25 keep max_nav_age_secs in config().
   const maxAge =
     a.max_nav_age_secs ?? ((await readRepo.config()).result as unknown as { max_nav_age_secs: unknown }).max_nav_age_secs;
@@ -156,6 +160,7 @@ export async function getAssetConfig(sac: string): Promise<AssetConfig | null> {
     nav_floor: a.nav_floor == null ? null : big(a.nav_floor),
     nav_ceiling: a.nav_ceiling == null ? null : big(a.nav_ceiling),
     band_settle_secs: a.band_settle_secs == null ? null : big(a.band_settle_secs),
+    no_new_repos: !!pause?.no_new_repos,
   };
 }
 
@@ -424,7 +429,7 @@ export async function declareDefaultPastGrace(signer: Signer, repo: Repo): Promi
     const settledElsewhere =
       /Error\(Contract, #7\)/.test(msg) || (await getRepoStatus(repo.id).catch(() => null))?.match(/^(Repaid|Defaulted|Liquidated)$/);
     if (settledElsewhere)
-      throw new TxError(`Repo #${repo.id} is already settled: the keeper or another wallet got there first. The card now shows the result.`, {
+      throw new TxError(`Agreement #${String(repo.id).padStart(3, "0")} is already settled: the keeper or another wallet got there first. The card now shows the result.`, {
         hash: txHashOf(e),
         stage: "failed",
       });

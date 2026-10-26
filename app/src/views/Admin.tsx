@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ACCOUNTS, COLLATERAL, DEMO_ENABLED, assetBySac } from "../config";
 import * as chain from "../chain";
 import { fmtNav } from "../format";
-import { Alert, Tip, TxHash, TxProgress } from "../ui";
+import { Alert, Tip, TxHash, TxSlot } from "../ui";
 import { checkBand } from "../gates";
 import type { Ctx } from "../ctx";
 
@@ -119,7 +119,7 @@ export function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
         >
           {busy === "nav" ? "Pushing NAV" : "Push NAV"}
         </button>
-        {ctx.tx?.key === "nav" && <TxProgress tx={ctx.tx} demo={signer?.kind === "demo"} />}
+        <TxSlot tx={ctx.tx} keys={["nav"]} demo={signer?.kind === "demo"} dismiss={ctx.dismissTx} />
         {last && (
           <p className="cv-row small">
             NAV set to {last.nav} <TxHash kind="TX" value={last.hash} />
