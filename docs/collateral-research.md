@@ -32,13 +32,15 @@ One-liner: **Stellar holds billions in permissioned fund shares that no on-chain
 
 Haircut = quality of the underlying asset × the weakest link above it. Caravel's demo uses a 3% haircut on tBENJI; these are the haircut ranges for a real asset list.
 
-| Tier | Assets | Underlying asset | Weakest link | Proposed haircut | Caravel status |
-|---|---|---|---|---|---|
-| 1 | BENJI, gBENJI, Spiko USTBL, WTGXX | US T-bills / govt money-market fund | approved holders only; business-day redemption | 3–5% | **demo asset (tBENJI)**, launch target |
-| 2 | USDY, USTRY, deJTRSY, SWEEP | US T-bills/notes | offshore issuer, bridge, minimums | 8–15% | open to anyone, so no permission problem to solve; XOXNO and Orbit already take USTRY |
-| 3 | EUTBL, EURCV | euro sovereign bills / SG deposit | FX against a USDC loan | Tier 1 haircut + FX haircut | needs a EUR/USD price feed |
-| 4 | CETES, TESOURO, USDT0 | EM sovereign debt / mixed reserves | sovereign + FX risk | 25–35% | later |
-| 5 | **eurSAFO / SAFO**, deJAAA | stocks/bonds behind a bank swap; CLOs | bank-swap counterparty; risk-asset basket | 30–50% or excluded | see §4 |
+**Decided 26 Oct 2026 ([DECISIONS #35](../DECISIONS.md)):** the last column holds the tuned numbers (haircut / margin trigger), sized on 20 years of NAV, rate and FX data against named competitor terms; the data, script and sources are in [config-tuning.md](config-tuning.md). The proposed ranges are kept as research history.
+
+| Tier | Assets | Underlying asset | Weakest link | Proposed haircut | Caravel status | Decided (#35) |
+|---|---|---|---|---|---|---|
+| 1 | BENJI, gBENJI, Spiko USTBL, WTGXX | US T-bills / govt money-market fund | approved holders only; business-day redemption | 3–5% | **demo asset (tBENJI)**, launch target | BENJI, USTBL 3% / 2% |
+| 2 | USDY, USTRY, deJTRSY, SWEEP | US T-bills/notes | offshore issuer, bridge, minimums | 8–15% | open to anyone, so no permission problem to solve; XOXNO and Orbit already take USTRY | USDY 3% / 2% (rate risk as Tier 1; issuer risk in the $2M cap) |
+| 3 | EUTBL, EURCV | euro sovereign bills / SG deposit | FX against a USDC loan | Tier 1 haircut + FX haircut | needs a EUR/USD price feed | EUTBL 12% / 8.5% |
+| 4 | CETES, TESOURO, USDT0 | EM sovereign debt / mixed reserves | sovereign + FX risk | 25–35% | later | CETES 23.5% / 18.5% |
+| 5 | **eurSAFO / SAFO**, deJAAA | stocks/bonds behind a bank swap; CLOs | bank-swap counterparty; risk-asset basket | 30–50% or excluded | see §4 | SAFO not enabled; testnet tSAFO 30% / 20% |
 
 Store the tier and haircut per asset in contract config, not per offer, so lenders can't undercut the floor.
 
