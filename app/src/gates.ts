@@ -58,7 +58,26 @@ export const MAX_FUTURE_SKEW_SECS = 60;
 /** none: no price (NoPrice) · future: dated ahead of the ledger (NoPrice) · stale: StaleNav · hold: NavOutOfBand · live: the contract accepts it. */
 export type NavState = "none" | "future" | "stale" | "hold" | "live";
 
-type BandAsset = Pick<AssetConfig, "max_nav_age_secs" | "max_nav_move_bps" | "nav_floor" | "nav_ceiling">;
+type BandAsset = Pick<AssetConfig, "max_nav_age_secs" | "max_nav_move_bps" | "nav_floor" | "nav_ceiling"> &
+  Partial<Pick<AssetConfig, "band_settle_secs">>;
+
+/** The repo's `band_candidate(asset)` (side band-real-move): the NAV level `note_nav` saw and when. */
+export interface BandCandidate {
+  price: bigint;
+  since: bigint;
+}
+
+/** Inputs of the band settle path: the stored candidate (null = none, or a contract without the view) and ledger time. */
+export interface BandSettle {
+  candidate: BandCandidate | null;
+  now: number;
+}
+
+/** oracle.rs `within_bps`: `|price − reference| × 10 000 ≤ reference × bps`, exact integer math. */
+function withinBps(price: bigint, reference: bigint, bps: bigint): boolean {
+  const diff = price > reference ? price - reference : reference - price;
+  return diff * 10_000n <= reference * bps;
+}
 
 export interface Band {
   ok: boolean;
@@ -66,6 +85,8 @@ export interface Band {
   why: "floor" | "ceiling" | "move" | null;
   /** Largest move against a record in the window, in bps (display only). */
   moveBps: bigint;
+  /** Passed through the band settle path (the window alone would hold it). */
+  settled?: boolean;
 }
 
 /**
@@ -73,8 +94,21 @@ export interface Band {
  * returns it). Floor and ceiling are inclusive; every positive record in the
  * window must be within `max_nav_move_bps` (`|p − r| × 10 000 ≤ r × bps`).
  * A contract without the band (#31, `max_nav_move_bps` null) always passes.
+ *
+ * A price the window refuses still passes through the settle path
+ * (oracle.rs `settled`, side band-real-move) when `settle.candidate` has
+ * stood `band_settle_secs` of ledger time, the price and every positive
+ * record stamped at or after `since` are within the band of the candidate,
+ * and the price is within the band of each of those records. No candidate,
+ * or a contract without `band_candidate` / `band_settle_secs`, means
+ * window roll only, as before.
  */
-export function checkBand(price: bigint, history: PricePoint[] | null, asset: Omit<BandAsset, "max_nav_age_secs">): Band {
+export function checkBand(
+  price: bigint,
+  history: PricePoint[] | null,
+  asset: Omit<BandAsset, "max_nav_age_secs">,
+  settle?: BandSettle,
+): Band {
   let moveBps = 0n;
   const window = (history ?? []).slice(0, NAV_BAND_RECORDS).filter((r) => r.price > 0n);
   for (const r of window) {
@@ -86,11 +120,27 @@ export function checkBand(price: bigint, history: PricePoint[] | null, asset: Om
   if (asset.nav_floor !== null && price < asset.nav_floor) return { ok: false, why: "floor", moveBps };
   if (asset.nav_ceiling !== null && price > asset.nav_ceiling) return { ok: false, why: "ceiling", moveBps };
   const bps = asset.max_nav_move_bps;
-  for (const r of window) {
-    const diff = price > r.price ? price - r.price : r.price - price;
-    if (diff * 10_000n > r.price * bps) return { ok: false, why: "move", moveBps };
-  }
-  return { ok: true, why: null, moveBps };
+  if (window.every((r) => withinBps(price, r.price, bps))) return { ok: true, why: null, moveBps };
+  if (settled(price, (history ?? []).slice(0, NAV_BAND_RECORDS), bps, asset.band_settle_secs, settle))
+    return { ok: true, why: null, moveBps, settled: true };
+  return { ok: false, why: "move", moveBps };
+}
+
+/** oracle.rs `settled` (with `level_holds`): the band settle path of `check_band`. */
+function settled(
+  price: bigint,
+  history: PricePoint[],
+  bps: bigint,
+  settleSecs: bigint | null | undefined,
+  settle: BandSettle | undefined,
+): boolean {
+  const c = settle?.candidate;
+  if (!c || settleSecs == null) return false;
+  const now = BigInt(Math.floor(settle.now));
+  const stood = now > c.since ? now - c.since : 0n; // saturating_sub
+  if (stood < settleSecs || !withinBps(price, c.price, bps)) return false;
+  const since = history.filter((r) => r.timestamp >= c.since && r.price > 0n);
+  return since.every((r) => withinBps(r.price, c.price, bps)) && since.every((r) => withinBps(price, r.price, bps));
 }
 
 export interface NavHealth {
@@ -104,12 +154,22 @@ export interface NavHealth {
   band: Band | null;
 }
 
-/** NAV state for one collateral asset at ledger time `now` (seconds), checked in `fresh_nav`'s order. */
-export function navHealth(nav: Nav | null, history: PricePoint[] | null, asset: BandAsset | null, now: number): NavHealth {
+/**
+ * NAV state for one collateral asset at ledger time `now` (seconds), checked
+ * in `fresh_nav`'s order. `candidate` is the repo's `band_candidate(asset)`
+ * (null = none or a contract without the view: window roll only).
+ */
+export function navHealth(
+  nav: Nav | null,
+  history: PricePoint[] | null,
+  asset: BandAsset | null,
+  now: number,
+  candidate: BandCandidate | null = null,
+): NavHealth {
   if (!nav || nav.price <= 0n) return { state: "none", age: null, band: null };
   const age = now - Number(nav.timestamp);
   if (!asset) return { state: "live", age, band: null };
-  const band = checkBand(nav.price, history, asset);
+  const band = checkBand(nav.price, history, asset, { candidate, now });
   if (Number(nav.timestamp) > now + MAX_FUTURE_SKEW_SECS) return { state: "future", age, band };
   if (age > Number(asset.max_nav_age_secs)) return { state: "stale", age, band };
   return { state: band.ok ? "live" : "hold", age, band };
@@ -135,10 +195,19 @@ export function navBadge(h: NavHealth): { state: "on" | "stale" | "off"; word: s
   return { state: "on", word: "Live", meta: "fresh NAV" };
 }
 
+/** u64::MAX turns the settle path off (AssetConfig.band_settle_secs). */
+const U64_MAX = (1n << 64n) - 1n;
+const settleable = (a: Partial<Pick<AssetConfig, "band_settle_secs">> | null): a is { band_settle_secs: bigint } =>
+  a?.band_settle_secs != null && a.band_settle_secs < U64_MAX;
+
 const PAUSED = "new loans, margin checks and liquidations are paused. Repay and top-up still work.";
 
 /** Why the price is on hold (state hold / future), or null. */
-export function navHoldText(code: string, h: NavHealth, asset: Pick<AssetConfig, "max_nav_move_bps"> | null): string | null {
+export function navHoldText(
+  code: string,
+  h: NavHealth,
+  asset: (Pick<AssetConfig, "max_nav_move_bps"> & Partial<Pick<AssetConfig, "band_settle_secs">>) | null,
+): string | null {
   if (h.state === "future") return `The ${code} price is dated ahead of the ledger clock, so ${PAUSED}`;
   if (h.state !== "hold" || !h.band) return null;
   if (h.band.why === "floor") return `The ${code} NAV is below its floor, so ${PAUSED}`;
@@ -146,7 +215,9 @@ export function navHoldText(code: string, h: NavHealth, asset: Pick<AssetConfig,
   const band = asset?.max_nav_move_bps != null ? ` ${fmtBps(asset.max_nav_move_bps)}` : "";
   return (
     `Price on hold: the ${code} NAV moved ${fmtBps(h.band.moveBps)} against one of its last ${NAV_BAND_RECORDS} prices, ` +
-    `more than its${band} sanity band, so ${PAUSED} It clears once the older prices roll out of that window or the band is widened.`
+    `more than its${band} sanity band, so ${PAUSED} It clears once the older prices roll out of that window` +
+    (settleable(asset) ? `, once the new level has held for ${fmtDuration(asset.band_settle_secs)},` : "") +
+    ` or the band is widened.`
   );
 }
 

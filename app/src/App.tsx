@@ -49,6 +49,7 @@ import {
   takeNavBlock,
   topUpHoldText,
   type NavHealth,
+  type BandCandidate,
   type PricePoint,
 } from "./gates";
 import { connectWallet, demoSigner, disconnectWallet, restoreSession, type Signer } from "./wallet";
@@ -81,6 +82,8 @@ export default function App() {
   const [live, setLive] = useState<FeedReading | null | Error | undefined>(undefined);
   // The feed's last 20 prices per collateral (oracle `prices`), for the NAV band check (#31).
   const [histories, setHistories] = useState<Record<string, PricePoint[] | null>>({});
+  // The repo's band settle level per collateral (band_candidate); null = none / contract without the view.
+  const [candidates, setCandidates] = useState<Record<string, BandCandidate | null>>({});
   // Latest ledger close time and the browser second it was read: `now` is ledger time.
   const [ledger, setLedger] = useState<{ closeTime: number; at: number } | null>(null);
   // Debt of live repos per collateral token, counted against max_open_debt (#32).
@@ -115,13 +118,14 @@ export default function App() {
     // Read apart from the book: a failing reference feed must not flag testnet as down.
     chain.getLiveFeed().then(setLive, (e) => setLive(e instanceof Error ? e : new Error(String(e))));
     try {
-      const [n, book, d, h] = await Promise.all([
+      const [n, book, d, h, bc] = await Promise.all([
         Promise.all(COLLATERAL.map((a) => chain.getNav(a.sac))),
         chain.getBook(),
         Promise.all(COLLATERAL.map((a) => chain.getOpenDebt(a.sac))),
         // Band and clock reads never block the board: on failure the app falls
         // back to the last price only and the browser clock.
         Promise.all(COLLATERAL.map((a) => chain.getNavHistory(a.sac).catch(() => null))),
+        Promise.all(COLLATERAL.map((a) => chain.getBandCandidate(a.sac))),
         chain
           .getLedgerTime()
           .then((closeTime) => setLedger({ closeTime, at: nowSecs() }))
@@ -129,6 +133,7 @@ export default function App() {
       ]);
       setNavs(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, n[i]])));
       setHistories(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, h[i]])));
+      setCandidates(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, bc[i]])));
       setOpenDebt(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, d[i]])));
       setOffers(book.offers);
       setRepos(book.repos);
@@ -272,7 +277,9 @@ export default function App() {
   // NAV state per asset, in the contract's order: no price, future-dated,
   // stale (#25, per asset; getAssetConfig falls back to config().max_nav_age_secs
   // on contracts deployed before it), outside the sanity band (#31).
-  const health = (sac: string) => navHealth(navs[sac] ?? null, histories[sac] ?? null, assets[sac] ?? null, now);
+  // The settle path (band_candidate held band_settle_secs) passes a level the window still refuses.
+  const health = (sac: string) =>
+    navHealth(navs[sac] ?? null, histories[sac] ?? null, assets[sac] ?? null, now, candidates[sac] ?? null);
   const isAdmin = isAdminNow(signer, config);
   const tab = shownTab(route, isAdmin);
   // Access gate, per collateral asset: holding tBENJI needs an issuer-AUTHORIZED
@@ -291,6 +298,7 @@ export default function App() {
     assets,
     navs,
     histories,
+    candidates,
     openDebt,
     health,
     balances,
@@ -471,6 +479,8 @@ interface Ctx {
   navs: Record<string, Nav | null>;
   /** Oracle `prices(asset, 20)` per collateral, newest first; null = not read. */
   histories: Record<string, PricePoint[] | null>;
+  /** Repo `band_candidate` per collateral (band settle path); null = none. */
+  candidates: Record<string, BandCandidate | null>;
   /** Debt of live repos per collateral token (#32); null = contract has no open_debt(). */
   openDebt: Record<string, bigint | null>;
   /** NAV state for this collateral as the contract would see it. */
@@ -1840,9 +1850,15 @@ function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
   const v = value ?? current;
   const decimals = nav?.decimals ?? 14;
   const scaledV = BigInt(Math.round(v * 10_000)) * 10n ** BigInt(decimals - 4);
-  // After the push the band window is this price plus the 19 newest records (#31).
+  // After the push the band window is this price plus the 19 newest records (#31);
+  // the pushed record counts toward the settle path's records since the level started.
   const willHold =
-    asset && value !== null ? !checkBand(scaledV, (ctx.histories[sac] ?? []).slice(0, 19), asset).ok : false;
+    asset && value !== null
+      ? !checkBand(scaledV, [{ price: scaledV, timestamp: BigInt(Math.floor(ctx.now)) }, ...(ctx.histories[sac] ?? []).slice(0, 19)], asset, {
+          candidate: ctx.candidates[sac] ?? null,
+          now: ctx.now,
+        }).ok
+      : false;
 
   const push = async () => {
     if (!signer) return;
