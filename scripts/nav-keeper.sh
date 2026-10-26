@@ -10,6 +10,16 @@
 #
 # Each round re-posts each asset's current price (so a value set from the
 # app's Admin tab sticks), or NAV / SAFO_NAV if set, or 1.00 when there is none.
+# It never re-posts a price that jumped more than NAV_JUMP_ACK_BPS (default
+# 1000, the keeper's needs-ack class) from the last price it posted, unless
+# the exact price is in NAV_JUMP_ACK (or pinned with NAV / SAFO_NAV): 20
+# re-posts would fill the contract's 20-record band window and push the
+# pre-jump price out of the keeper's history (keeper-launder). It logs, ALERTs
+# (first round, then every 20) and lets the price go stale instead, so the
+# contract stops takes, margin calls and liquidations; repay and top-up still
+# work. The last posted price per asset lives in NAV_KEEPER_STATE (default
+# ${XDG_STATE_HOME:-~/.local/state}/caravel/nav-keeper-<ORACLE_ID>.state), so
+# a restart keeps it; with no state yet the current price is trusted.
 # Signs set_price with ADMIN_SECRET from ENV_FILE (the oracle admin), passed
 # to the CLI through STELLAR_ACCOUNT so it never shows up in `ps`.
 #
@@ -61,7 +71,13 @@ push() { # one round: every collateral asset in .env, attempts interleaved
     labels+=(tSAFO); assets+=("{\"Stellar\":\"$TSAFO_ID\"}"); pins+=("${SAFO_NAV:-}")
   fi
   local i try left rc=0 n
-  for i in "${!labels[@]}"; do prices[i]=$(price_for "${labels[i]}" "${assets[i]}" "${pins[i]}") || prices[i]=""; done
+  local -a refused=()
+  load_refs
+  for i in "${!labels[@]}"; do
+    prices[i]=$(price_for "${labels[i]}" "${assets[i]}" "${pins[i]}") || { prices[i]=""; continue; }
+    if ! guard_price "${labels[i]}" "${prices[i]}" "${pins[i]}"; then prices[i]=""; refused[i]=1; fi
+  done
+  save_refs
   for try in 1 2 3; do
     left=0
     for i in "${!labels[@]}"; do
@@ -72,6 +88,7 @@ push() { # one round: every collateral asset in .env, attempts interleaved
     sleep 3
   done
   for i in "${!labels[@]}"; do
+    [[ -n "${refused[i]:-}" ]] && continue   # refused on purpose: guard_price logged and alerted
     if [[ -n "${ok[i]:-}" ]]; then FAILS[${labels[i]}]=0; continue; fi
     rc=1; n=$(( ${FAILS[${labels[i]}]:-0} + 1 )); FAILS[${labels[i]}]=$n
     if (( n == ALERT_AFTER || (n > ALERT_AFTER && (n - ALERT_AFTER) % 20 == 0) )); then
@@ -92,6 +109,49 @@ price_for() { # price_for LABEL ASSET_JSON PINNED_NAV -> price to post (stdout)
   else
     python3 -c 'import json,sys; print(json.loads(sys.argv[1])["price"])' "$last"
   fi
+}
+
+# Jump refusal (keeper-launder). REF: asset label -> last price posted (or
+# accepted), persisted per oracle; REFUSED: consecutive refused rounds.
+declare -A REF=() REFUSED=()
+state_file() { echo "${NAV_KEEPER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/caravel/nav-keeper-${ORACLE_ID}.state}"; }
+load_refs() { # re-read every round: ORACLE_ID can change under us (redeploy)
+  local f label price
+  REF=(); f=$(state_file)
+  [[ -f "$f" ]] || return 0
+  while read -r label price; do
+    [[ "$label" =~ ^[A-Za-z0-9_]+$ && "$price" =~ ^[0-9]+$ ]] && REF[$label]=$price
+  done <"$f"
+}
+save_refs() { # atomic: tmp + rename
+  local f label tmp
+  f=$(state_file); tmp="$f.$$.tmp"
+  mkdir -p "$(dirname "$f")" || { log "WARN: cannot create $(dirname "$f"): jump refusal forgets its reference on restart"; return 0; }
+  { for label in "${!REF[@]}"; do printf '%s %s\n' "$label" "${REF[$label]}"; done; } >"$tmp" && mv -f "$tmp" "$f" \
+    || log "WARN: cannot write $f: jump refusal forgets its reference on restart"
+}
+jump_bps() { # jump_bps PRICE REF -> |PRICE - REF| in bps of REF (floor)
+  python3 -c 'import sys; p,r=int(sys.argv[1]),int(sys.argv[2]); print(abs(p-r)*10000//r if r>0 else (0 if p==r else 10000))' "$1" "$2"
+}
+acked() { # acked PRICE: PRICE is listed in NAV_JUMP_ACK (comma-separated oracle integers)
+  local x; local -a list
+  IFS=',' read -ra list <<<"${NAV_JUMP_ACK:-}"
+  for x in "${list[@]}"; do [[ "${x//[[:space:]]/}" == "$1" ]] && return 0; done
+  return 1
+}
+guard_price() { # guard_price LABEL PRICE PIN: 0 = post it (and remember it), 1 = refuse
+  local label="$1" price="$2" pin="$3" ref="${REF[$1]:-}" bps max="${NAV_JUMP_ACK_BPS:-1000}" n
+  if [[ -n "$pin" || -z "$ref" || "$price" == "$ref" ]] || acked "$price"; then
+    REF[$label]=$price; REFUSED[$label]=0; return 0
+  fi
+  bps=$(jump_bps "$price" "$ref") || { log "$label jump check failed, not re-posting $price"; return 1; }
+  if (( bps <= max )); then REF[$label]=$price; REFUSED[$label]=0; return 0; fi
+  n=$(( ${REFUSED[$label]:-0} + 1 )); REFUSED[$label]=$n
+  log "$label NOT re-posting $price: $bps bps from the last posted $ref (> NAV_JUMP_ACK_BPS $max), letting it go stale"
+  if (( n == 1 || n % 20 == 0 )); then
+    alert "$label NAV $price jumped $bps bps from $ref (oracle ${ORACLE_ID:0:8}…), not re-posted ($n rounds): it goes stale, takes, margin calls and liquidations stop. Push the corrected price, or add $price to NAV_JUMP_ACK in $ENV_FILE if it is real"
+  fi
+  return 1
 }
 
 set_price() { # set_price LABEL ASSET_JSON PRICE TRY: one attempt
