@@ -3093,6 +3093,26 @@ fn cancel_works_for_admin_and_guardian_only() {
     assert_eq!(w.repo.pause(&w.tbenji), PAUSED_ALL);
 }
 
+/// Raven audit CT-01: deleting the `require_auth` in `admin_or_guardian`
+/// used to leave every repo test green, because the cancel tests only check
+/// the caller's identity. With nobody signing, naming the admin or the
+/// guardian as `caller` is refused and both proposals stay pending.
+#[test]
+fn audit_cancel_requires_caller_signature() {
+    let w = world();
+    let mut config = w.tbenji_config();
+    config.haircut_bps = 250;
+    w.repo.propose_asset(&w.tbenji, &config);
+    w.repo.guardian_set_pause(&w.tbenji, &PAUSED_ALL);
+    w.repo.propose_pause(&w.tbenji, &Pause::default());
+    // Nobody signs, caller = admin / guardian address: refused.
+    w.env.set_auths(&[]);
+    assert!(w.repo.try_cancel_asset(&w.admin(), &w.tbenji).is_err());
+    assert!(w.repo.try_cancel_pause(&w.guardian(), &w.tbenji).is_err());
+    assert!(w.repo.pending_asset(&w.tbenji).is_some());
+    assert!(w.repo.pending_pause(&w.tbenji).is_some());
+}
+
 #[test]
 fn propose_execute_cancel_emit_events() {
     let w = world();

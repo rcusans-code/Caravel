@@ -191,3 +191,14 @@ fn has_no_allowance_functions() {
     }
     assert_eq!(t.token.balance(&t.alice), 1_000);
 }
+
+/// Raven audit CT-01: deleting `mint`'s `require_auth` used to leave every
+/// spiko-mock test green. With no signature the mint is refused and the
+/// balance is unchanged.
+#[test]
+fn audit_mint_requires_admin_auth() {
+    let t = setup();
+    t.env.mock_auths(&[]);
+    assert!(t.token.try_mint(&t.alice, &1).is_err());
+    assert_eq!(t.token.balance(&t.alice), 1_000);
+}
