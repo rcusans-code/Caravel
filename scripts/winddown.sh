@@ -21,11 +21,15 @@
 # are passed to the CLI only, never printed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE_DEFAULT=0; [[ -z "${ENV_FILE:-}" ]] && ENV_FILE_DEFAULT=1
 ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 case "${1:-}" in -h|--help) sed -n '2,21p' "$0"; exit 0 ;; esac
 [[ -f "$ENV_FILE" ]] || { echo "missing $ENV_FILE" >&2; exit 1; }
 set -a; # shellcheck disable=SC1090
 source "$ENV_FILE"; set +a
+# shellcheck source=lib/keys.sh
+source "$ROOT/scripts/lib/keys.sh"   # R10: role keys from the untracked file when present
+load_private_keys "$ENV_FILE" "$ENV_FILE_DEFAULT" || { echo "$KEYS_SOURCE" >&2; exit 1; }
 export STELLAR_NETWORK="${NETWORK:-testnet}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] || { echo "winddown.sh is testnet-only (NETWORK=$STELLAR_NETWORK)" >&2; exit 2; }

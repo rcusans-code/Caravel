@@ -40,7 +40,8 @@ authorize_holder() { # authorize_holder LABEL TOKEN WHO REQUIRED(0|1)
     log "WARN: set_authorized failed for $who (G-account without a $label trustline?)"
     return 0
   fi
-  if (( required )) && [[ "$(view --id "$token" -- authorized --id "$who" 2>/dev/null || echo false)" != true ]]; then
+  # --plan (deploy.sh) sends nothing, so there is nothing to re-check.
+  if (( required && ! ${PLAN:-0} )) && [[ "$(view --id "$token" -- authorized --id "$who" 2>/dev/null || echo false)" != true ]]; then
     die "$label authorized($who) still false after set_authorized; takes would fail with #11"
   fi
   return 0

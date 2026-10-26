@@ -21,14 +21,19 @@
 #      checks none of these, so check them before whitelisting a liquidator.
 #      LIQUIDATOR=1 makes a missing item exit 3.
 # Amounts are targets, not increments: a re-run tops up to them, never beyond.
-# Keys come from <repo>/.env and reach the CLI via STELLAR_ACCOUNT (not argv).
+# Keys come from <repo>/.env (role keys from the untracked ~/.local/lib/caravel/.env
+# when present, scripts/lib/keys.sh) and reach the CLI via STELLAR_ACCOUNT (not argv).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE_DEFAULT=0; [[ -z "${ENV_FILE:-}" ]] && ENV_FILE_DEFAULT=1
 ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 STELLAR="${STELLAR:-$(command -v stellar || echo "$HOME/.local/bin/stellar")}"
 set -a; # shellcheck disable=SC1090
 source "$ENV_FILE"; set +a
+# shellcheck source=lib/keys.sh
+source "$ROOT/scripts/lib/keys.sh"   # R10: role keys from the untracked file when present
+load_private_keys "$ENV_FILE" "$ENV_FILE_DEFAULT" || { echo "$KEYS_SOURCE" >&2; exit 1; }
 export STELLAR_NETWORK="${NETWORK:-testnet}"
 [[ "$STELLAR_NETWORK" == testnet ]] || { echo "onboard.sh is testnet-only" >&2; exit 1; }
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
