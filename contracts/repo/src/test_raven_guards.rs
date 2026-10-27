@@ -6,7 +6,8 @@
 //! - UA-01 / OZ-01 (D3): the margin trigger is clamped per repo to
 //!   `repo.haircut_bps − 1`; a tighten-only key cannot margin-call a healthy
 //!   repo at an unchanged NAV.
-//! - STD-01: the constructor requires a feed quoted in USD.
+//! - STD-01: the constructor requires a feed quoted in the market's
+//!   `Config.quote` (USD here; EUR markets in `test_eur_market.rs`, #52).
 //! - STD-02: an asset's `max_nav_age_secs` is at least the feed resolution.
 //! - CS-07: the constructor requires 7-decimal USDC.
 //! - AS-03: a frozen lender's offer cannot be taken.

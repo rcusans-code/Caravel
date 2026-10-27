@@ -206,7 +206,8 @@ pub struct Offer {
     pub lender: Address,
     /// Collateral token the lender accepts (e.g. tBENJI SAC).
     pub collateral_asset: Address,
-    /// USDC lent, 7-decimal units.
+    /// Loan token lent (`Config.usdc`: USDC, or EURC in a EUR market),
+    /// 7-decimal units.
     pub principal: i128,
     pub apr_bps: u32,
     pub term_secs: u64,
