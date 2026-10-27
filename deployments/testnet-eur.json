@@ -1,0 +1,72 @@
+{
+  "network": "testnet",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
+  "deployedAt": "2026-10-27T13:23:09Z",
+  "loan": {
+    "symbol": "tEURC",
+    "quote": "EUR",
+    "decimals": 7,
+    "issuer": "GCM6X6TPX7GX63GFKVPAXSSNCPGHAAJSO5KXBXL4PK2ARL4KSOZ6YBGN"
+  },
+  "contracts": {
+    "repo": "CC7JEFS77CEOTLN76OJEXXNHUZZDOOHXDBKDCADBIOQVVIVGR3C64YOV",
+    "oracle": "CDLKQVFKBFQYD6SNP7JWCSJG54GA6GZEOLU6A5FIW3LR6PBYQRKFWNNB",
+    "usdc": "CDL5MSJGU4RKCU5N3B4G2VVON3AGELDBS56V3OMLCQGP5W7GWETNJPHO",
+    "tsafo": "CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2"
+  },
+  "assets": {
+    "usdc": "tEURC:GCM6X6TPX7GX63GFKVPAXSSNCPGHAAJSO5KXBXL4PK2ARL4KSOZ6YBGN"
+  },
+  "accounts": {
+    "admin": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
+    "issuer": "GD5XWUD6PO2EFWPDRVRNWLKJUNOENBG4D5LA3FAYNKKGMPGBSE72JNOO",
+    "lender": "GB44DXOHWG7EPMCPRJA4J5276BPBUAAIKMCWTMPO3ESY6NGS55CDCL7H",
+    "borrower": "GCPY6373DEZGZFVQ4O2FOUDGKI2NNZEN6TOHOJLU4S7KGX4LM7HYODZH",
+    "liquidator": "GAWPUXBFQ4R4FWHPER66YMQ2JDGNPTAYV4JGCXL27G2DB6QPUD4OFNYR",
+    "treasury": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
+    "guardian": "GBVV6MTKM5CJQCCCDAZZOMZHEZHBGGKRE33A4H7FJPNZP62WDAUEAFTD"
+  },
+  "config": {
+    "admin": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
+    "usdc": "CDL5MSJGU4RKCU5N3B4G2VVON3AGELDBS56V3OMLCQGP5W7GWETNJPHO",
+    "oracle": "CDLKQVFKBFQYD6SNP7JWCSJG54GA6GZEOLU6A5FIW3LR6PBYQRKFWNNB",
+    "treasury": "GDE5NX3RLR5UWZLPI4SB4ORYGBPRHKR53WTD3HXFXU2OAK6AOY6UJ3HU",
+    "fee_bps": 1000,
+    "liquidation_discount_bps": 100,
+    "day_secs": 60,
+    "margin_window_secs": 120,
+    "grace_secs": 60,
+    "guardian": "GBVV6MTKM5CJQCCCDAZZOMZHEZHBGGKRE33A4H7FJPNZP62WDAUEAFTD",
+    "timelock_secs": 120,
+    "quote": "EUR"
+  },
+  "tsafoAsset": {
+    "oracle_asset": {
+      "Stellar": "CBZOHBJ6CSLXD4HTW5KCYU5KLE7O3ZLYAZDLPUKOOUCZ6IV6FQKJKOU2"
+    },
+    "haircut_bps": 3000,
+    "margin_trigger_bps": 2000,
+    "enabled": true,
+    "max_nav_age_secs": 345600,
+    "max_nav_move_bps": 100,
+    "nav_floor": null,
+    "nav_ceiling": null,
+    "max_open_debt": "500000000000",
+    "band_settle_secs": 86400
+  },
+  "tsafo": {
+    "symbol": "tSAFO",
+    "decimals": 5,
+    "kind": "spiko-mock",
+    "feed": "spiko:eurSAFO"
+  },
+  "oracle": {
+    "base": {
+      "Other": "EUR"
+    },
+    "decimals": 14,
+    "resolution": 60
+  },
+  "superseded": []
+}
