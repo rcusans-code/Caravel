@@ -11,7 +11,8 @@
 // Signs check_margin / default with KEEPER_SECRET from .env (falls back to
 // LIQUIDATOR_SECRET); liquidate with LIQUIDATOR_SECRET (whitelisted, pays the
 // USDC). --refresh-nav signs set_price with ADMIN_SECRET (the oracle admin).
-// Covers every collateral asset: tBENJI, and tSAFO when TSAFO_ID is set.
+// Covers every collateral asset: tBENJI when TBENJI_SAC is set (empty in the
+// EUR market's .env, DECISIONS #52), and tSAFO when TSAFO_ID is set.
 // A NAV that just jumped holds check_margin, missed-margin default and
 // liquidate (navguard.ts; NAV_JUMP_* in scripts/README.md).
 // A state that blocks a payout (liquidator short of USDC, NAV stale or out of
@@ -22,6 +23,7 @@ import { readFileSync } from "node:fs";
 import { Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
 import { parse as parseEnv } from "dotenv";
 import { alertDue, sendAlert, STUCK_TICKS, StuckTracker, stuckFails } from "./alert.js";
+import { type Collateral, marketAssets } from "./assets.js";
 import { ContractError, ENV_FILE, Err, RPC_TIMEOUT_MS, RPC_URL, env, invoke, keypair, log, onRpcAnswer, outcomeOf, stellarAsset, txLink, u64, view } from "./chain.js";
 import { describeHold, navHold, type PriceData } from "./navguard.js";
 import { emptyNavState, loadNavState, navStatePath, saveNavState, serializeNavState, type NavState } from "./navstate.js";
@@ -70,17 +72,8 @@ const REPO_ID = env("REPO_ID");
 const ORACLE_ID = env("ORACLE_ID");
 const USDC_SAC = env("USDC_SAC");
 // Collateral tokens the keeper prices and labels (decimals and per-asset NAV
-// max age, DECISIONS.md #25, read on-chain at start).
-/**
- * `triggerBps`: the asset's margin trigger (DECISIONS.md #26), read from `asset()` at start.
- * `sourceTimed`: the oracle stamps this asset with the source's publication time
- * (`source_timed`, the Spiko feed, spiko-nav.ts); --refresh-nav never re-posts it.
- */
-type Collateral = { label: string; id: string; decimals: number; maxAge: bigint; triggerBps: bigint; sourceTimed?: boolean };
-const ASSETS: Collateral[] = [
-  { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7, maxAge: 0n, triggerBps: 0n },
-  ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5, maxAge: 0n, triggerBps: 0n }] : []),
-];
+// max age, DECISIONS.md #25, read on-chain at start); assets.ts.
+const ASSETS: Collateral[] = marketAssets(process.env);
 const assetOf = (id: string): Collateral =>
   ASSETS.find((a) => a.id === id) ?? { label: id.slice(0, 6) + "…", id, decimals: 7, maxAge: ASSETS[0].maxAge, triggerBps: ASSETS[0].triggerBps };
 const signer = process.env.KEEPER_SECRET ? keypair("KEEPER") : keypair("LIQUIDATOR");

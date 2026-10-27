@@ -45,19 +45,24 @@ pub trait PriceFeed {
     fn resolution(env: Env) -> u32;
 }
 
-/// Base every feed must quote in: all value math is in USDC, priced 1:1
-/// with USD (Raven STD-01).
-pub const FEED_BASE: &str = "USD";
+/// Loan currencies a deployment may declare in `Config.quote` (DECISIONS.md
+/// #52): all value math is in the loan token, priced 1:1 with this
+/// currency, so the feed must quote in it too (Raven STD-01).
+pub const QUOTES: [&str; 2] = ["USD", "EUR"];
 
-/// Constructor checks on the configured feed and dollar token (Raven STD-01,
-/// CS-07): the feed's `base()` is `Other("USD")` and `usdc.decimals()` is
-/// [`VALUE_DECIMALS`], the scale every value computation assumes. A call
-/// that traps (not a feed, not a token) counts as a mismatch.
+/// Constructor checks on the configured feed and loan token (Raven STD-01,
+/// CS-07): `quote` is one of [`QUOTES`], the feed's `base()` is
+/// `Other(quote)` and `usdc.decimals()` is [`VALUE_DECIMALS`], the scale
+/// every value computation assumes. A call that traps (not a feed, not a
+/// token) counts as a mismatch.
 pub fn config_feeds_ok(env: &Env, cfg: &Config) -> bool {
-    let usd = Asset::Other(Symbol::new(env, FEED_BASE));
+    if !QUOTES.iter().any(|q| Symbol::new(env, q) == cfg.quote) {
+        return false;
+    }
+    let quote = Asset::Other(cfg.quote.clone());
     let base_ok = matches!(
         PriceFeedClient::new(env, &cfg.oracle).try_base(),
-        Ok(Ok(base)) if base == usd
+        Ok(Ok(base)) if base == quote
     );
     let decimals_ok = matches!(
         token::Client::new(env, &cfg.usdc).try_decimals(),
@@ -477,6 +482,7 @@ mod test {
             grace_secs: 60,
             guardian: Address::generate(&env),
             timelock_secs: 120,
+            quote: Symbol::new(&env, "USD"),
         };
         let repo = env.register(CaravelRepo, (cfg.clone(),));
         let asset = AssetConfig {

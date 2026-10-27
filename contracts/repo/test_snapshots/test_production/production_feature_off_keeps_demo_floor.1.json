@@ -384,6 +384,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "quote"
+                            },
+                            "val": {
+                              "symbol": "USD"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "timelock_secs"
                             },
                             "val": {
@@ -528,6 +536,14 @@
                             },
                             "val": {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "quote"
+                            },
+                            "val": {
+                              "symbol": "USD"
                             }
                           },
                           {
@@ -699,6 +715,14 @@
                             },
                             "val": {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "quote"
+                            },
+                            "val": {
+                              "symbol": "USD"
                             }
                           },
                           {

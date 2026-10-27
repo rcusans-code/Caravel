@@ -264,3 +264,39 @@ test("tick: a held jump alerts and posts nothing", async () => {
   assert.deepEqual(t.posts, []);
   assert.match(t.alerts[0], /jumped/);
 });
+
+// --- EUR market (DECISIONS #52): the oracle quotes in EUR, the NAV is EUR ---
+
+// Mon 26 Oct 2026 NAV 1.015785 EUR as-is, at the NAV's own publication time 17:48:20.
+const MON_NAV_TS = Date.parse("2026-10-26T17:48:20Z") / 1000;
+const MON_EUR_PRICE = 101_578_500_000_000n;
+const eurOpts = (now: number): PlanOpts => ({ ...opts(now), quote: "EUR" });
+
+test("EUR oracle: posts the EUR NAV unconverted at the NAV publication time, with no FX fetch", async () => {
+  const { f, calls } = fakeFetch(MONDAY_ROUTES);
+  const r = await fetchSpiko("eurSAFO", { fetch: f, quote: "EUR" });
+  assert.equal(r.fx, null);
+  assert.deepEqual(calls, ["/share-classes/eurSAFO", "/net-asset-values/eurSAFO/latest"]);
+  const p = planPost(r, rec(oraclePrice("1.015707", null, DEC), FRI_TS), eurOpts(MON_TS + 3600));
+  assert.equal(p.kind, "post");
+  assert.equal(p.kind === "post" && p.price, MON_EUR_PRICE);
+  assert.equal(p.kind === "post" && p.timestamp, MON_NAV_TS);
+});
+
+test("EUR oracle tick posts 1.015785 EUR; the USD oracle still posts NAV x 1.1204", async () => {
+  const eur = deps({ now: MON_TS + 900, last: null, read: () => fetchSpiko("eurSAFO", { fetch: fakeFetch(MONDAY_ROUTES).f, quote: "EUR" }) });
+  eur.d.opts = eurOpts(MON_TS + 900);
+  assert.equal((await feederTick(eur.d)).outcome, "posted");
+  assert.deepEqual(eur.posts, [[MON_EUR_PRICE, MON_NAV_TS]]);
+  assert.match(eur.lines[0], /-> 1\.01578500000000 EUR \(101578500000000\)/);
+  const usd = deps({ now: MON_TS + 900, last: null, read: () => fetchSpiko("eurSAFO", { fetch: fakeFetch(MONDAY_ROUTES).f }) });
+  assert.equal((await feederTick(usd.d)).outcome, "posted");
+  assert.deepEqual(usd.posts, [[MON_PRICE, MON_TS]]);
+});
+
+test("EUR oracle: a NAV in another currency waits (only X/USD rates are converted)", () => {
+  const usdNav = { ...reading("nav-latest-2026-10-26.json", null), nav: { ...parseNav(fx("nav-latest-2026-10-26.json")), currency: "USD" } };
+  const p = planPost(usdNav, null, eurOpts(MON_TS + 3600));
+  assert.equal(p.kind, "wait");
+  assert.match(p.why, /no USD\/EUR rate/);
+});

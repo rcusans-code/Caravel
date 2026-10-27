@@ -6,6 +6,7 @@
 #   NAV=0.97 scripts/deploy.sh   # also push a tBENJI price (default: 1.00, only if none set)
 #   SAFO_NAV=1.02 scripts/deploy.sh   # same for tSAFO
 #   SPIKO_FEED=1 scripts/deploy.sh    # tSAFO = eurSAFO mirror, priced from Spiko (see below)
+#   LOAN_ASSET=EURC scripts/deploy.sh # the EUR market: tEURC loans against tSAFO (see below)
 #   scripts/deploy.sh --preflight     # run the .env guards only, no build, no tx
 #   scripts/deploy.sh --no-winddown   # keep a superseded repo contract open
 #   PREBUILT_WASM_DIR=dir scripts/deploy.sh  # deploy attested wasm (attest.yml), no build
@@ -48,6 +49,25 @@
 # trigger 2,050 (haircut 3,000 unchanged). nav-keeper.sh and
 # `keeper --refresh-nav` skip it; caravel-spiko-nav.service feeds it.
 #
+# LOAN_ASSET=EURC (command line only; default USDC) deploys the EUR market
+# (DECISIONS #52): one loan token per deployment, so it is a second repo
+# contract from the same wasm with `quote` EUR, next to the USD one. It reads
+# keys, accounts, the guardian and TSAFO_ID from .env and never writes .env,
+# testnet.json, the README table or the bindings. Its own state goes to
+# EUR_ENV_FILE (default .env.eur next to .env; untracked, mode 600, holds the
+# tEURC issuer key) and deployments/testnet-eur.json. It deploys a new oracle
+# with base Other("EUR") (tSAFO source-timed, first price = Spiko's eurSAFO
+# NAV in EUR, no FX); issues tEURC, a team-issued classic asset (7 decimals,
+# no auth flags, like Circle EURC) from its own friendbot-funded issuer, and
+# its SAC; adds tEURC trustlines and mints tEURC to lender, liquidator and
+# borrower (the borrower pays interest in it); deploys the repo with
+# usdc = tEURC SAC and quote EUR; lists only tSAFO, with the
+# `size.py --quote EUR` numbers (tBENJI is a USD fund: no FX leg here);
+# allowlists the new repo on tSAFO. .env.eur also pins TSAFO_ID (a USD
+# redeploy may replace .env's tSAFO) and sets USDC_SAC / USDC_ASSET to tEURC
+# and TBENJI_SAC empty, so `cat .env .env.eur` is the EUR keepers' env file
+# (scripts/README.md "EUR market").
+#
 # Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
 # DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app
 # (and the README "Testnet deployment" table from it, scripts/readme-ids.py) and
@@ -75,7 +95,7 @@ for arg in "$@"; do
     --preflight) PREFLIGHT=1 ;;
     --plan) PLAN=1 ;;
     --no-winddown) WINDDOWN=0 ;;
-    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/{/^set -euo/!p}' "$0"; exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
@@ -104,6 +124,23 @@ fi
 FEE_BPS="${FEE_BPS:-1000}"                       # 10% of interest (#3)
 LIQ_DISCOUNT_BPS="${LIQ_DISCOUNT_BPS:-100}"      # 1% liquidator discount, production value (#35, docs/config-tuning.md §4)
 HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount (#18)
+# LOAN_ASSET=EURC: the EUR market (DECISIONS #52). Command line only.
+LOAN_ASSET="${LOAN_ASSET:-USDC}"
+case "$LOAN_ASSET" in
+  USDC) EUR=0 ;;
+  EURC) EUR=1 ;;
+  *) die "LOAN_ASSET=$LOAN_ASSET: USDC (default) or EURC" ;;
+esac
+if (( EUR )); then # eurSAFO in EUR, no FX leg: docs/research/spiko-nav/size.py --quote EUR (CHOSEN_EUR)
+  SPIKO_FEED=1
+  SAFO_MAX_NAV_AGE_SECS="${SAFO_MAX_NAV_AGE_SECS:-345600}" # 96 h of Spiko publication time (#25)
+  SAFO_NAV_MOVE_BPS="${SAFO_NAV_MOVE_BPS:-100}"            # > 4 x the EUR NAV's 20-record spread (21 bps); no EUR/USD floor
+  SAFO_BAND_SETTLE_SECS="${SAFO_BAND_SETTLE_SECS:-86400}"  # one NAV day (#41)
+  SAFO_MARGIN_TRIGGER_BPS="${SAFO_MARGIN_TRIGGER_BPS:-2000}" # 100 + 1,797 worst week (S&P 500 alone) + 50
+  TEURC_LENDER_MINT="${TEURC_LENDER_MINT:-10000}"         # whole tEURC each role is topped up to
+  TEURC_LIQUIDATOR_MINT="${TEURC_LIQUIDATOR_MINT:-5000}"  # pays liquidation proceeds
+  TEURC_BORROWER_MINT="${TEURC_BORROWER_MINT:-500}"       # repays interest + principal it spent
+fi
 # SPIKO_FEED is read from the .env too (it is sourced only after these defaults).
 SPIKO_FEED="${SPIKO_FEED:-$(sed -n 's/^SPIKO_FEED=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)}"
 if [[ "$SPIKO_FEED" == 1 ]]; then # eurSAFO params, docs/research/spiko-nav/size.py
@@ -133,6 +170,8 @@ SAFO_BAND_SETTLE_SECS="${SAFO_BAND_SETTLE_SECS:-$BAND_SETTLE_SECS}" # tSAFO band
 ORACLE_DECIMALS=14                               # same as Reflector
 ORACLE_RESOLUTION=60
 ORACLE_BASE='{"Other":"USD"}'
+QUOTE=USD                                        # Config.quote = the feed's base (#52)
+if (( EUR )); then ORACLE_BASE='{"Other":"EUR"}'; QUOTE=EUR; fi
 
 [[ -f "$ENV_FILE" ]] || die "missing $ENV_FILE"
 set -a; # shellcheck disable=SC1090
@@ -155,6 +194,28 @@ FEEDER_SECRET="${FEEDER_SECRET:-$ADMIN_SECRET}"
 export STELLAR_NETWORK="${REQ_NETWORK:-${NETWORK:-testnet}}"
 [[ -n "${RPC_URL:-}" ]] && export STELLAR_RPC_URL="$RPC_URL"
 [[ "$STELLAR_NETWORK" == testnet ]] && export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+
+# --- EUR market: its own state file (DECISIONS #52) -----------------------------
+# .env stays read-only: keys, accounts, the guardian and TSAFO_ID come from
+# it; the EUR market's IDs come from EUR_ENV_FILE, which overrides it. Every
+# set_env below writes EUR_ENV_FILE, never .env.
+if (( EUR )); then
+  BASE_ENV_FILE="$ENV_FILE"
+  EUR_ENV_FILE="${EUR_ENV_FILE:-$(dirname "$ENV_FILE")/.env.eur}"
+  OUT_JSON="$ROOT/deployments/testnet-eur.json"
+  [[ -n "$GUARDIAN_ADDRESS" ]] || die "LOAN_ASSET=EURC reuses the USD market's guardian: GUARDIAN_ADDRESS not set in $ENV_FILE"
+  BASE_TSAFO_ID="${TSAFO_ID:-}"
+  unset ORACLE_ID REPO_ID DEPLOYED_AT SUPERSEDED_PENDING TSAFO_ID
+  if [[ -f "$EUR_ENV_FILE" ]]; then set -a; # shellcheck disable=SC1090
+    source "$EUR_ENV_FILE"; set +a; fi
+  TSAFO_ID="${TSAFO_ID:-$BASE_TSAFO_ID}"   # pinned in .env.eur once listed
+  [[ -n "$TSAFO_ID" ]] || die "LOAN_ASSET=EURC lists the USD market's tSAFO: TSAFO_ID not set (run scripts/deploy.sh first)"
+  ENV_FILE="$EUR_ENV_FILE"
+  if (( ! PLAN )) && [[ ! -f "$ENV_FILE" ]]; then
+    ( umask 077; echo "# EUR market state (LOAN_ASSET=EURC scripts/deploy.sh, DECISIONS #52). Untracked: holds the tEURC issuer key." > "$ENV_FILE" )
+  fi
+  log "EUR market: reads $BASE_ENV_FILE, writes $ENV_FILE and $OUT_JSON"
+fi
 OLD_REPO_ID="${REPO_ID:-}"   # wound down below if this run replaces it (UA-05)
 # Repos replaced by an earlier run that died before step 7: that run wrote the
 # new REPO_ID at once, so this run reads it as OLD_REPO_ID and would forget the
@@ -165,8 +226,8 @@ PENDING_SUPERSEDED="${SUPERSEDED_PENDING:-}"
 PENDING_SUPERSEDED="${PENDING_SUPERSEDED//,/ }"
 
 # --- 0. guards (Raven R4) -------------------------------------------------------
-check_sac USDC "$USDC_ASSET" "$USDC_SAC"
-check_sac TBENJI "$TBENJI_ASSET" "$TBENJI_SAC"
+check_sac USDC "$USDC_ASSET" "$USDC_SAC"   # EUR market: tEURC once .env.eur names it
+(( EUR )) || check_sac TBENJI "$TBENJI_ASSET" "$TBENJI_SAC"
 if (( PREFLIGHT )); then log "preflight ok"; exit 0; fi
 
 # Secrets go to the CLI only, never to stdout. CLI logs are kept quiet and
@@ -192,6 +253,7 @@ if (( PLAN )); then
   as_issuer() { plan "issuer  contract invoke $*"; }
   as_feeder() { plan "feeder  contract invoke $*"; }
   admin_tx()  { plan "admin   tx new $*"; }
+  as_teurc()  { plan "teurc-issuer contract invoke $*"; }
   deploy()    { local w; w=$(sed -n 's/.*--wasm \([^ ]*\).*/\1/p' <<<"$*"); w=$(basename "$w" .wasm)
                 plan "admin   contract deploy $*"; echo "PLANNED_$w"; }
 else
@@ -199,6 +261,7 @@ else
   as_issuer() { loud stellar contract invoke --source-account "$ISSUER_SECRET" "$@"; }
   as_feeder() { loud stellar contract invoke --source-account "$FEEDER_SECRET" "$@"; }
   admin_tx()  { loud stellar tx new "$@" --source-account "$ADMIN_SECRET"; }
+  as_teurc()  { loud stellar contract invoke --source-account "$TEURC_ISSUER_SECRET" "$@"; }
   deploy()    { loud stellar contract deploy --source-account "$ADMIN_SECRET"  "$@"; }
 fi
 view() {
@@ -220,7 +283,7 @@ mark_deployed() {
 set_env() { # set_env KEY VALUE: replace in place or append
   local k="$1" v="$2"
   if (( PLAN )); then
-    grep -qxF "${k}=${v}" "$ENV_FILE" || PLAN_FILES+=("$k")
+    grep -qsxF "${k}=${v}" "$ENV_FILE" || PLAN_FILES+=("$k")
     return 0
   fi
   if grep -q "^${k}=" "$ENV_FILE"; then
@@ -313,8 +376,10 @@ fi
 set_env ORACLE_ID "$ORACLE_ID"
 
 TBENJI_ORACLE_ASSET="{\"Stellar\":\"$TBENJI_SAC\"}"
-LAST=$(view --id "$ORACLE_ID" -- lastprice --asset "$TBENJI_ORACLE_ASSET")
-if [[ -n "${NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
+LAST=""; (( EUR )) || LAST=$(view --id "$ORACLE_ID" -- lastprice --asset "$TBENJI_ORACLE_ASSET")
+if (( EUR )); then
+  log "EUR market: no tBENJI on this oracle"
+elif [[ -n "${NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
   NAV_VALUE="${NAV:-1.00}"
   PRICE=$(python3 -c "from decimal import Decimal as D; print(int(D('$NAV_VALUE') * 10**$ORACLE_DECIMALS))")
   log "set_price tBENJI = $NAV_VALUE ($PRICE)"
@@ -324,7 +389,9 @@ else
 fi
 
 # --- 2b. tSAFO: Spiko-style mock token, ISSUER is its admin ----------------------
-if [[ $FRESH == 0 ]] && same_wasm "${TSAFO_ID:-}" "$SPIKO_WASM"; then
+if (( EUR )); then
+  log "EUR market: lists the USD market's tSAFO $TSAFO_ID (never deploys one)"
+elif [[ $FRESH == 0 ]] && same_wasm "${TSAFO_ID:-}" "$SPIKO_WASM"; then
   log "tSAFO unchanged, reusing $TSAFO_ID"
 else
   log "deploying tSAFO (Spiko mock, $TSAFO_DECIMALS decimals)"
@@ -346,7 +413,8 @@ if [[ "$SPIKO_FEED" == 1 ]]; then
   if [[ "$LAST" != "null" && -n "$LAST" ]]; then
     log "tSAFO price already set: $LAST"
   elif (( PLAN )); then
-    plan "feeder  spiko-nav eurSAFO --once (set_price_at at Spiko's NAV x EUR/USD and publication time)"
+    if (( EUR )); then plan "feeder  spiko-nav eurSAFO --once (set_price_at at Spiko's EUR NAV, no FX, and its publication time)"
+    else plan "feeder  spiko-nav eurSAFO --once (set_price_at at Spiko's NAV x EUR/USD and publication time)"; fi
   elif [[ -d "$ROOT/scripts/keeper/node_modules" ]]; then
     log "first tSAFO price from Spiko: npm run spiko-nav -- eurSAFO --once"
     ( cd "$ROOT/scripts/keeper" && ENV_FILE="$ENV_FILE" ORACLE_ID="$ORACLE_ID" TSAFO_ID="$TSAFO_ID" \
@@ -364,10 +432,59 @@ else
   log "tSAFO price already set: $LAST"
 fi
 
+# --- 2c. EUR market: tEURC, the loan token (DECISIONS #52) ----------------------
+# Circle's testnet EURC has no XLM->EURC path on the DEX (27 Oct 2026), so
+# lenders could not be funded unattended. tEURC is team-issued from its own
+# issuer: ISSUER has AUTH_REQUIRED (tBENJI), which would make every tEURC
+# holder, the repo contract included, need authorization.
+new_teurc_issuer() {
+  local name="caravel-teurc-$$" secret
+  if (( PLAN )); then
+    plan "friendbot  generate the tEURC issuer key, fund it, write TEURC_ISSUER_ADDRESS / TEURC_ISSUER_SECRET to $ENV_FILE"
+    TEURC_ISSUER_ADDRESS="PLANNED_teurc_issuer"; return 0
+  fi
+  loud stellar keys generate "$name" --fund --overwrite >/dev/null || die "tEURC issuer key generation failed (friendbot down?)"
+  TEURC_ISSUER_ADDRESS=$(stellar keys address "$name")
+  secret=$(stellar keys secret "$name")
+  stellar keys rm "$name" >/dev/null 2>&1 || true
+  [[ "$TEURC_ISSUER_ADDRESS" =~ ^G[A-Z2-7]{55}$ && "$secret" =~ ^S[A-Z2-7]{55}$ ]] || die "tEURC issuer key generation returned no key"
+  set_env TEURC_ISSUER_ADDRESS "$TEURC_ISSUER_ADDRESS"
+  set_env TEURC_ISSUER_SECRET "$secret"
+  TEURC_ISSUER_SECRET="$secret"
+  log "tEURC issuer: new key $TEURC_ISSUER_ADDRESS (TEURC_ISSUER_SECRET in $ENV_FILE)"
+}
+if (( EUR )); then
+  [[ -n "${TEURC_ISSUER_ADDRESS:-}" ]] || new_teurc_issuer
+  TEURC_ASSET="tEURC:$TEURC_ISSUER_ADDRESS"
+  if [[ "$TEURC_ISSUER_ADDRESS" == PLANNED_* ]]; then
+    TEURC_SAC="PLANNED_teurc_sac"
+  else
+    TEURC_SAC=$(stellar contract id asset --asset "$TEURC_ASSET" \
+                  --rpc-url "${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}" 2>/dev/null) \
+      || die "cannot derive the SAC id of $TEURC_ASSET"
+  fi
+  if [[ "$TEURC_SAC" != PLANNED_* ]] && [[ -n "$(view --id "$TEURC_SAC" -- decimals 2>/dev/null)" ]]; then
+    log "tEURC SAC $TEURC_SAC already deployed"
+  elif (( PLAN )); then
+    plan "admin   contract asset deploy --asset $TEURC_ASSET"
+  else
+    log "deploying the tEURC SAC ($TEURC_ASSET)"
+    loud stellar contract asset deploy --asset "$TEURC_ASSET" --source-account "$ADMIN_SECRET" >/dev/null
+  fi
+  # The loan token is Config.usdc (#52): from here on USDC_* name tEURC, and
+  # .env.eur carries them so the EUR keepers read tEURC as their USDC_SAC.
+  USDC_ASSET="$TEURC_ASSET" USDC_SAC="$TEURC_SAC"
+  set_env USDC_ASSET "$USDC_ASSET"
+  set_env USDC_SAC "$USDC_SAC"
+  set_env TBENJI_SAC ""
+  set_env TBENJI_ASSET ""
+  set_env SPIKO_FEED 1
+fi
+
 # --- 3. repo -------------------------------------------------------------------
 config_json() {
   cat <<EOF
-{"admin":"$ADMIN_ADDRESS","usdc":"$USDC_SAC","oracle":"$ORACLE_ID","treasury":"$TREASURY_ADDRESS","fee_bps":$FEE_BPS,"liquidation_discount_bps":$LIQ_DISCOUNT_BPS,"day_secs":$DAY_SECS,"margin_window_secs":$MARGIN_WINDOW_SECS,"grace_secs":$GRACE_SECS,"guardian":"$GUARDIAN_ADDRESS","timelock_secs":$TIMELOCK_SECS}
+{"admin":"$ADMIN_ADDRESS","usdc":"$USDC_SAC","oracle":"$ORACLE_ID","treasury":"$TREASURY_ADDRESS","fee_bps":$FEE_BPS,"liquidation_discount_bps":$LIQ_DISCOUNT_BPS,"day_secs":$DAY_SECS,"margin_window_secs":$MARGIN_WINDOW_SECS,"grace_secs":$GRACE_SECS,"guardian":"$GUARDIAN_ADDRESS","timelock_secs":$TIMELOCK_SECS,"quote":"$QUOTE"}
 EOF
 }
 # A guardian of its own (KPR-05): a funded testnet key, written to .env and
@@ -444,7 +561,7 @@ PY
 }
 ASSET_JSON="{\"oracle_asset\":$TBENJI_ORACLE_ASSET,\"haircut_bps\":$HAIRCUT_BPS,\"margin_trigger_bps\":$MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( MAX_OPEN_DEBT * 10000000 ))\",\"band_settle_secs\":$BAND_SETTLE_SECS}"
 TSAFO_ASSET_JSON="{\"oracle_asset\":$TSAFO_ORACLE_ASSET,\"haircut_bps\":$SAFO_HAIRCUT_BPS,\"margin_trigger_bps\":$SAFO_MARGIN_TRIGGER_BPS,\"enabled\":true,\"max_nav_age_secs\":$SAFO_MAX_NAV_AGE_SECS,\"max_nav_move_bps\":$SAFO_NAV_MOVE_BPS,\"nav_floor\":null,\"nav_ceiling\":null,\"max_open_debt\":\"$(( SAFO_MAX_OPEN_DEBT * 10000000 ))\",\"band_settle_secs\":$SAFO_BAND_SETTLE_SECS}"
-ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"
+(( EUR )) || ensure_asset tBENJI "$TBENJI_SAC" "$ASSET_JSON"   # the EUR market lists tSAFO only (#52)
 ensure_asset tSAFO "$TSAFO_ID" "$TSAFO_ASSET_JSON"
 
 # --- 5. liquidator whitelist ---------------------------------------------------
@@ -483,28 +600,34 @@ fi
 # repay/liquidate transfer the protocol fee to Config.treasury. A G-account
 # without a USDC trustline makes that SAC transfer fail (TrustlineMissing, #13),
 # so every repay with a non-zero fee reverts. Treasury defaults to ADMIN.
-if [[ -n "${USDC_ASSET:-}" ]]; then
-  if curl -fsS "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$TREASURY_ADDRESS" | python3 -c '
+# EUR market: USDC_ASSET is tEURC here, so the same step adds that trustline.
+has_trustline() { # has_trustline G_ADDRESS CODE:ISSUER (Horizon)
+  curl -fsS "${HORIZON_URL:-https://horizon-testnet.stellar.org}/accounts/$1" | python3 -c '
 import json, sys
 code, issuer = sys.argv[1].split(":")
 bs = json.load(sys.stdin)["balances"]
-sys.exit(0 if any(b.get("asset_code") == code and b.get("asset_issuer") == issuer for b in bs) else 1)' "$USDC_ASSET"; then
-    log "treasury has a USDC trustline"
+sys.exit(0 if any(b.get("asset_code") == code and b.get("asset_issuer") == issuer for b in bs) else 1)' "$2"
+}
+if [[ -n "${USDC_ASSET:-}" ]]; then
+  if has_trustline "$TREASURY_ADDRESS" "$USDC_ASSET"; then
+    log "treasury has a ${USDC_ASSET%%:*} trustline"
   elif [[ "$TREASURY_ADDRESS" == "$ADMIN_ADDRESS" ]]; then
-    log "adding USDC trustline to treasury (admin)"
+    log "adding ${USDC_ASSET%%:*} trustline to treasury (admin)"
     admin_tx change-trust --line "$USDC_ASSET" >/dev/null
   else
-    log "WARN: treasury $TREASURY_ADDRESS has no USDC trustline; repay will fail until it adds one"
+    log "WARN: treasury $TREASURY_ADDRESS has no ${USDC_ASSET%%:*} trustline; repay will fail until it adds one"
   fi
 fi
 
 # --- 6. issuer authorizes holders on tBENJI (AUTH_REQUIRED, spikes/auth) -------
 # The repo contract is required (AS-06: a failure stops the deploy); the
 # G-accounts only WARN (no trustline yet).
+if (( ! EUR )); then   # the EUR market has no tBENJI (#52)
 authorize_holder tBENJI "$TBENJI_SAC" "$REPO_ID" 1
 for who in "$BORROWER_ADDRESS" "$LIQUIDATOR_ADDRESS"; do
   authorize_holder tBENJI "$TBENJI_SAC" "$who" 0
 done
+fi
 
 # --- 6b. Spiko-style allowlist on tSAFO ----------------------------------------
 # Every transfer checks both sides, so the repo contract and every liquidator
@@ -538,6 +661,37 @@ for who in ${TSAFO_HOLDERS:-}; do
   fi
 done
 
+# --- 6c. EUR market: tEURC trustlines and balances (DECISIONS #52) ----------------
+# Lender (offers), liquidator (proceeds) and borrower (repay of principal +
+# interest: the borrower receives only the principal) each hold tEURC. A
+# re-run tops each up to its target. TSAFO_HOLDERS (teammates) add the
+# trustline in their own wallet; their keys are not here.
+if (( EUR )); then
+  for role in LENDER LIQUIDATOR BORROWER; do
+    addr_var="${role}_ADDRESS" sec_var="${role}_SECRET" mint_var="TEURC_${role}_MINT"
+    who="${!addr_var}"
+    if has_trustline "$who" "$USDC_ASSET"; then
+      log "tEURC trustline: ${role,,}"
+    elif (( PLAN )); then
+      plan "${role,,}  tx new change-trust --line $USDC_ASSET"
+    else
+      [[ -n "${!sec_var:-}" ]] || die "$sec_var not set: ${role,,} needs a tEURC trustline"
+      log "adding the tEURC trustline to ${role,,}"
+      loud stellar tx new change-trust --source-account "${!sec_var}" --line "$USDC_ASSET" >/dev/null
+    fi
+    want=$(( ${!mint_var} * 10000000 ))
+    have=$(view --id "$USDC_SAC" -- balance --id "$who" 2>/dev/null | tr -d '"' || true)
+    [[ "$have" =~ ^[0-9]+$ ]] || have=0
+    if (( have < want )); then
+      log "tEURC issuer mints $(( want - have )) units to ${role,,} (target ${!mint_var} tEURC)"
+      as_teurc --id "$USDC_SAC" -- mint --to "$who" --amount "$(( want - have ))" >/dev/null
+    else
+      log "${role,,} holds $have tEURC units"
+    fi
+  done
+  [[ -n "${TSAFO_HOLDERS:-}" ]] && log "TSAFO_HOLDERS: add a $USDC_ASSET trustline in the wallet to borrow or lend tEURC"
+fi
+
 # --- 7. outputs ------------------------------------------------------------------
 # DEPLOYED_AT moves only when a contract was (re)deployed, so no-op runs leave no diff.
 [[ -n "${DEPLOYED_NEW:-}" || -z "${DEPLOYED_AT:-}" ]] && DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -559,7 +713,9 @@ if (( PLAN )); then
   fi
   N=$(wc -l < "$PLAN_LOG")
   if (( N == 0 )); then echo "  nothing to send: chain state matches this build and .env" >&3; fi
-  if (( ${#PLAN_FILES[@]} )); then
+  if (( ${#PLAN_FILES[@]} )) && (( EUR )); then
+    echo "  files a real run would write: $ENV_FILE (${PLAN_FILES[*]}), deployments/testnet-eur.json (never .env, testnet.json, README or bindings)" >&3
+  elif (( ${#PLAN_FILES[@]} )); then
     echo "  files a real run would write: $ENV_FILE (${PLAN_FILES[*]}), deployments/testnet.json, README table, bindings if an ID changed" >&3
   fi
   log "plan done in $(( $(date +%s) - T0 ))s: $N tx(s) planned, nothing sent, no file written"
@@ -567,6 +723,49 @@ if (( PLAN )); then
 fi
 
 mkdir -p "$(dirname "$OUT_JSON")"
+if (( EUR )); then
+# Same schema as testnet.json minus the tBENJI keys: contracts.usdc and
+# assets.usdc are the loan token (tEURC), loan names it, oracle.base is EUR.
+python3 - "$OUT_JSON" "$SUPERSEDED_ADD" "$REPO_ID" <<PY
+import json, os, sys
+prev = []
+if os.path.exists(sys.argv[1]):
+    try: prev = json.load(open(sys.argv[1])).get("superseded", [])
+    except Exception: prev = []
+superseded = [i for i in sys.argv[2].split() + prev if i and i != sys.argv[3]]
+superseded = list(dict.fromkeys(superseded))
+out = {
+  "network": "$STELLAR_NETWORK",
+  "rpcUrl": "${RPC_URL:-}",
+  "horizonUrl": "${HORIZON_URL:-}",
+  "deployedAt": "$DEPLOYED_AT",
+  "loan": {"symbol": "tEURC", "quote": "$QUOTE", "decimals": 7, "issuer": "$TEURC_ISSUER_ADDRESS"},
+  "contracts": {
+    "repo": "$REPO_ID",
+    "oracle": "$ORACLE_ID",
+    "usdc": "$USDC_SAC",
+    "tsafo": "$TSAFO_ID",
+  },
+  "assets": {"usdc": "$USDC_ASSET"},
+  "accounts": {
+    "admin": "$ADMIN_ADDRESS",
+    "issuer": "$ISSUER_ADDRESS",
+    "lender": "$LENDER_ADDRESS",
+    "borrower": "$BORROWER_ADDRESS",
+    "liquidator": "$LIQUIDATOR_ADDRESS",
+    "treasury": "$TREASURY_ADDRESS",
+    "guardian": "$GUARDIAN_ADDRESS",
+  },
+  "config": json.loads('''$CONFIG_JSON'''),
+  "tsafoAsset": json.loads('''$TSAFO_ASSET_JSON'''),
+  "tsafo": {"symbol": "tSAFO", "decimals": $TSAFO_DECIMALS, "kind": "spiko-mock", "feed": "spiko:eurSAFO"},
+  "oracle": {"base": json.loads('''$ORACLE_BASE'''), "decimals": $ORACLE_DECIMALS, "resolution": $ORACLE_RESOLUTION},
+  "superseded": superseded,
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(out, f, indent=2); f.write("\n")
+PY
+else
 python3 - "$OUT_JSON" "$SUPERSEDED_ADD" "$REPO_ID" <<PY
 import json, os, sys
 prev = []
@@ -610,9 +809,12 @@ with open(sys.argv[1], "w") as f:
 PY
 # README "Testnet deployment" table follows testnet.json, so the redeploy commit carries it.
 python3 "$ROOT/scripts/readme-ids.py" || log "WARN: README testnet table not updated"
+fi
 
 # --- 8. TS bindings for the app (packages/caravel-{repo,oracle}) ---------------
-if [[ -z "${SKIP_BINDINGS:-}" ]]; then
+# The EUR market runs the same wasm: the USD bindings serve it (the app takes
+# the contract ID from testnet-eur.json), so they stay pinned to the USD IDs.
+if [[ -z "${SKIP_BINDINGS:-}" ]] && (( ! EUR )); then
   for pair in "caravel-repo:$REPO_ID" "caravel-oracle:$ORACLE_ID"; do
     name="${pair%%:*}" id="${pair#*:}"
     if grep -qs "contractId: \"$id\"" "$ROOT/packages/$name/src/index.ts"; then
@@ -635,7 +837,8 @@ if [[ -n "$SUPERSEDED_ADD" ]]; then
     # Same keys as this run: pass the untracked keys file on when it was used.
     KF=""; (( ${#KEYS_FILE_ROLES[@]} )) && KF="$(caravel_keys_file testnet)"
     # shellcheck disable=SC2086  # one argument per id
-    if ENV_FILE="$ENV_FILE" CARAVEL_KEYS_FILE="$KF" "$ROOT/scripts/winddown.sh" $SUPERSEDED_ADD >&2; then
+    # EUR market: the keys are in the USD .env (BASE_ENV_FILE), not .env.eur.
+    if ENV_FILE="${BASE_ENV_FILE:-$ENV_FILE}" CARAVEL_KEYS_FILE="$KF" "$ROOT/scripts/winddown.sh" $SUPERSEDED_ADD >&2; then
       unset_env SUPERSEDED_PENDING
     else
       # Keep the marker: the next run (or scripts/winddown.sh) retries.
@@ -653,5 +856,6 @@ log "done in $(( $(date +%s) - T0 ))s"
 echo "ORACLE_ID=$ORACLE_ID"
 echo "REPO_ID=$REPO_ID"
 echo "TSAFO_ID=$TSAFO_ID"
+(( EUR )) && echo "TEURC=$USDC_ASSET (SAC $USDC_SAC)"
 echo "https://stellar.expert/explorer/testnet/contract/$ORACLE_ID"
 echo "https://stellar.expert/explorer/testnet/contract/$REPO_ID"

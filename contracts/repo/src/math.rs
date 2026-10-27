@@ -1,11 +1,13 @@
 //! All repo arithmetic, in one place (DECISIONS.md #8).
 //!
-//! Units: USDC amounts and collateral values are i128 in 7-decimal Stellar
-//! units. Collateral amounts are in the token's own units; NAV is USDC per
-//! whole collateral token, and `nav_decimals` is the oracle's `decimals()`
-//! with the token's decimals folded in by `oracle::scale_for_token`
-//! (DECISIONS.md #8, #28), so `amount × nav / 10^nav_decimals` is 7-decimal
-//! USDC for any token.
+//! Units: loan-token amounts (USDC, or EURC in a EUR market, DECISIONS.md
+//! #52; "USDC" below means the loan token) and collateral values are i128
+//! in 7-decimal Stellar units. Collateral amounts are in the token's own
+//! units; NAV is loan token per whole collateral token (the feed quotes in
+//! `Config.quote`), and `nav_decimals` is the oracle's `decimals()` with the
+//! token's decimals folded in by `oracle::scale_for_token` (DECISIONS.md #8,
+//! #28), so `amount × nav / 10^nav_decimals` is 7-decimal loan token for any
+//! token.
 //!
 //! Rounding always favours the lender / protocol:
 //! - interest rounds up

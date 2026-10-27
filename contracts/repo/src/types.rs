@@ -10,7 +10,9 @@ use soroban_sdk::{contracttype, Address, Symbol};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Config {
     pub admin: Address,
-    /// Circle testnet USDC SAC.
+    /// Loan token: Circle USDC, or EURC in a EUR market (DECISIONS.md #52).
+    /// Every principal, interest, fee and proceeds amount moves in it. The
+    /// name stays `usdc` so app, keeper and bindings need no rename.
     pub usdc: Address,
     /// SEP-40 price feed for collateral NAV.
     pub oracle: Address,
@@ -37,6 +39,12 @@ pub struct Config {
     /// risk (DECISIONS.md #33). 172_800 (2 days) in production, 120 in the
     /// demo (#5). Must be >= 60.
     pub timelock_secs: u64,
+    /// Currency the loan token is worth one unit of: `USD` (USDC market) or
+    /// `EUR` (EURC market), DECISIONS.md #52. The constructor requires the
+    /// feed's `base()` to be `Other(quote)`, so collateral is priced in the
+    /// loan currency. An admin assertion: the contract cannot check that
+    /// `usdc` really is that currency.
+    pub quote: Symbol,
 }
 
 /// SEP-40 asset identifier, same shape as Reflector's, so the mock oracle and
@@ -87,8 +95,10 @@ pub struct AssetConfig {
     /// each must be > 0 and `nav_floor <= nav_ceiling`.
     pub nav_floor: Option<i128>,
     pub nav_ceiling: Option<i128>,
-    /// Exposure cap (DECISIONS.md #32): total debt (principal + interest, USDC
-    /// 7 decimals) of live repos on this asset. `take_offer` fails with
+    /// Exposure cap (DECISIONS.md #32): total debt (principal + interest, loan
+    /// token 7 decimals: USDC, or EURC in a EUR market) of live repos on this
+    /// asset, in this repo contract only (a second market listing the same
+    /// token has its own cap, #52). `take_offer` fails with
     /// `CapExceeded` past it; 0 means no new repos. Exits (repay, auto-repay,
     /// top-up, liquidate) are never blocked, and lowering the cap below the
     /// open debt leaves live repos untouched. Must be ≥ 0.
@@ -196,7 +206,8 @@ pub struct Offer {
     pub lender: Address,
     /// Collateral token the lender accepts (e.g. tBENJI SAC).
     pub collateral_asset: Address,
-    /// USDC lent, 7-decimal units.
+    /// Loan token lent (`Config.usdc`: USDC, or EURC in a EUR market),
+    /// 7-decimal units.
     pub principal: i128,
     pub apr_bps: u32,
     pub term_secs: u64,

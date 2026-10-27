@@ -5,6 +5,9 @@
 // re-posts: on a weekend or holiday nothing new is published, so nothing is
 // sent and the on-chain age keeps growing, which is what the repo's staleness
 // rules (#25, #34, #38) are meant to see.
+// On an oracle whose base() is the NAV's own currency (the EUR market's EUR
+// feed, DECISIONS #52) it posts the NAV unconverted at Spiko's NAV
+// publication time and fetches no rate.
 //
 //   npm run spiko-nav -- eurSAFO --once --dry-run   # print what it would post
 //   npm run spiko-nav -- eurSAFO --once             # one tick, then exit
@@ -71,10 +74,13 @@ const acks = () =>
 
 async function main() {
   const decimals = Number(await view<number>(ORACLE_ID, "decimals"));
+  // The oracle's quote currency: SEP-40 base() is Other("USD") or Other("EUR") (#52).
+  const base = await view<unknown>(ORACLE_ID, "base");
+  const quote = Array.isArray(base) && base[0] === "Other" ? String(base[1]) : "USD";
   const sourceTimed = await view<boolean>(ORACLE_ID, "source_timed", [assetToScVal(ASSET)]).catch(() => null);
   const signer = DRY ? null : process.env.FEEDER_SECRET ? keypair("FEEDER") : keypair("ADMIN");
   log(
-    `spiko-nav ${SYMBOL} -> oracle ${ORACLE_ID} ${assetLabel(ASSET)} (${decimals} dec)` +
+    `spiko-nav ${SYMBOL} -> oracle ${ORACLE_ID} ${assetLabel(ASSET)} (${decimals} dec, base ${quote})` +
       `${signer ? ` signer ${signer.publicKey()}` : ""} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}${DRY ? " DRY-RUN (no tx sent)" : ""}` +
       `, alerts ${process.env.ALERT_CMD ? `via ${process.env.ALERT_CMD}` : "journal only (no ALERT_CMD)"}`,
   );
@@ -100,7 +106,7 @@ async function main() {
     }
     const r = await feederTick({
       symbol: SYMBOL,
-      read: () => fetchSpiko(SYMBOL),
+      read: () => fetchSpiko(SYMBOL, { quote }),
       lastRecord: () => view<OnChainRecord | null>(ORACLE_ID, "lastprice", [assetToScVal(ASSET)]),
       post: async (price, timestamp) => {
         const { hash } = await invoke(signer!, ORACLE_ID, "set_price_at", [assetToScVal(ASSET), i128(price), u64(timestamp)]);
@@ -113,6 +119,7 @@ async function main() {
         now: Math.floor(Date.now() / 1000),
         jumpAckBps: BigInt(process.env.NAV_JUMP_ACK_BPS || 1000),
         acks: acks(),
+        quote,
       },
       dryRun: DRY,
       staleAfterSecs: Number(process.env.SPIKO_MAX_AGE_SECS || 345_600),
