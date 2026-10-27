@@ -3,7 +3,7 @@
 //   RequestsBoard: the market board under Offers, with Fund for lenders.
 //   RequestView:   the #request tab, "Request a loan" form + the borrower's open requests.
 import { useState } from "react";
-import { COLLATERAL, LOAN, assetBySac, roleOf } from "../config";
+import { COLLATERAL, LOAN, QUOTE_SIGN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { BorrowRequest } from "../chain";
 import {
@@ -314,7 +314,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
                   Needed now
                   <Tip>
                     {t.nav && t.cfg
-                      ? `Repay ÷ (NAV ${fmtNav(t.nav.price, t.nav.decimals)} × ${fmtPct(BPS - t.cfg.haircut_bps, 1)}), rounded up. A lender can fund the request while what you lock covers this at the NAV of that moment; if the NAV falls below it, funding fails and the request waits.`
+                      ? `Repay ÷ (NAV ${QUOTE_SIGN}${fmtNav(t.nav.price, t.nav.decimals)} × ${fmtPct(BPS - t.cfg.haircut_bps, 1)}), rounded up. A lender can fund the request while what you lock covers this at the NAV of that moment; if the NAV falls below it, funding fails and the request waits.`
                       : "Waiting for the NAV."}
                   </Tip>
                 </dt>

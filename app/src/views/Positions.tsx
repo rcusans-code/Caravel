@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { LOAN, assetBySac, roleOf } from "../config";
+import { LOAN, QUOTE_SIGN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
 import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtOwed, fmtPct, idRef, parseAmount, requiredCollateral } from "../format";
@@ -529,7 +529,7 @@ function PositionCard({
         <div className={`cv-health${inMarginCall || breached ? " cv-health--margin" : ""}`}>
           <div className="cv-health__legend">
             <span>
-              Collateral cover at NAV <span className="cv-num">{nav ? fmtNav(nav.price, nav.decimals) : "—"}</span>
+              Collateral cover at NAV <span className="cv-num">{nav ? `${QUOTE_SIGN}${fmtNav(nav.price, nav.decimals)}` : "—"}</span>
             </span>
             <span className="cv-num app-flashable" ref={coverRef}>{cover !== null ? `${cover.toFixed(1)}%` : "—"}</span>
           </div>
@@ -629,7 +629,8 @@ function PositionCard({
                       Add {amt(topUpNeed)} {token.code} to {inMarginCall ? "clear the margin call" : "restore the starting buffer"}.
                       <Tip>
                         This brings the loan back to its starting safety buffer: a {fmtPct(repo.haircut_bps, 1)} haircut at today&apos;s price
-                        (NAV {fmtNav(nav.price, nav.decimals)}).
+                        (NAV {QUOTE_SIGN}
+                        {fmtNav(nav.price, nav.decimals)}).
                       </Tip>
                     </>
                   )

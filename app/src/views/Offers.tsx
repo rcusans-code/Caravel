@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { COLLATERAL, LOAN, assetBySac, roleOf } from "../config";
+import { COLLATERAL, LOAN, QUOTE_SIGN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { Offer } from "../chain";
 import { BPS, collateralDecimals, fmtAmount, fmtNav, fmtPct, fmtTerm, idRef, interest as calcInterest, requiredCollateral } from "../format";
@@ -302,7 +302,8 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
                   Locked as security for {fmtAmount(debt)} {LOAN.code}.
                   <Tip>
                     You can borrow up to {fmtPct(BPS - asset.haircut_bps, 1)} of your collateral&apos;s value; the{" "}
-                    {fmtPct(asset.haircut_bps, 1)} haircut is a safety buffer. Amount = debt ÷ (NAV {fmtNav(nav.price, nav.decimals)} ×{" "}
+                    {fmtPct(asset.haircut_bps, 1)} haircut is a safety buffer. Amount = debt ÷ (NAV {QUOTE_SIGN}
+                    {fmtNav(nav.price, nav.decimals)} ×{" "}
                     {fmtPct(BPS - asset.haircut_bps, 1)}), rounded up. The final figure uses the price when the transaction lands.
                   </Tip>
                 </>
