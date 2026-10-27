@@ -1,7 +1,8 @@
 // Seed a demo state on the deployed repo contract:
 //   2 open tBENJI offers from LENDER (+ 1 tSAFO offer when TSAFO_ID is set)
 //   + 1 repo taken by BORROWER that matures soon (default -> liquidation demo)
-//   + 1 long auto-repay repo (30 demo days), so the positions table is never empty.
+//   + 1 long auto-repay repo (30 demo days), so the positions table is never empty
+//   + 1 open borrow request from BORROWER (tBENJI escrowed, waiting for a lender).
 // Then it funds LIQUIDATOR up to the funding floor (funding.ts) of every live
 // repo plus the open offers, so a default can always be liquidated.
 //
@@ -49,6 +50,9 @@ const TAKEN = { days: NEAR_DAYS, aprBps: 500 };
 // Taken with auto-repay on: repaid by the keeper at maturity from the
 // borrower's USDC, so a live position stays on screen for the whole demo.
 const LONG = { days: Number(process.env.SEED_LONG_DAYS ?? "30"), aprBps: 500 };
+// Borrow request: the borrower names a lower rate and locks ~15% over the
+// debt in tBENJI (the 3% haircut needs ~3.4%), so NAV wiggles do not block a fill.
+const REQUEST = { days: 14, aprBps: 450, collateral: (PRINCIPAL * 115n) / 100n };
 
 const horizon = new Horizon.Server(env("HORIZON_URL", "https://horizon-testnet.stellar.org"));
 const CLASSIC_FEE = "100000"; // 0.01 XLM, testnet fees spike
@@ -186,6 +190,27 @@ async function createOffer(
   return { kind: "offer", id, principal: PRINCIPAL, aprBps, termSecs, days, note: tsafo ? "open (tSAFO)" : "open", hash };
 }
 
+/** BORROWER posts the open borrow request; null on a contract without borrow requests. */
+async function createRequest(repoId: string, daySecs: number): Promise<Row | null> {
+  const termSecs = REQUEST.days * daySecs;
+  try {
+    const { hash, result } = await invoke(keypair("BORROWER"), repoId, "create_request", [
+      addr(env("BORROWER_ADDRESS")),
+      addr(env("TBENJI_SAC")),
+      i128(REQUEST.collateral),
+      i128(PRINCIPAL),
+      u32(REQUEST.aprBps),
+      u64(termSecs),
+    ]);
+    const id = result as bigint;
+    say(`request ${id}: ${fmt(PRINCIPAL)} USDC, ${REQUEST.days} d, ${REQUEST.aprBps / 100}%, ${fmt(REQUEST.collateral)} tBENJI locked`);
+    return { kind: "req", id, principal: PRINCIPAL, aprBps: REQUEST.aprBps, termSecs, days: REQUEST.days, note: `open, ${fmt(REQUEST.collateral)} tBENJI locked`, hash };
+  } catch (e) {
+    say(`WARN: no borrow request posted (contract without create_request?): ${(e as Error).message.split("\n")[0]}`);
+    return null;
+  }
+}
+
 /** Walk repo ids until RepoNotFound; the live ones as funding-floor exposures. */
 async function liveExposures(repoId: string): Promise<Exposure[]> {
   const out: Exposure[] = [];
@@ -225,7 +250,7 @@ async function fundLiquidator(repoId: string, offers: Row[], discountBps: bigint
 async function main() {
   const totalUsdc = Number(PRINCIPAL / UNIT) * (OPEN_OFFERS.length + 2 + (process.env.TSAFO_ID ? 1 : 0));
   // ~debt / (NAV × (1 − haircut)) for the two taken repos, plus room for a top-up demo.
-  const needTbenji = Math.ceil((2 * Number(PRINCIPAL / UNIT) * 1.02) / 0.97) + 100;
+  const needTbenji = Math.ceil((2 * Number(PRINCIPAL / UNIT) * 1.02) / 0.97) + Number(REQUEST.collateral / UNIT) + 100;
 
   // 1. deploy (optional) while the lender/borrower buy USDC (different signers).
   await Promise.all([
@@ -280,6 +305,8 @@ async function main() {
   ]);
   const longId = longTake.result as bigint;
   say(`repo ${longId} taken with auto-repay (offer ${longOffer.id})`);
+  // Same signer again: the open borrow request, for the Borrow requests board.
+  const request = await createRequest(REPO_ID, daySecs);
   type RepoView = { collateral_amount: bigint; interest: bigint; maturity_ts: bigint };
   const [repo, longRepo] = await Promise.all([
     view<RepoView>(REPO_ID, "repo", [u64(repoId)]),
@@ -289,12 +316,13 @@ async function main() {
   const inSecs = maturity - Math.floor(Date.now() / 1000);
   const hhmmss = (t: number) => new Date(t * 1000).toISOString().slice(11, 19);
 
-  // 4. liquidator funded for every live repo and every open offer.
-  await fundLiquidator(REPO_ID, open, BigInt(cfg.liquidation_discount_bps));
+  // 4. liquidator funded for every live repo, every open offer and the open request.
+  await fundLiquidator(REPO_ID, request ? [...open, request] : open, BigInt(cfg.liquidation_discount_bps));
 
   // 5. summary.
   const rows: Row[] = [
     ...open,
+    ...(request ? [request] : []),
     {
       ...near,
       kind: "repo",

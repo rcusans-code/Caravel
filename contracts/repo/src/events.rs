@@ -122,7 +122,47 @@ pub struct OfferCancelled {
     pub principal: i128,
 }
 
-/// Emitted by `take_offer`: the DvP leg that opens a repo.
+/// A borrower posted a borrow request and escrowed its collateral.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestCreated {
+    #[topic]
+    pub request_id: u64,
+    #[topic]
+    pub borrower: Address,
+    pub collateral_asset: Address,
+    pub collateral_amount: i128,
+    pub principal: i128,
+    pub apr_bps: u32,
+    pub term_secs: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestCancelled {
+    #[topic]
+    pub request_id: u64,
+    #[topic]
+    pub borrower: Address,
+    /// Collateral returned to the borrower.
+    pub collateral_amount: i128,
+}
+
+/// A lender filled a borrow request; the `RepoOpened` for `repo_id`
+/// (with `offer_id` 0) is emitted just before it.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestFilled {
+    #[topic]
+    pub request_id: u64,
+    #[topic]
+    pub repo_id: u64,
+    pub lender: Address,
+    pub borrower: Address,
+}
+
+/// Emitted by `take_offer` and `fill_request`: the DvP leg that opens a
+/// repo. `offer_id` is 0 for a request-born repo (see `RequestFilled`).
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RepoOpened {

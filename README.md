@@ -106,6 +106,9 @@ stateDiagram-v2
   [*] --> Offer: create_offer
   Offer --> Cancelled: cancel_offer
   Offer --> Open: take_offer
+  [*] --> Request: create_request
+  Request --> Cancelled: cancel_request
+  Request --> Open: fill_request
   Open --> MarginCall: check_margin, breach
   MarginCall --> Open: top_up to the haircut line
   Open --> Repaid: repay
@@ -120,7 +123,7 @@ stateDiagram-v2
   Liquidated --> [*]
 ```
 
-1. `take_offer` (borrower): offer → **Open**. Collateral in, USDC out in one atomic transaction. The offer is gone after this.
+1. `take_offer` (borrower): offer → **Open**. Collateral in, USDC out in one atomic transaction. The offer is gone after this. Or the other way round, a **borrow request**: the borrower posts `create_request` (its collateral escrowed, the APR it wants) and a lender's `fill_request` opens the repo, lender USDC → borrower in the same transaction. The fill checks the escrow against the debt at a fresh in-band NAV and the asset's haircut; if the NAV has fallen below that, it fails with `InsufficientCollateral` and the request stays posted. All the escrow becomes the repo's collateral, and auto-repay starts off. From **Open** on, a request-born repo is the same as an offer-born one.
 2. `check_margin` (anyone): Open → **MarginCall** when `debt > collateral × NAV × (1 − margin trigger)`, the asset's `margin_trigger_bps` (2% for tBENJI). Starts the margin window. Blocked on stale or out-of-band NAV.
 3. `top_up` (borrower): MarginCall → **Open**, only once collateral is back at the initial haircut. Works with stale or out-of-band NAV, but an out-of-band NAV never clears the call.
 4. `repay` (borrower): Open, MarginCall or Defaulted → **Repaid** (final), at the same fixed debt. Works with stale NAV, after maturity and after `default`, until a liquidation lands.
@@ -133,6 +136,9 @@ stateDiagram-v2
 | `create_offer(lender, collateral_asset, principal, apr_bps, term_secs) → offer_id` | lender | → offer | no | lender USDC → contract |
 | `cancel_offer(offer_id)` | the offer's lender | offer removed | no | contract USDC → lender |
 | `take_offer(borrower, offer_id, auto_repay) → repo_id` | borrower | offer → Open | **yes** | borrower collateral → contract; contract USDC → borrower; with `auto_repay`, a USDC allowance for the debt |
+| `create_request(borrower, collateral_asset, collateral_amount, principal, apr_bps, term_secs) → request_id` | borrower | → request | no | borrower collateral → contract |
+| `cancel_request(request_id)` | the request's borrower | request removed (never paused) | no | contract collateral → borrower |
+| `fill_request(lender, request_id) → repo_id` | lender | request → Open | **yes** | lender USDC → borrower; the escrowed collateral stays as the repo's (all of it). `InsufficientCollateral` if it no longer covers the debt at the haircut, `UsdcFrozen` if either side's USDC is frozen; `offer_id` 0, `request_id` set, `auto_repay` off |
 | `repay(repo_id)` | borrower | Open / MarginCall / Defaulted → Repaid | no | borrower USDC → contract → lender (`P + I − fee`) and treasury (`fee`), a failed payout parked for `claim`; collateral → borrower |
 | `set_auto_repay(repo_id, enabled)` | borrower | — | no | USDC allowance for the debt granted / withdrawn |
 | `auto_repay(repo_id)` | anyone, from maturity or a missed margin deadline | Open / MarginCall → Repaid | no | as `repay`, pulled from the allowance; fails with `AutoRepayFailed` and moves nothing if the borrower is short or cannot receive the collateral |
@@ -155,9 +161,9 @@ stateDiagram-v2
 | `propose_asset(asset, config) → eta`, `propose_pause(asset, pause) → eta` | admin | — | — | — (queues any change, loosening included, for `timelock_secs`) |
 | `execute_asset(asset)`, `execute_pause(asset)` | admin, from `eta` until `eta + timelock_secs` (`ProposalExpired` after) | — | — | — |
 | `cancel_asset(caller, asset)`, `cancel_pause(caller, asset)` | admin any time; guardian once per change (`VetoSpent` when the admin re-proposes the change it cancelled) | — | — | — |
-| `config()`, `offer(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `pending_liquidator(who)`, `roles()`, `is_liquidator(who)`, `claimable(who)`, `claimable_collateral(who, asset)`, `band_candidate(asset)` | anyone | read only | — | — |
+| `config()`, `offer(id)`, `request(id)`, `repo(id)`, `asset(addr)`, `pause(addr)`, `open_debt(addr)`, `pending_asset(addr)`, `pending_pause(addr)`, `pending_liquidator(who)`, `roles()`, `is_liquidator(who)`, `claimable(who)`, `claimable_collateral(who, asset)`, `band_candidate(asset)` | anyone | read only | — | — |
 
-Every state-changing call checks status first and fails with a named error otherwise. An offer can be taken once; a repo can be repaid, defaulted or liquidated once.
+Every state-changing call checks status first and fails with a named error otherwise. An offer can be taken once, a request filled once; a repo can be repaid, defaulted or liquidated once.
 
 ### Events
 
@@ -172,6 +178,9 @@ Every state-changing call checks status first and fails with a named error other
 | `ProposalCancelled` | asset, kind | by (cancelled, replaced by a new proposal, or superseded by an instant change) |
 | `OfferCreated` | offer_id, lender | collateral_asset, principal, apr_bps, term_secs |
 | `OfferCancelled` | offer_id, lender | principal |
+| `RequestCreated` | request_id, borrower | collateral_asset, collateral_amount, principal, apr_bps, term_secs |
+| `RequestCancelled` | request_id, borrower | collateral_amount |
+| `RequestFilled` | request_id, repo_id | lender, borrower (after the repo's `RepoOpened`, whose offer_id is 0) |
 | `RepoOpened` | repo_id, offer_id | lender, borrower, collateral_asset, collateral_amount, principal, interest, haircut_bps, maturity_ts |
 | `MarginCall` | repo_id | deadline |
 | `MarginCleared` | repo_id | — (`default` cleared a missed call on a recovered NAV, #20) |

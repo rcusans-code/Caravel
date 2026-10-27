@@ -7,10 +7,10 @@ import { readFileSync } from "node:fs";
 import { demoTab, parseHash, shownTab, toHash, type Route } from "../src/route.ts";
 import { rewriteCtas } from "../scripts/landing-ctas.mjs";
 
-test("parseHash: the four tabs, empty hash = Offers", () => {
+test("parseHash: the five tabs, empty hash = Offers", () => {
   assert.deepEqual(parseHash(""), { route: { tab: "offers" }, known: true });
   assert.deepEqual(parseHash("#"), { route: { tab: "offers" }, known: true });
-  for (const t of ["offers", "lend", "positions", "admin"] as const) assert.deepEqual(parseHash(`#${t}`), { route: { tab: t }, known: true });
+  for (const t of ["offers", "lend", "request", "positions", "admin"] as const) assert.deepEqual(parseHash(`#${t}`), { route: { tab: t }, known: true });
   assert.deepEqual(parseHash("#LEND"), { route: { tab: "lend" }, known: true });
   assert.deepEqual(parseHash("#/positions"), { route: { tab: "positions" }, known: true });
 });
@@ -31,6 +31,7 @@ test("toHash round-trips through parseHash", () => {
   const routes: Route[] = [
     { tab: "offers" },
     { tab: "lend" },
+    { tab: "request" },
     { tab: "positions" },
     { tab: "admin" },
     { tab: "offers", offer: 7n },

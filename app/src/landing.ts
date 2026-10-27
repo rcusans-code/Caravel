@@ -9,7 +9,7 @@
 import { Buffer } from "buffer";
 import { Address, xdr } from "@stellar/stellar-sdk";
 import { big, getBook, simulateView } from "./book";
-import type { Offer, Repo, Status } from "./book";
+import type { BorrowRequest, Offer, Repo, Status } from "./book";
 import { ORACLE_ID, REPO_ID, TBENJI_SAC, assetBySac } from "./config";
 import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtPct } from "./format";
 
@@ -35,6 +35,8 @@ interface Nav {
 
 interface Live {
   offers: Offer[];
+  /** Open borrow requests, labelled "Request" on the ticker. */
+  requests: BorrowRequest[];
   repos: Repo[];
   daySecs: bigint;
   /** Margin trigger of the hero repo's asset (DECISIONS.md #26). */
@@ -110,8 +112,9 @@ function termDays(termSecs: bigint, daySecs: bigint): string {
 
 // --- ticker ------------------------------------------------------------------------
 
-const STATUS: Record<Status | "Offer", [string, string]> = {
+const STATUS: Record<Status | "Offer" | "Request", [string, string]> = {
   Offer: ["Available", "#efe7da"],
+  Request: ["Request", "#efe7da"],
   Open: ["Open", "#8db57f"],
   MarginCall: ["Margin call", "#e4c766"],
   Repaid: ["Repaid", "#a6bec4"],
@@ -124,7 +127,7 @@ interface Row {
   amount: string;
   apr: string;
   term: string;
-  status: Status | "Offer";
+  status: Status | "Offer" | "Request";
   ts: bigint;
   id: bigint;
 }
@@ -140,6 +143,16 @@ function tickerRows(live: Live): Row[] {
     ts: o.created_at,
     id: o.id,
   }));
+  // Borrowers' open requests: a lender can fund them from the app.
+  const requests: Row[] = live.requests.map((q) => ({
+    label: `Request #${pad(q.id)}`,
+    amount: `${fmtAmount(q.principal)} USDC`,
+    apr: fmtPct(q.apr_bps),
+    term: `${termDays(q.term_secs, daySecs)}d · ${assetBySac(q.collateral_asset).code}`,
+    status: "Request",
+    ts: q.created_at,
+    id: q.id,
+  }));
   // Only what can still be taken or is running: closed agreements (Repaid, Liquidated, Defaulted) stay off the ticker.
   const repos: Row[] = live.repos.filter((r) => isLive(r.status)).map((r) => ({
     label: `Agreement #${pad(r.id)}`,
@@ -150,7 +163,7 @@ function tickerRows(live: Live): Row[] {
     ts: r.start_ts,
     id: r.id,
   }));
-  return [...offers, ...repos].sort((a, b) => (a.ts === b.ts ? Number(b.id - a.id) : a.ts < b.ts ? 1 : -1)).slice(0, TICKER_MAX);
+  return [...offers, ...requests, ...repos].sort((a, b) => (a.ts === b.ts ? Number(b.id - a.id) : a.ts < b.ts ? 1 : -1)).slice(0, TICKER_MAX);
 }
 
 /** The ticker's static rows: one half, then a `display: contents` copy (aria-hidden) for the CSS loop. */
@@ -210,7 +223,7 @@ function renderTicker(rows: Row[]) {
   copy.setAttribute("aria-hidden", "true");
   for (const c of half) copy.appendChild(c.cloneNode(true));
   run.replaceChildren(...half, copy);
-  run.closest("section")?.setAttribute("aria-label", "Latest offers and loans on the Stellar testnet");
+  run.closest("section")?.setAttribute("aria-label", "Latest offers, borrow requests and loans on the Stellar testnet");
 }
 
 /** The page's static sample rows, kept so a book that thins out below TICKER_MIN_LIVE can go back to them. */
