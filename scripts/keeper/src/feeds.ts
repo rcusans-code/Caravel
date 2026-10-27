@@ -4,14 +4,16 @@
 //   npm run feeds            # one reading of each
 //   npm run feeds -- --json  # machine-readable
 //
-// Mock:  ORACLE_ID,      Stellar(TBENJI_SAC), Stellar(TSAFO_ID) when set
+// Mock:  ORACLE_ID,      Stellar(TBENJI_SAC) and Stellar(TSAFO_ID) when set (the EUR market has no tBENJI, #52)
 // Live:  LIVE_ORACLE_ID, LIVE_ORACLE_ASSET (e.g. Reflector testnet CEX/DEX feed, Other:USDC)
 import { env, NETWORK } from "./chain.js";
 import { assetLabel, parseAsset, readFeed, type FeedReading } from "./sep40.js";
 
 const LIVE = { label: "live feed", oracle: env("LIVE_ORACLE_ID"), asset: parseAsset(env("LIVE_ORACLE_ASSET")) };
 const feeds = [
-  { label: "mock NAV  tBENJI", oracle: env("ORACLE_ID"), asset: parseAsset(`Stellar:${env("TBENJI_SAC")}`) },
+  ...(process.env.TBENJI_SAC
+    ? [{ label: "mock NAV  tBENJI", oracle: env("ORACLE_ID"), asset: parseAsset(`Stellar:${env("TBENJI_SAC")}`) }]
+    : []),
   ...(process.env.TSAFO_ID
     ? [{ label: "mock NAV  tSAFO", oracle: env("ORACLE_ID"), asset: parseAsset(`Stellar:${env("TSAFO_ID")}`) }]
     : []),

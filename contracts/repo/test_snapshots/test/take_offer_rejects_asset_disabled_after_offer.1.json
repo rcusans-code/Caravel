@@ -1081,6 +1081,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "quote"
+                            },
+                            "val": {
+                              "symbol": "USD"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "timelock_secs"
                             },
                             "val": {

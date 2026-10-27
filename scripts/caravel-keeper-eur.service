@@ -1,0 +1,36 @@
+# systemd --user unit for the EUR market's keeper (DECISIONS #52): the same
+# scripts/keeper/src/keeper.ts and install copy as caravel-keeper, on the EUR
+# repo contract (LOAN_ASSET=EURC scripts/deploy.sh). Install caravel-keeper
+# first (scripts/README.md "Keeper"), then from the checkout:
+#   ( umask 077; { cat ~/.local/lib/caravel/.env; echo; cat .env.eur; } > ~/.local/lib/caravel/.env.eur )
+#   install -Dm644 scripts/caravel-keeper-eur.service ~/.config/systemd/user/caravel-keeper-eur.service
+#   systemctl --user daemon-reload && systemctl --user enable --now caravel-keeper-eur
+# Its env file is the USD keepers' copy (same keys) with .env.eur appended
+# (written by the EUR deploy in the checkout root): the later lines win, so
+# REPO_ID / ORACLE_ID / TSAFO_ID are the EUR market's, USDC_SAC is tEURC and
+# TBENJI_SAC is empty (the keeper then watches tSAFO only). Re-run that
+# line after every EUR redeploy: the keeper sees REPO_ID change, exits, and
+# Restart= reloads it. tSAFO is source-timed, so no nav-keeper here; its NAV
+# comes from caravel-spiko-nav-eur.service.
+[Unit]
+Description=Caravel EUR-market keeper (check_margin, default, liquidate on every EUR repo every 10 s)
+After=network-online.target caravel-spiko-nav-eur.service
+Wants=network-online.target
+OnFailure=caravel-alert@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Type=simple
+Environment=ENV_FILE=%h/.local/lib/caravel/.env.eur
+Environment=ALERT_CMD=%h/.local/lib/caravel/caravel-alert.sh
+WorkingDirectory=%h/.local/lib/caravel/keeper
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/keeper.ts
+Restart=always
+RestartSec=10
+# tsx forwards SIGTERM to the keeper child and exits 143 (128 + SIGTERM).
+# Tell systemd 143 is an expected clean exit on service stop.
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target

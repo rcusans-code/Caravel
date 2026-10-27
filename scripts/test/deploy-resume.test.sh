@@ -40,6 +40,8 @@ def opt(name, args):
     return args[args.index(name) + 1] if name in args else None
 if a[:3] == ["contract", "id", "asset"]:
     os.execv(os.environ["REAL_STELLAR"], [os.environ["REAL_STELLAR"]] + a)
+if a[:2] == ["keys", "address"]: print(os.environ["FAKE_G"]); sys.exit(0)
+if a[:2] == ["keys", "secret"]: print("S" + "A" * 55); sys.exit(0)
 if a[:2] == ["contract", "fetch"]:
     src = f"{S}/c/{opt('--id', a)}.wasm"
     if not os.path.exists(src): sys.exit(1)
@@ -70,6 +72,7 @@ if a[:2] == ["contract", "invoke"]:
             os.remove(fp); print("error: TxBadSeq", file=sys.stderr); sys.exit(1)
         assets[tok] = json.loads(opt("--config", args)); json.dump(assets, open(assets_p, "w")); sys.exit(0)
     if fn == "lastprice": print('{"price":"100000000000000","timestamp":1}'); sys.exit(0)
+    if fn == "decimals": print("7"); sys.exit(0)
     if fn in ("is_liquidator", "is_whitelisted", "authorized"): print("true"); sys.exit(0)
     if fn == "balance": print('"500000"'); sys.exit(0)
     if fn == "pending_liquidator": sys.exit(1)
@@ -92,8 +95,8 @@ d = json.load(open(sys.argv[1]))
 print(d["contracts"]["usdc"], d["contracts"]["tbenji"], d["assets"]["usdc"], d["assets"]["tbenji"])
 PY
 )
-export FAKE_STATE="$STATE" REAL_STELLAR FAKE_USDC="$USDC_ASSET"
 G="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+export FAKE_STATE="$STATE" REAL_STELLAR FAKE_USDC="$USDC_ASSET" FAKE_G="$G"
 
 # Chain before the redeploy: oracle and tSAFO match the build, the repo is v1.
 ORACLE="CORACLEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -126,6 +129,19 @@ json() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(eval
 out=$(deploy --plan); rc=$?
 check "plan: a replaced repo is planned for wind-down" '[[ $rc == 0 && "$out" == *"scripts/winddown.sh $OLD "* ]]' "$out"
 check "plan: no SUPERSEDED_PENDING in the files list" '[[ "$out" != *SUPERSEDED_PENDING* ]]' "$out"
+check "plan: the USD repo is deployed with quote USD" '[[ "$out" == *'"'"'"quote":"USD"'"'"'* ]]' "$out"
+
+# --- EUR market plan (LOAN_ASSET=EURC, DECISIONS #52): sends and writes nothing ---
+cp "$ROOT/.env" "$TMP/env.eur-before"; cp "$ROOT/deployments/testnet.json" "$TMP/json.eur-before"
+out=$(env -u CARAVEL_KEYS_FILE LOAN_ASSET=EURC PATH="$BIN:$PATH" ENV_FILE="$ROOT/.env" PREBUILT_WASM_DIR="$WASM" SKIP_BINDINGS=1 "$ROOT/scripts/deploy.sh" --plan 2>&1); rc=$?
+check "EUR plan: a EUR oracle and a repo with quote EUR" \
+  '[[ $rc == 0 && "$out" == *'"'"'--base {"Other":"EUR"}'"'"'* && "$out" == *'"'"'"quote":"EUR"'"'"'* ]]' "$out"
+check "EUR plan: tSAFO reused and priced from Spiko in EUR, tBENJI not listed" \
+  '[[ "$out" == *"lists the USD market'"'"'s tSAFO $TSAFO"* && "$out" == *"EUR NAV, no FX"* && "$out" != *"set_asset --asset $TBENJI_SAC"* ]]' "$out"
+check "EUR plan: tEURC issuer, SAC, trustlines and mints to lender, liquidator and borrower" \
+  '[[ "$out" == *"tEURC issuer key"* && "$out" == *"contract asset deploy --asset tEURC:"* && "$out" == *"borrower  tx new change-trust"* && $(grep -c "teurc-issuer contract invoke --id PLANNED_teurc_sac -- mint --to $G" <<<"$out") == 3 ]]' "$out"
+check "EUR plan: never .env, testnet.json, .env.eur or testnet-eur.json" \
+  'cmp -s "$ROOT/.env" "$TMP/env.eur-before" && cmp -s "$ROOT/deployments/testnet.json" "$TMP/json.eur-before" && [[ ! -e "$ROOT/.env.eur" && ! -e "$ROOT/deployments/testnet-eur.json" && "$out" == *"testnet-eur.json (never .env"* ]]' "$out"
 
 # --- run 1: deploys the new repo, then dies on set_asset tSAFO ---------------
 echo "$TSAFO" > "$STATE/fail_set_asset"
@@ -189,6 +205,31 @@ check "double: run 3 succeeds" '[[ $rc == 0 ]]' "$out"
 check "double: superseded = [B, A, PREV]" '[[ "$(json "\" \".join(d[\"superseded\"])")" == "$B $A $PREV" ]]' "$(json 'd["superseded"]')"
 check "double: winddown.sh got B and A as separate args" '[[ $(wc -l < "$STATE/winddown.args") == 2 && "$(paste -sd" " "$STATE/winddown.args")" == "$B $A" ]]' "$(cat "$STATE/winddown.args" 2>/dev/null)"
 check "double: run 3 cleared the marker" '! grep -q "^SUPERSEDED_PENDING=" "$ROOT/.env"'
+
+# --- EUR market real run (fake chain, DECISIONS #52): its own files only ------
+cp "$TMP/env.initial" "$ROOT/.env"
+printf '%s\n' LENDER_SECRET=dummy BORROWER_SECRET=dummy LIQUIDATOR_SECRET=dummy >> "$ROOT/.env"
+cp "$ROOT/.env" "$TMP/env.eur-before"; cp "$ROOT/deployments/testnet.json" "$TMP/json.eur-before"
+eur() { env -u CARAVEL_KEYS_FILE LOAN_ASSET=EURC PATH="$BIN:$PATH" ENV_FILE="$ROOT/.env" PREBUILT_WASM_DIR="$WASM" SKIP_BINDINGS=1 "$ROOT/scripts/deploy.sh" "$@" 2>&1; }
+eurval() { sed -n "s/^$1=//p" "$ROOT/.env.eur"; }
+ejson() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$ROOT/deployments/testnet-eur.json" "$1"; }
+out=$(eur); rc=$?
+EREPO=$(eurval REPO_ID); TEURC_SAC=$("$REAL_STELLAR" contract id asset --asset "tEURC:$G" --rpc-url https://soroban-testnet.stellar.org --network-passphrase "Test SDF Network ; September 2015" 2>/dev/null)
+check "EUR run succeeds and never touches .env or testnet.json" \
+  '[[ $rc == 0 ]] && cmp -s "$ROOT/.env" "$TMP/env.eur-before" && cmp -s "$ROOT/deployments/testnet.json" "$TMP/json.eur-before"' "$out"
+check "EUR run: .env.eur is mode 600 and names the EUR market (tEURC as USDC_*, no tBENJI, tSAFO pinned)" \
+  '[[ "$(stat -c %a "$ROOT/.env.eur")" == 600 && -n "$EREPO" && "$EREPO" != "$OLD" && "$(eurval USDC_ASSET)" == "tEURC:$G" && "$(eurval USDC_SAC)" == "$TEURC_SAC" && "$(grep -c "^TBENJI_SAC=$" "$ROOT/.env.eur")" == 1 && "$(eurval TSAFO_ID)" == "$TSAFO" && -n "$(eurval TEURC_ISSUER_SECRET)" ]]' "$(sed 's/SECRET=.*/SECRET=…/' "$ROOT/.env.eur")"
+check "EUR run: repo config is quote EUR with usdc = tEURC SAC; only tSAFO listed" \
+  '[[ "$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c[\"quote\"], c[\"usdc\"])" "$STATE/c/$EREPO.config")" == "EUR $TEURC_SAC" && "$(python3 -c "import json,sys; print(\" \".join(json.load(open(sys.argv[1]))))" "$STATE/c/$EREPO.assets.json")" == "$TSAFO" ]]'
+EJ=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); c=d["contracts"]; print(c["repo"], c["usdc"], d["assets"]["usdc"], d["oracle"]["base"]["Other"], d["config"]["quote"], "tbenji" in c, "tbenjiAsset" in d)' "$ROOT/deployments/testnet-eur.json" 2>&1)
+check "EUR run: testnet-eur.json keeps testnet.json's schema minus tBENJI, base EUR" \
+  '[[ "$EJ" == "$EREPO $TEURC_SAC tEURC:$G EUR EUR False False" ]]' "$EJ"
+check "EUR run: tEURC trustline and mint for lender, liquidator and borrower" \
+  '[[ $(grep -c "adding the tEURC trustline" <<<"$out") == 3 && $(grep -c "tEURC issuer mints" <<<"$out") == 3 ]]' "$out"
+cp "$ROOT/.env.eur" "$TMP/enveur.before"; cp "$ROOT/deployments/testnet-eur.json" "$TMP/jsoneur.before"
+out=$(eur); rc=$?
+check "EUR re-run reuses oracle and repo, no file diff" \
+  '[[ $rc == 0 && "$out" == *"repo unchanged, reusing $EREPO"* && "$out" == *"oracle unchanged"* ]] && cmp -s "$ROOT/.env.eur" "$TMP/enveur.before" && cmp -s "$ROOT/deployments/testnet-eur.json" "$TMP/jsoneur.before" && cmp -s "$ROOT/.env" "$TMP/env.eur-before"' "$out"
 
 echo "$PASS passed, $FAIL failed"
 (( FAIL == 0 ))
