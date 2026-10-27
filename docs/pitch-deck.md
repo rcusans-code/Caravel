@@ -1,4 +1,4 @@
-# Pitch deck: 11 slides, English
+# Pitch deck: 12 slides, English
 
 **Owners:** Teo drafts the slides, Den owns the narrative and the final read. Numbers come only from [numbers.md](numbers.md) (DefiLlama RWA, dated 25 Oct 2026); put the date on each slide that shows one. Visuals: logos in `design/logos/`, landing screenshots in `docs/media/`, app screenshots from the seeded demo run.
 
@@ -16,7 +16,8 @@
 | 8 | **Why Stellar** | The assets already live here; SAC; authorized trustlines; atomic DvP; SEP-40 oracles; sub-cent fees. | |
 | 9 | **Demand** | Binance × Franklin (BENJI as off-exchange collateral), BUIDL accepted on CEXs, Aave Horizon; Spiko says its shares can be used as on-chain collateral and asks partners to get in touch. | Dates and links in numbers.md § Demand |
 | 10 | **Competition + model** | Positioning line: Ascend × M1X is a bilateral institutional repo on one sovereign token, rolled hourly; Caravel is the open order book (any USDC lender, multi-issuer permissioned fund collateral, daily-NAV margin, issuer-approved liquidation). Make no precedence claim. Table: Blend, Templar, Aave Horizon, CEX collateral programs, plus one row "XOXNO Spiko spoke (disabled) · Liqvid X on Alula (SCF #45): open-ended pool, oracle NAV, liquidated at HF<1", vs Caravel (term, daily NAV, permissioned assets, atomic DvP). Revenue: fee on interest (DECISIONS #3). | stellar.org press, 23 Oct 2026; SCF #45 record; XOXNO mainnet config (sources in numbers.md). No repo links on the slide |
-| 11 | **GTM, roadmap, team** | First deals OTC: one issuer (Spiko or Etherfuse) + one market maker as liquidator. Roadmap: real NAV oracle → liquidation auction → lender vault, plus the standard term-repo features (collateral substitution, partial unwind, roll, lender termination on an issuer event). Team of four. | |
+| 11 | **GTM, roadmap, team** | First deals OTC: one issuer (Spiko first) + one market maker as liquidator. Roadmap: real NAV oracle → liquidation auction → lender vault, plus the standard term-repo features (collateral substitution, partial unwind, roll, lender termination on an issuer event). Team of four. | |
+| 12 | **First 90 days: Spiko first** | Weeks 1–4: Spiko allowlist request, entity filed, SCF application, code freeze. Weeks 5–8: audit and legal review; line up borrower, USDC lender, whitelisted liquidator. Weeks 9–12: audited mainnet deploy, first OTC repo (up to $1M). Name no Spiko share class (the first asset is not picked yet). Repeat the Code/App links. | "Up to $1M" = async default 27 Oct, plan doc §6 (first 90 days plan, 27 Oct 2026), under the asset's DECISIONS #32 launch cap. Week 12 is a target; the audit sets the date |
 
 ## Slide 7: eligible collateral (7-day term)
 
