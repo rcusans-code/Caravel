@@ -637,6 +637,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <div class="carry-cell"><span class="carry-k">Cost of the loan</span><span class="carry-v" style="color: var(--brand);">5.20%</span><span class="carry-d">Sample Caravel rate, fixed</span></div>
 </div>
 <p class="carry-note">The fund keeps earning, and the borrowed cash earns about 0.5% more than it costs, at today&#x27;s floating pool rate. Rates are examples and change daily.</p>
+<p class="carry-note">In euros, borrowing already costs less than the fund earns. On Morpho (Ethereum), holders of Spiko EUTBL (2.40%) and eurSAFO (2.84%) borrow the euro stablecoin EURCV at 1.77%, with no currency risk (27 Oct 2026)<sup><a href="#src-6">6</a></sup>. EURC loans against Spiko's euro funds are on Caravel's roadmap; today Caravel lends USDC only.</p>
 </div>
 </div>
 </section>
@@ -723,7 +724,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <p style="margin: 8px 0 0; font-size: 15px; color: var(--ink-muted);">Still have a question? <a href="mailto:rcusans@gmail.com">Write to us</a>.</p>
 </div>
 <div class="faq-list">
-<details class="faq-item"><summary><span>What is Caravel?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A lending service for tokenized Treasury funds on Stellar. Fund holders borrow US dollars (USDC) against their fund shares, at a fixed rate for a fixed term. Lenders earn that fixed rate.</p></details>
+<details class="faq-item"><summary><span>What is Caravel?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A lending service for tokenized Treasury funds on Stellar. Fund holders borrow US dollars (USDC) against their fund shares, at a fixed rate for a fixed term. Lenders earn that fixed rate. Euro loans (EURC) against euro funds are on the roadmap.</p></details>
 <details class="faq-item"><summary><span>How does a loan work?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>A lender posts an offer: amount, term and rate. A borrower accepts it and deposits fund shares worth a little more than the loan. The shares go into escrow and the cash goes to the borrower in the same transaction. At maturity, the borrower repays the agreed amount and gets the shares back.</p></details>
 <details class="faq-item"><summary><span>Do I have to sell or redeem my fund shares?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>No. Your shares stay in escrow during the loan and keep earning the fund's yield. You get cash today without redeeming and waiting for the next business day.</p></details>
 <details class="faq-item"><summary><span>What can I use as collateral?</span><span class="faq-ic" aria-hidden="true"></span></summary><p>The demo uses tBENJI, a test version of Franklin Templeton's BENJI fund. We plan to start with the Treasury funds of Spiko and Franklin Templeton, two of the three largest issuers on Stellar, then add other assets with larger haircuts. See the collateral table above.</p></details>
@@ -764,6 +765,7 @@ sup a{text-decoration:none;font-size:11px;font-family:var(--font-mono)}
 <li id="src-3">BENJI on Stellar, 25 Oct 2026: <a href="https://defillama.com/rwa/asset/BENJI">DefiLlama RWA</a>; contract holders: <a href="https://horizon.stellar.org/assets?asset_code=BENJI&amp;asset_issuer=GBHNGLLIE3KWGKCHIKMHJ5HVZHYIK7WTBE4QF5PLAKL4CJGSEU7HZIW5">Stellar Horizon</a></li>
 <li id="src-4">USDXX 7-day SEC yield, 23 Oct 2026: <a href="https://www.blackrock.com/cash/en-us/products/329365/circle-reserve-fund">BlackRock, Circle Reserve Fund</a></li>
 <li id="src-5">Blend Fixed pool USDC supply APY, 26 Oct 2026 (30-day mean 6.71%): <a href="https://defillama.com/yields/pool/ecf788e3-d2ef-4fdd-9ece-8a2d96226ddf">DefiLlama yields</a>; new borrowing in that pool paused since 8 Oct: <a href="https://whalehub.io/blog/best-lending-protocols-stellar">WhaleHub</a></li>
+<li id="src-6">Euro borrowing against Spiko funds, 27 Oct 2026: Morpho borrow APY 1.77% on <a href="https://app.morpho.org/ethereum/market/0xaa7231d6bee28b578efe38b52e801d5d3067023853342fc06ded437d2a80ef98">EUTBL/EURCV</a> and <a href="https://app.morpho.org/ethereum/market/0x36da61bf253b8a7e07888cb96dbcde65001508159928801aeca932a5b5548119">eurSAFO/EURCV</a>; 30-day fund yields from the Spiko API, <a href="https://public-api.spiko.io/v0/share-classes/EUTBL/yield">EUTBL</a>, <a href="https://public-api.spiko.io/v0/share-classes/eurSAFO/yield">eurSAFO</a></li>
 </ol>
 </div>
 </div>
