@@ -124,8 +124,9 @@ pub struct BandCandidate {
 #[contracttype]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Pause {
-    /// Blocks `create_offer` and `take_offer`, like `AssetConfig.enabled =
-    /// false` (an alias). `cancel_offer` still works.
+    /// Blocks `create_offer`, `take_offer`, `create_request` and
+    /// `fill_request`, like `AssetConfig.enabled = false` (an alias).
+    /// `cancel_offer` and `cancel_request` still work.
     pub no_new_repos: bool,
     /// Blocks `default` (except an auto-repay settle) and `liquidate`. The
     /// default clock keeps running; seizure waits until this clears.
@@ -223,11 +224,36 @@ pub enum DefaultReason {
     MarginCall,
 }
 
-/// A live or settled repo, created when a borrower takes an offer.
+/// A borrower's standing request (borrow requests, the mirror of [`Offer`]):
+/// "lend me `principal` USDC for `term_secs` at `apr_bps`, here is my
+/// collateral". The whole `collateral_amount` is escrowed in the contract
+/// from `create_request` until it is filled (it becomes the repo's
+/// collateral) or cancelled (it goes back to the borrower). No NAV check at
+/// posting; `fill_request` checks it against the asset's haircut.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BorrowRequest {
+    pub id: u64,
+    pub borrower: Address,
+    /// Collateral token escrowed (e.g. tBENJI SAC, tSAFO).
+    pub collateral_asset: Address,
+    /// Collateral escrowed, in the token's own units (DECISIONS.md #28).
+    pub collateral_amount: i128,
+    /// USDC asked for, 7-decimal units.
+    pub principal: i128,
+    pub apr_bps: u32,
+    pub term_secs: u64,
+    pub created_at: u64,
+}
+
+/// A live or settled repo, created when a borrower takes an offer or a
+/// lender fills a borrow request.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Repo {
     pub id: u64,
+    /// The offer taken; 0 for a repo born from a borrow request (offer ids
+    /// start at 1), which carries `request_id` instead.
     pub offer_id: u64,
     pub lender: Address,
     pub borrower: Address,
@@ -250,4 +276,7 @@ pub struct Repo {
     /// Borrower opted in to auto-repay (DECISIONS.md #27): from maturity the
     /// debt is pulled from their USDC allowance instead of defaulting.
     pub auto_repay: bool,
+    /// The borrow request filled (`fill_request`); `None` for an offer-born
+    /// repo. Nothing else differs: both settle the same way.
+    pub request_id: Option<u64>,
 }

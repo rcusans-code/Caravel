@@ -569,6 +569,7 @@ fn opened_repo(w: &World) -> Repo {
         margin_call_deadline: None,
         status: Status::Open,
         auto_repay: false,
+        request_id: None,
     }
 }
 

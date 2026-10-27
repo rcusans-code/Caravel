@@ -20,6 +20,7 @@ Repo itself already exists on Stellar: Ascend × M1X ran a bilateral institution
 ## How it works (one example)
 1. **Lender** offers: "1,000 USDC for 7 days at 5% a year." Their USDC sits in our contract.
 2. **Borrower** accepts: receives the 1,000 USDC and locks about $1,032 of bond tokens (3% haircut: the loan is at most 97% of the deposit). Both happen in **one transaction**. Either both move or neither does.
+   *Or the other way round:* the **borrower** posts a request ("lend me 1,000 USDC for 7 days at 4.5%, here are my bond tokens"), the tokens wait in our contract, and a **lender** who likes the rate clicks Fund. Same one-transaction swap, same price and haircut check at that moment, and from there the loan is the same.
 3. **Daily check:** if the bonds' price drops so the deposit no longer covers the loan, the borrower gets a **margin call**: add more bonds within a time window.
 4. **Day 7:** borrower repays 1,000 USDC + interest, gets the bonds back. Done.
 5. **If the borrower doesn't pay:** an approved buyer (**liquidator**) buys the bonds at a 1% discount. The lender is paid first from that: in full while the price stays within the haircut, otherwise the lender takes everything and the gap (a **Shortfall**) is recorded on-chain. Anything left goes back to the borrower.

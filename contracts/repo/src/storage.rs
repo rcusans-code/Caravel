@@ -1,14 +1,14 @@
 //! Storage layout: instance = config, counters, asset configs and per-asset
 //! open debt (few entries, they share the instance TTL), persistent = offers,
-//! repos, the liquidator whitelist, auto-repay allowance expiries and parked
+//! borrow requests, repos, the liquidator whitelist, auto-repay allowance expiries and parked
 //! USDC payouts (claimable balances). Every read or write of a persistent
 //! entry bumps its TTL, so live positions never get archived mid-term.
 
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
 use crate::types::{
-    Asset, AssetConfig, BandCandidate, Config, Offer, Pause, PendingAdmin, PendingAsset,
-    PendingGuardian, PendingPause, Repo,
+    Asset, AssetConfig, BandCandidate, BorrowRequest, Config, Offer, Pause, PendingAdmin,
+    PendingAsset, PendingGuardian, PendingPause, Repo,
 };
 
 const DAY_IN_LEDGERS: u32 = 17_280; // ~5 s per ledger
@@ -77,6 +77,11 @@ pub enum DataKey {
     VetoedAsset(Address),
     VetoedPause(Address),
     VetoedLiquidator(Address),
+    // --- borrow requests (appended) ---
+    /// Instance: next borrow-request id, a counter apart from offers.
+    NextRequestId,
+    /// Persistent: a borrower's open request and its escrowed collateral.
+    Request(u64),
 }
 
 pub fn extend_instance(env: &Env) {
@@ -242,6 +247,31 @@ pub fn write_offer(env: &Env, offer: &Offer) {
 
 pub fn remove_offer(env: &Env, id: u64) {
     env.storage().persistent().remove(&DataKey::Offer(id));
+}
+
+// --- borrow requests ------------------------------------------------------
+
+pub fn next_request_id(env: &Env) -> u64 {
+    next_id(env, &DataKey::NextRequestId)
+}
+
+pub fn read_request(env: &Env, id: u64) -> Option<BorrowRequest> {
+    let key = DataKey::Request(id);
+    let request = env.storage().persistent().get(&key);
+    if request.is_some() {
+        extend_persistent(env, &key);
+    }
+    request
+}
+
+pub fn write_request(env: &Env, request: &BorrowRequest) {
+    let key = DataKey::Request(request.id);
+    env.storage().persistent().set(&key, request);
+    extend_persistent(env, &key);
+}
+
+pub fn remove_request(env: &Env, id: u64) {
+    env.storage().persistent().remove(&DataKey::Request(id));
 }
 
 // --- repos ----------------------------------------------------------------

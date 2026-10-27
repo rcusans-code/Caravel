@@ -54,4 +54,9 @@ pub enum Error {
     /// once; the admin's re-proposal of it can only be cancelled by the
     /// admin (Raven R6, UA-02).
     VetoSpent = 27,
+    /// No borrow request with this id: never posted, cancelled or filled.
+    RequestNotFound = 28,
+    /// `fill_request` with the lender's or the borrower's USDC frozen by
+    /// the issuer (Raven AS-03): the payment leg cannot move.
+    UsdcFrozen = 29,
 }

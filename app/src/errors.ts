@@ -31,6 +31,8 @@ const REPO_ERRORS: Record<number, string> = {
   25: "The in-kind claim is not open yet: it opens once the collateral's NAV has been stale for 7 contract days past its maximum age. While the NAV is fresh, a liquidator sells the collateral instead.",
   26: "This pending change expired: its execute window closed. Propose it again.",
   27: "The guardian already vetoed this exact change once; only the admin can cancel it now.",
+  28: "This borrow request is gone: it was funded or cancelled. The board has been refreshed.",
+  29: "The USDC issuer has frozen the lender's or the borrower's account, so this loan cannot be paid out.",
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.

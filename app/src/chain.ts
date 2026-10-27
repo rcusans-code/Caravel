@@ -38,7 +38,7 @@ import { TxError, friendbotAlreadyFunded, sendAssembled, sendClassic, txHashOf, 
 
 // The order book reads live in book.ts (shared with the landing page's live deals).
 export { getBook, getCounters, server } from "./book";
-export type { Offer, Repo, Status } from "./book";
+export type { BorrowRequest, Offer, Repo, Status } from "./book";
 export type { FeedReading } from "./sep40";
 
 // --- types (normalised from on-chain structs, contracts/repo/src/types.rs) ----
@@ -353,6 +353,41 @@ export async function cancelOffer(signer: Signer, offerId: bigint): Promise<TxOu
   const out = await submit(await c.cancel_offer({ offer_id: offerId }));
   unwrapResult(out.value);
   return { hash: out.hash, value: null };
+}
+
+// --- borrow requests: the borrower posts, a lender funds -----------------------------
+
+/** Escrows `collateralAmount` of `collateral` and asks for `principal` USDC. Returns the request id. */
+export async function createRequest(
+  signer: Signer,
+  args: { collateral: string; collateralAmount: bigint; principal: bigint; aprBps: number; termSecs: bigint },
+): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const tx = await c.create_request({
+    borrower: signer.address,
+    collateral_asset: args.collateral,
+    collateral_amount: args.collateralAmount,
+    principal: args.principal,
+    apr_bps: args.aprBps,
+    term_secs: args.termSecs,
+  });
+  const out = await submit(tx);
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
+}
+
+/** Returns the escrowed collateral to the borrower. */
+export async function cancelRequest(signer: Signer, requestId: bigint): Promise<TxOutcome<null>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.cancel_request({ request_id: requestId }));
+  unwrapResult(out.value);
+  return { hash: out.hash, value: null };
+}
+
+/** Lender funds a request: USDC to the borrower, escrow becomes the repo's collateral. Returns the repo id. */
+export async function fillRequest(signer: Signer, requestId: bigint): Promise<TxOutcome<bigint>> {
+  const c = new RepoClient({ contractId: REPO_ID, ...clientOpts(signer) });
+  const out = await submit(await c.fill_request({ lender: signer.address, request_id: requestId }));
+  return { hash: out.hash, value: big(unwrapResult(out.value)) };
 }
 
 /** `autoRepay` also signs a USDC allowance so the debt is pulled at maturity (DECISIONS.md #27). */

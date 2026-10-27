@@ -957,6 +957,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "request_id"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "start_ts"
                     },
                     "val": {

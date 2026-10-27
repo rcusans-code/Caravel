@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import lockup from "../../design/logos/caravel-lockup.svg";
 import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, ORACLE_ID, REPO_ID, assetBySac, type DemoRole } from "./config";
 import * as chain from "./chain";
-import type { AssetConfig, Balances, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo } from "./chain";
+import type { AssetConfig, Balances, BorrowRequest, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo } from "./chain";
 import { explain } from "./errors";
 import { Alert, TxHash, hasTxSlot, type TxState } from "./ui";
 import { onPhase } from "./txphase";
@@ -17,6 +17,7 @@ import { AdminView } from "./views/Admin";
 import { LendView } from "./views/Lend";
 import { OffersView } from "./views/Offers";
 import { PositionsView } from "./views/Positions";
+import { RequestView, RequestsBoard } from "./views/Requests";
 
 const nowSecs = () => Math.floor(Date.now() / 1000);
 
@@ -43,6 +44,7 @@ export default function App() {
   // Debt of live repos per collateral token, counted against max_open_debt (#32).
   const [openDebt, setOpenDebt] = useState<Record<string, bigint | null>>({});
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [requests, setRequests] = useState<BorrowRequest[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
   // The balance read failed: the header shows dashes instead of skeletons that never resolve.
@@ -103,6 +105,7 @@ export default function App() {
       setCandidates(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, bc[i]])));
       setOpenDebt(Object.fromEntries(COLLATERAL.map((a, i) => [a.sac, d[i]])));
       setOffers(book.offers);
+      setRequests(book.requests);
       setRepos(book.repos);
       setLoaded(true);
       setReadError(false);
@@ -420,6 +423,7 @@ export default function App() {
             [
               ["offers", "Offers"],
               ["lend", "Lend"],
+              ["request", "Request a loan"],
               ["positions", "My positions"],
               ...(isAdmin ? [["admin", "Admin"]] : []),
             ] as [Tab, string][]
@@ -439,15 +443,19 @@ export default function App() {
         </nav>
 
         {tab === "offers" && (
-          <OffersView
-            ctx={ctx}
-            offers={offers}
-            loaded={loaded}
-            selected={route.tab === "offers" ? route.offer ?? null : null}
-            onSelect={(id, replace) => navigate(id === null ? { tab: "offers" } : { tab: "offers", offer: id }, replace)}
-          />
+          <>
+            <OffersView
+              ctx={ctx}
+              offers={offers}
+              loaded={loaded}
+              selected={route.tab === "offers" ? route.offer ?? null : null}
+              onSelect={(id, replace) => navigate(id === null ? { tab: "offers" } : { tab: "offers", offer: id }, replace)}
+            />
+            <RequestsBoard ctx={ctx} requests={requests} loaded={loaded} />
+          </>
         )}
         {tab === "lend" && <LendView ctx={ctx} offers={offers} />}
+        {tab === "request" && <RequestView ctx={ctx} requests={requests} />}
         {tab === "positions" && (
           <PositionsView ctx={ctx} repos={repos} liquidatorOk={liquidatorOk} loaded={loaded} linked={route.tab === "positions" ? route.repo ?? null : null} />
         )}

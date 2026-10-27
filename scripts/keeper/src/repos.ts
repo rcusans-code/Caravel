@@ -18,6 +18,8 @@ interface Repo {
   collateral_amount: bigint;
   haircut_bps: number;
   maturity_ts: bigint;
+  /** Set when a lender funded a borrow request (offer_id is then 0). */
+  request_id?: bigint | null;
 }
 
 const REPO_ID = env("REPO_ID");
@@ -55,7 +57,8 @@ for (let id = 1n; ; id++) {
   }
   console.log(
     `repo ${String(id).padStart(2)}  ${status.padEnd(10)}  maturity ${iso(r.maturity_ts)} (${when})  ` +
-      `lender ${r.lender}  debt ${fmt(r.principal + r.interest)}  coll ${coll(r)}`,
+      `lender ${r.lender}  debt ${fmt(r.principal + r.interest)}  coll ${coll(r)}` +
+      (r.request_id != null ? `  from request ${r.request_id}` : ""),
   );
 }
 for (const l of lenders) console.log(`lender     ${l}  USDC ${fmt(await balance(l))}`);

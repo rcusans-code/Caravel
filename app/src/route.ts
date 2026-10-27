@@ -1,12 +1,12 @@
 // The app's tab lives in the URL hash (issue #37), so links, back/forward and refresh
 // work without a router or a Pages _redirects rule: the server only ever sees /app/.
-//   #offers (default) #lend #positions #admin
+//   #offers (default) #lend #request #positions #admin
 //   #offer/<id>  Offers tab with the take panel for that offer open
 //   #repo/<id>   My positions, scrolled to that repo
 // Pure functions only, so test/route.test.ts runs them under plain node.
 
-export type Tab = "offers" | "lend" | "positions" | "admin";
-export const TABS: readonly Tab[] = ["offers", "lend", "positions", "admin"];
+export type Tab = "offers" | "lend" | "request" | "positions" | "admin";
+export const TABS: readonly Tab[] = ["offers", "lend", "request", "positions", "admin"];
 
 export interface Route {
   tab: Tab;

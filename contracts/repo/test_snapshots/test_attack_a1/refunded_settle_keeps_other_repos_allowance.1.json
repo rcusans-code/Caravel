@@ -1208,6 +1208,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "request_id"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "start_ts"
                     },
                     "val": {
@@ -1347,6 +1353,12 @@
                     "val": {
                       "i128": "9700000000"
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "request_id"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {

@@ -8,6 +8,8 @@
 //! the lender's in-kind claim (`claim_in_kind`).
 //! An opted-in repo settles as Repaid instead of Defaulted when its USDC
 //! allowance covers the debt (auto-repay, DECISIONS.md #27).
+//! A repo opens from a lender's offer (`take_offer`) or a borrower's
+//! request (`fill_request`, request.rs); both settle the same way.
 
 mod autorepay;
 mod errors;
@@ -17,6 +19,7 @@ mod margin;
 pub mod math;
 mod oracle;
 mod payout;
+mod request;
 mod storage;
 mod types;
 
@@ -47,6 +50,8 @@ mod test_production;
 #[cfg(test)]
 mod test_raven_guards;
 #[cfg(test)]
+mod test_requests;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{
@@ -57,8 +62,8 @@ use soroban_sdk::{
 pub use errors::Error;
 use storage::DataKey;
 pub use types::{
-    Asset, AssetConfig, BandCandidate, Config, DefaultReason, Offer, Pause, PendingAdmin,
-    PendingAsset, PendingGuardian, PendingPause, Repo, Roles, Status,
+    Asset, AssetConfig, BandCandidate, BorrowRequest, Config, DefaultReason, Offer, Pause,
+    PendingAdmin, PendingAsset, PendingGuardian, PendingPause, Repo, Roles, Status,
 };
 
 #[contract]
@@ -89,6 +94,12 @@ impl CaravelRepo {
     pub fn offer(env: Env, offer_id: u64) -> Result<Offer, Error> {
         storage::extend_instance(&env);
         storage::read_offer(&env, offer_id).ok_or(Error::OfferNotFound)
+    }
+
+    /// An open borrow request; `RequestNotFound` once filled or cancelled.
+    pub fn request(env: Env, request_id: u64) -> Result<BorrowRequest, Error> {
+        storage::extend_instance(&env);
+        storage::read_request(&env, request_id).ok_or(Error::RequestNotFound)
     }
 
     pub fn repo(env: Env, repo_id: u64) -> Result<Repo, Error> {
@@ -851,6 +862,7 @@ impl CaravelRepo {
             margin_call_deadline: None,
             status: Status::Open,
             auto_repay,
+            request_id: None,
         };
         // The offer is gone once taken: no double take, no cancel after take.
         storage::remove_offer(&env, offer_id);
@@ -890,6 +902,57 @@ impl CaravelRepo {
         }
         .publish(&env);
         Ok(repo.id)
+    }
+
+    /// Posts a borrow request: escrows `collateral_amount` of
+    /// `collateral_asset` from the borrower and asks for `principal` USDC
+    /// for `term_secs` at `apr_bps`. Returns the request id (its own
+    /// counter, apart from offers). Same guards as `create_offer`:
+    /// `InvalidAmount` for a non-positive amount or zero term,
+    /// `AssetNotSupported` for a missing or disabled asset (#22), `Paused`
+    /// under `no_new_repos` (#30), `MathOverflow` if the terms overflow the
+    /// debt math. No NAV is read: `fill_request` checks the collateral.
+    pub fn create_request(
+        env: Env,
+        borrower: Address,
+        collateral_asset: Address,
+        collateral_amount: i128,
+        principal: i128,
+        apr_bps: u32,
+        term_secs: u64,
+    ) -> Result<u64, Error> {
+        request::create(
+            &env,
+            borrower,
+            collateral_asset,
+            collateral_amount,
+            principal,
+            apr_bps,
+            term_secs,
+        )
+    }
+
+    /// Returns the escrowed collateral to the borrower. Only the borrower
+    /// can cancel, and only while the request is unfilled. No pause switch
+    /// blocks it (#30).
+    pub fn cancel_request(env: Env, request_id: u64) -> Result<(), Error> {
+        request::cancel(&env, request_id)
+    }
+
+    /// Lender's atomic DvP on a borrow request: the lender's USDC goes to
+    /// the borrower and the escrowed collateral backs the new repo, in one
+    /// tx. Returns the repo id. Debt = principal + full-term interest (#15);
+    /// the escrow must cover `required_collateral(debt, nav, dec, haircut)`
+    /// at a fresh, in-band NAV (#6, #31), else `InsufficientCollateral` and
+    /// the request stays posted. All of the escrow becomes the repo's
+    /// collateral. Rejects a frozen USDC account on either side
+    /// (`UsdcFrozen`), a disabled asset (#23), `no_new_repos` (#30) and an
+    /// exposure past the cap (`CapExceeded`, #32). The haircut is
+    /// snapshotted (#19), `auto_repay` starts off (`set_auto_repay` turns it
+    /// on) and `offer_id` is 0 with `request_id` set. From here the repo is
+    /// the same as an offer-born one.
+    pub fn fill_request(env: Env, lender: Address, request_id: u64) -> Result<u64, Error> {
+        request::fill(&env, lender, request_id)
     }
 
     /// Borrower pays principal + full-term interest and gets the collateral
@@ -1248,8 +1311,8 @@ impl CaravelRepo {
     }
 }
 
-/// `no_new_repos` stops new offers and takes (#30).
-fn new_repos_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
+/// `no_new_repos` stops new offers, requests, takes and fills (#30).
+pub(crate) fn new_repos_allowed(env: &Env, asset: &Address) -> Result<(), Error> {
     if storage::read_pause(env, asset).no_new_repos {
         return Err(Error::Paused);
     }
