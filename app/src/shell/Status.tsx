@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LIVE_FEED, type Token } from "../config";
+import { LIVE_FEED, QUOTE, QUOTE_SIGN, type Token } from "../config";
 import type { AssetConfig, FeedReading, Nav, ProtocolConfig } from "../chain";
 import { fmtNav } from "../format";
 import { Live, Skel, Tip, TxHash, useFlash } from "../ui";
@@ -105,7 +105,7 @@ export function NavStatus({
   return (
     <div
       className="app-status__group"
-      aria-label={`${token.code} NAV`}
+      aria-label={`${token.code} NAV in ${QUOTE}`}
       aria-busy={loaded || failed ? undefined : "true"}
       title={hold ?? undefined}
       data-nav-state={loaded ? health.state : undefined}
@@ -120,7 +120,7 @@ export function NavStatus({
       ) : (
         <>
           <span className="app-status__nav app-flashable" data-testid={token.kind === "sac" ? "nav" : `nav-${token.code}`} ref={navRef}>
-            {nav ? fmtNav(nav.price, nav.decimals) : "—"}
+            {nav ? `${QUOTE_SIGN}${fmtNav(nav.price, nav.decimals)}` : "—"}
           </span>
           <Live state={badge.state} word={badge.word} meta={badge.meta || undefined} />
           {ageText && <span className="app-status__age">· {ageText}</span>}
@@ -132,7 +132,7 @@ export function NavStatus({
 
 /**
  * The live SEP-40 feed (config LIVE_FEED), next to the mock NAV for comparison:
- * "USDC ref 1.0013 · 4 min ago". The contract prices collateral off the mock only,
+ * e.g. USDC ref 1.0013 · 4 min ago (the LIVE_ORACLE_ASSET ticker). The contract prices collateral off the mock only,
  * which the tip says. On a failed read it says so; it never shows a stand-in number.
  */
 export function LiveFeedStatus({ live, now }: { live: FeedReading | null | Error | undefined; now: number }) {

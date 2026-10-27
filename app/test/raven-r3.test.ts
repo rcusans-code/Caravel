@@ -294,10 +294,10 @@ test("Q-01 a hung RPC or Horizon fails the read within its timeout", async () =>
 
 test("AS-04 a frozen USDC line blocks lend/take/repay/claim with its own text", () => {
   const b = { exists: true, xlm: 1n, usdc: 5n, usdcAuthorized: false, tbenji: null, tbenjiAuthorized: false, tsafo: null, tsafoAllowed: false };
-  assert.equal(usdcBlock(b), USDC_FROZEN);
+  assert.equal(usdcBlock(b, "USDC"), USDC_FROZEN);
   assert.match(USDC_FROZEN, /USDC frozen by its issuer/);
-  assert.equal(usdcBlock({ ...b, usdcAuthorized: true }), null);
-  assert.equal(usdcBlock({ ...b, usdc: null }), null, "no line: the trustline prompt covers it");
-  assert.equal(usdcBlock({ ...b, exists: false }), null);
-  assert.equal(usdcBlock(null), null);
+  assert.equal(usdcBlock({ ...b, usdcAuthorized: true }, "USDC"), null);
+  assert.equal(usdcBlock({ ...b, usdc: null }, "USDC"), null, "no line: the trustline prompt covers it");
+  assert.equal(usdcBlock({ ...b, exists: false }, "USDC"), null);
+  assert.equal(usdcBlock(null, "USDC"), null);
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { assetBySac, roleOf } from "../config";
+import { LOAN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { InKindClaim, ProtocolConfig, Repo, Status } from "../chain";
 import { BPS, collateralDecimals, collateralValue, coverPct, effectiveTriggerBps, fmtAmount, fmtCountdown, fmtNav, fmtOwed, fmtPct, idRef, parseAmount, requiredCollateral } from "../format";
@@ -173,7 +173,7 @@ export function PositionsView({
                             const out = await ctx.run(`liq-${r.id}`, `Agreement ${ref} not liquidated`, () => chain.liquidate(signer!, r.id));
                             if (out)
                               setReceipt({
-                                left: { eyebrow: "Liquidator delivers", amount: rNav ? fmtAmount((collateralValue(r.collateral_amount, rNav.price, collateralDecimals(rNav.decimals, token.decimals)) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: "USDC", hint: "to lender, fee, borrower" },
+                                left: { eyebrow: "Liquidator delivers", amount: rNav ? fmtAmount((collateralValue(r.collateral_amount, rNav.price, collateralDecimals(rNav.decimals, token.decimals)) * (BPS - config.liquidation_discount_bps) + BPS - 1n) / BPS) : "—", unit: LOAN.code, hint: "to lender, fee, borrower" },
                                 right: { eyebrow: "Liquidator receives", amount: fmtAmount(r.collateral_amount, 2, token.decimals), unit: token.code, hint: `from Agreement ${ref}` },
                                 sentence: `Agreement ${ref} liquidated in one transaction`,
                                 hash: out.hash,
@@ -364,7 +364,7 @@ function PositionCard({
   const canDeclareDefault = pastGrace && !!signer && side === "lent";
   const short = canRepay && balances?.usdc !== null && balances?.usdc !== undefined && balances.usdc < debt;
   // A frozen USDC line cannot pay the debt (Raven AS-04).
-  const frozen = canRepay ? usdcBlock(balances) : null;
+  const frozen = canRepay ? usdcBlock(balances, LOAN.code) : null;
   const canTopUp = live && canRepay && (inMarginCall || breached);
   const topUpText = topUpInput ?? (topUpNeed !== null && topUpNeed > 0n ? amt(topUpNeed).replace(/,/g, "") : "");
   const topUpAmount = parseAmount(topUpText, token.decimals);
@@ -395,7 +395,7 @@ function PositionCard({
       ctx.setFlash({
         tone: "info",
         title: `Auto-repay ${enabled ? "on" : "off"} for ${agreement}`,
-        body: enabled ? `At maturity ${owed} USDC is pulled from this wallet.` : "Repay by hand before maturity plus grace.",
+        body: enabled ? `At maturity ${owed} ${LOAN.code} is pulled from this wallet.` : "Repay by hand before maturity plus grace.",
         hash: out.hash,
       });
   };
@@ -409,7 +409,7 @@ function PositionCard({
         title: out.value === "Repaid" ? `${agreement} repaid` : `${agreement} defaulted`,
         body:
           out.value === "Repaid"
-            ? `The borrower had auto-repay on: it pulled ${owed} USDC from them and your loan is repaid.`
+            ? `The borrower had auto-repay on: it pulled ${owed} ${LOAN.code} from them and your loan is repaid.`
             : `Marked defaulted. A whitelisted liquidator can now buy the ${token.code}.`,
         hash: out.hash,
       });
@@ -427,7 +427,7 @@ function PositionCard({
       body:
         parkedNow > 0n
           ? `${amt(out.value)} ${token.code} is yours, but ${token.code} refused the transfer to this account, so the contract parked it: claim it above, to this account or to a custody account. The debt is closed.`
-          : `${amt(out.value)} ${token.code} sent to your account instead of USDC. No sale and no fee; the ${owed} USDC debt is closed.`,
+          : `${amt(out.value)} ${token.code} sent to your account instead of ${LOAN.code}. No sale and no fee; the ${owed} ${LOAN.code} debt is closed.`,
       hash: out.hash,
     });
   };
@@ -437,7 +437,7 @@ function PositionCard({
     const out = await ctx.run(`repay-${repo.id}`, `${agreement} not repaid`, () => chain.repay(signer, repo.id));
     if (out)
       onRepaid({
-        left: { eyebrow: "Borrower delivers", amount: owed, unit: "USDC", hint: `${fmtAmount(repo.principal)} principal + ${fmtOwed(repo.interest, repo.interest)} interest` },
+        left: { eyebrow: "Borrower delivers", amount: owed, unit: LOAN.code, hint: `${fmtAmount(repo.principal)} principal + ${fmtOwed(repo.interest, repo.interest)} interest` },
         right: { eyebrow: "Borrower receives", amount: amt(repo.collateral_amount), unit: token.code, hint: `from ${agreement}` },
         sentence: `${agreement} repaid. Settled atomically in one transaction`,
         hash: out.hash,
@@ -480,8 +480,8 @@ function PositionCard({
       {repo.status === "Defaulted" && !outageOpen && !outageWaiting && (
         <Alert tone="info" title="Awaiting liquidation">
           {side === "lent"
-            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that USDC pays you first, up to the ${owed} USDC debt. Until then the borrower can still repay you in full.`
-            : `This agreement was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${owed} USDC and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
+            ? `The borrower did not repay. A whitelisted liquidator buys the collateral at NAV less ${fmtPct(config.liquidation_discount_bps, 1)}, and that ${LOAN.code} pays you first, up to the ${owed} ${LOAN.code} debt. Until then the borrower can still repay you in full.`
+            : `This agreement was defaulted. Until a whitelisted liquidator buys the collateral you can still repay ${owed} ${LOAN.code} and get it all back; after a liquidation, any surplus over the debt comes back to you.`}
         </Alert>
       )}
       {outageWaiting && (
@@ -489,27 +489,27 @@ function PositionCard({
           {`The ${token.code} price is over ${navAgeText} old, so no liquidator can buy the collateral. `}
           {side === "lent"
             ? `If it stays stale, you can claim all ${amt(repo.collateral_amount)} ${token.code} in kind from ${opensAtText}, ${outageSpan} after the NAV went stale. The borrower can still repay you until then.`
-            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} USDC before then to get it back.`}
+            : `If it stays stale, from ${opensAtText} the lender can take all ${amt(repo.collateral_amount)} ${token.code} in kind, with no surplus back to you. Repay ${fmtAmount(debt)} ${LOAN.code} before then to get it back.`}
         </Alert>
       )}
       {outageOpen && (
         <Alert tone="margin" title={side === "lent" ? "Claim the collateral in kind" : "The lender can take your collateral in kind"}>
           {`The ${token.code} NAV has been stale for over ${outageSpan}, so liquidation stays blocked. `}
           {side === "lent"
-            ? `You can take all ${amt(repo.collateral_amount)} ${token.code} instead of USDC: no sale, no fee, and the ${fmtAmount(debt)} USDC debt closes. The borrower can still repay you until you claim.`
-            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no surplus back to you. Repay ${fmtAmount(debt)} USDC now to get it back.`}
+            ? `You can take all ${amt(repo.collateral_amount)} ${token.code} instead of ${LOAN.code}: no sale, no fee, and the ${fmtAmount(debt)} ${LOAN.code} debt closes. The borrower can still repay you until you claim.`
+            : `The lender can now take all ${amt(repo.collateral_amount)} ${token.code}, with no surplus back to you. Repay ${fmtAmount(debt)} ${LOAN.code} now to get it back.`}
         </Alert>
       )}
       <div>
         <span className="cv-figure-xl">{fmtAmount(repo.principal)}</span>
-        <span className="cv-unit">USDC</span>
+        <span className="cv-unit">{LOAN.code}</span>
       </div>
       <dl className="cv-terms cv-terms--fit">
         <div>
           <dt>Debt</dt>
           <dd>
             {owed}
-            <span className="cv-unit">USDC</span>
+            <span className="cv-unit">{LOAN.code}</span>
           </dd>
         </div>
         <div>
@@ -653,8 +653,8 @@ function PositionCard({
           {frozen
             ? frozen
             : short
-            ? `Repay needs ${owed} USDC; you hold ${fmtAmount(balances!.usdc!)} USDC.`
-            : `Repay ${owed} USDC to close ${agreement} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
+            ? `Repay needs ${owed} ${LOAN.code}; you hold ${fmtAmount(balances!.usdc!)} ${LOAN.code}.`
+            : `Repay ${owed} ${LOAN.code} to close ${agreement} and get ${amt(repo.collateral_amount)} ${token.code} back.`}
         </p>
       )}
       {live && canRepay && (
@@ -666,8 +666,8 @@ function PositionCard({
           hint={
             repo.auto_repay
               ? short
-                ? `On, but this wallet is short: hold ${owed} USDC by maturity or the agreement defaults.`
-                : `On: at maturity ${owed} USDC is pulled from this wallet and your ${token.code} comes back.`
+                ? `On, but this wallet is short: hold ${owed} ${LOAN.code} by maturity or the agreement defaults.`
+                : `On: at maturity ${owed} ${LOAN.code} is pulled from this wallet and your ${token.code} comes back.`
               : `Off: if you do not repay by maturity plus ${String(config.grace_secs)} s grace, your ${token.code} is sold at NAV − ${fmtPct(config.liquidation_discount_bps, 1)}.`
           }
         />
@@ -694,11 +694,11 @@ const OUTCOME: Partial<Record<Status, (r: Repo, c: ProtocolConfig, k?: InKindCla
 function lenderLiquidated(r: Repo, c: ProtocolConfig, k?: InKindClaim | null): string {
   const t = assetBySac(r.collateral_asset);
   if (k === null) return "Liquidated: the borrower did not repay in time.";
-  if (!k) return `Liquidated: the ${t.code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)} and the USDC paid you first, up to the debt.`;
+  if (!k) return `Liquidated: the ${t.code} was sold at NAV − ${fmtPct(c.liquidation_discount_bps, 1)} and the ${LOAN.code} paid you first, up to the debt.`;
   const amt = `${fmtAmount(k.amount, 2, t.decimals)} ${t.code}`;
   return k.parked
-    ? `Claimed in kind: ${amt} is yours instead of USDC. ${t.code} refused the transfer to this account, so it was parked for you to claim.`
-    : `Claimed in kind: ${amt} went to this wallet instead of USDC. No sale, no fee; the debt is closed.`;
+    ? `Claimed in kind: ${amt} is yours instead of ${LOAN.code}. ${t.code} refused the transfer to this account, so it was parked for you to claim.`
+    : `Claimed in kind: ${amt} went to this wallet instead of ${LOAN.code}. No sale, no fee; the debt is closed.`;
 }
 
 export function AutoRepayToggle({

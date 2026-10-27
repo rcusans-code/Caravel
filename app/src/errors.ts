@@ -1,4 +1,4 @@
-import { TBENJI_SAC, TSAFO, USDC_SAC, ORACLE_ID } from "./config";
+import { LOAN, TBENJI, TSAFO, ORACLE_ID } from "./config";
 import { staleNavText } from "./gates";
 import { txText } from "./txerror";
 
@@ -19,7 +19,7 @@ const REPO_ERRORS: Record<number, string> = {
   13: "The oracle has no price for this collateral yet. Push one from Admin.",
   14: "Auto-repay is off for this repurchase agreement.",
   15: "Auto-repay runs from maturity, not before.",
-  16: "Auto-repay could not pull the debt: this wallet holds too little USDC. Top up USDC and repay before grace ends.",
+  16: `Auto-repay could not pull the debt: this wallet holds too little ${LOAN.code}. Top up ${LOAN.code} and repay before grace ends.`,
   17: "This collateral asset is paused for this action. Repay and top-up always work.",
   18: "The NAV jumped outside this asset's sanity band, so new loans, margin calls and liquidations are paused. Repay and top-up still work.",
   19: "This loan would push the collateral past its exposure cap. New loans resume as open agreements are repaid or the cap is raised.",
@@ -27,12 +27,12 @@ const REPO_ERRORS: Record<number, string> = {
   21: "The timelock on this change has not passed yet.",
   22: "There is no pending change for this asset.",
   23: "Only the admin or the guardian can cancel a pending change.",
-  24: "Nothing to claim: no USDC payout or parked collateral is waiting for this account.",
+  24: `Nothing to claim: no ${LOAN.code} payout or parked collateral is waiting for this account.`,
   25: "The in-kind claim is not open yet: it opens once the collateral's NAV has been stale for 7 contract days past its maximum age. While the NAV is fresh, a liquidator sells the collateral instead.",
   26: "This pending change expired: its execute window closed. Propose it again.",
   27: "The guardian already vetoed this exact change once; only the admin can cancel it now.",
   28: "This borrow request is gone: it was funded or cancelled. The board has been refreshed.",
-  29: "The USDC issuer has frozen the lender's or the borrower's account, so this loan cannot be paid out.",
+  29: `The ${LOAN.code} issuer has frozen the lender's or the borrower's account, so this loan cannot be paid out.`,
 };
 
 // contracts/spiko-mock SpikoError: codes from 100 so they never read as repo errors.
@@ -48,12 +48,12 @@ const TOKEN_ERRORS: Record<number, string> = {
   6: "The account does not exist on testnet. Fund it with friendbot first.",
   8: "Amounts must be positive.",
   10: "Not enough balance for this transfer.",
-  // Asset-neutral (Raven AS-04): the frozen asset can be USDC as well as tBENJI; explain() prefixes the token.
+  // Asset-neutral (Raven AS-04): the frozen asset can be the loan token as well as tBENJI; explain() prefixes the token.
   11: "This account is not authorized for this asset: the issuer has not authorized its trustline, or has frozen it.",
   13: "The account has no trustline for this asset. Add the trustline, then try again.",
 };
 
-const assetName = (id: string) => (id === USDC_SAC ? "USDC" : id === TBENJI_SAC ? "tBENJI" : null);
+const assetName = (id: string) => [LOAN, TBENJI].find((t) => t?.sac === id)?.code ?? null;
 
 /**
  * Turns SDK, RPC, wallet and contract failures into one desk-note sentence.

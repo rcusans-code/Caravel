@@ -65,7 +65,8 @@ async function load(): Promise<Live> {
   const [book, cfg, benjiNav] = await Promise.all([
     getBook(),
     simulateView<Record<string, unknown>>(REPO_ID, "config"),
-    readNav(TBENJI_SAC),
+    // The landing is built on the USDC market only (build-pages.mjs), which always has tBENJI.
+    TBENJI_SAC ? readNav(TBENJI_SAC) : Promise.resolve(null),
   ]);
   // Newest live repo; repos come sorted by id, newest first.
   const hero = book.repos.find((r) => isLive(r.status)) ?? null;

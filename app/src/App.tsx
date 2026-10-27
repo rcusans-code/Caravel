@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import lockup from "../../design/logos/caravel-lockup.svg";
-import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, ORACLE_ID, REPO_ID, assetBySac, type DemoRole } from "./config";
+import { COLLATERAL, DEMO_ENABLED, DEMO_ROLES, MARKET, MARKETS_AVAILABLE, ORACLE_ID, REPO_ID, assetBySac, type DemoRole } from "./config";
+import { marketHref, type MarketId } from "./market";
 import * as chain from "./chain";
 import type { AssetConfig, Balances, BorrowRequest, FeedReading, InKindClaim, Nav, Offer, ProtocolConfig, Repo } from "./chain";
 import { explain } from "./errors";
@@ -26,6 +27,30 @@ const isAdminNow = (signer: Signer | null, config: ProtocolConfig | null) =>
 /** Marketing landing page (site/), served at the root of the same Pages site; the app lives under /app/. */
 const LANDING_URL = "/";
 const SOURCE_URL = "https://github.com/rcusans-code/Caravel";
+const MARKET_LABEL: Record<MarketId, string> = { usd: "USDC market", eur: "EURC market" };
+
+/**
+ * USDC / EURC market switch (DECISIONS #52), shown only when the build carries the
+ * EUR deployment. Each market is its own repo contract, so switching reloads the
+ * page with ?market=<m> and keeps the current tab hash.
+ */
+function MarketSwitch() {
+  return (
+    <span className="app-market" role="group" aria-label="Loan market">
+      {MARKETS_AVAILABLE.map((m) => (
+        <a
+          key={m}
+          href={marketHref(m, location.hash)}
+          className={m === MARKET ? "is-active" : undefined}
+          aria-current={m === MARKET ? "page" : undefined}
+          data-market={m}
+        >
+          {MARKET_LABEL[m]}
+        </a>
+      ))}
+    </span>
+  );
+}
 
 export default function App() {
   const [signer, setSigner] = useState<Signer | null>(null);
@@ -50,7 +75,7 @@ export default function App() {
   // The balance read failed: the header shows dashes instead of skeletons that never resolve.
   const [balancesFailed, setBalancesFailed] = useState(false);
   const [liquidatorOk, setLiquidatorOk] = useState(false);
-  // USDC a settlement could not push to this account, waiting for claim().
+  // Loan token a settlement could not push to this account, waiting for claim().
   const [claimable, setClaimable] = useState(0n);
   // Collateral an in-kind claim could not push to this account, per token id, waiting for claim_collateral().
   const [parked, setParked] = useState<Record<string, bigint>>({});
@@ -347,7 +372,10 @@ export default function App() {
           <a href={LANDING_URL} className="app-brand" aria-label="Caravel home: landing page">
             <img src={lockup} alt="Caravel" height={44} />
           </a>
-          <span className="caption app-net">Stellar testnet</span>
+          <span className="caption app-net">
+            Stellar testnet
+            {MARKETS_AVAILABLE.length > 1 && <MarketSwitch />}
+          </span>
           {signer && <BalanceFigures balances={balances} failed={balancesFailed} />}
           {config && assets[COLLATERAL[0].sac] && <DemoInfo config={config} asset={assets[COLLATERAL[0].sac]!} />}
           <div className="app-header__account">

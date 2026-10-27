@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
@@ -46,6 +47,11 @@ export default defineConfig(({ command, mode, isPreview }) => {
   const liveOracle = process.env.LIVE_ORACLE_ID ?? rootEnv.LIVE_ORACLE_ID ?? "";
   const liveAsset = process.env.LIVE_ORACLE_ASSET ?? rootEnv.LIVE_ORACLE_ASSET ?? "";
   const liveFeed = liveOracle && liveAsset ? { oracle: liveOracle, asset: liveAsset } : null;
+  // EURC market (DECISIONS #52): the public deployments/testnet-eur.json that
+  // `LOAN_ASSET=EURC scripts/deploy.sh` writes. Present = the app shows the
+  // market switch (?market=eur); missing = USDC market only. Path relative to app/.
+  const eurFile = path.resolve(appDir, process.env.CARAVEL_EUR_DEPLOYMENT ?? "../deployments/testnet-eur.json");
+  const eurDeployment = fs.existsSync(eurFile) ? JSON.parse(fs.readFileSync(eurFile, "utf8")) : null;
 
   return {
     // The public site serves the landing (site/) at / and the app under /app/ (see scripts/build-pages.mjs).
@@ -55,6 +61,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
     define: {
       __DEMO_KEYS__: JSON.stringify(demoKeys),
       __LIVE_FEED__: JSON.stringify(liveFeed),
+      __EUR_DEPLOYMENT__: JSON.stringify(eurDeployment),
       global: "globalThis",
     },
     server: {
