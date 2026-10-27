@@ -29,7 +29,7 @@ Exit: create / take / repay pass unit tests, mock oracle live.
 - [x] **I** ⚠️ Mock SEP-40 oracle: full trait (`base`, `assets`, `decimals`, `resolution`, `price`, `prices`, `lastprice`) + admin `set_price`, deployed. *Done when: `lastprice(tBENJI)` returns price + timestamp*
 - [x] **F** Offers board: amount, term, APR, haircut, asset. *Done when: reads testnet*
 - [ ] **P** Mentor round 1: demand? issuer whitelisting? term vs perpetual? Ask permission to quote. *Done when: one quotable line or a clear no*
-- [ ] **P** Deck: 11 slides in English per [docs/pitch-deck.md](docs/pitch-deck.md). Teo drafts, Den owns narrative + final read. Numbers only from [docs/numbers.md](docs/numbers.md) (DefiLlama, dated). Spiko next to BENJI as the anchor issuers.
+- [ ] **P** Deck: 12 slides in English per [docs/pitch-deck.md](docs/pitch-deck.md). Teo drafts, Den owns narrative + final read. Numbers only from [docs/numbers.md](docs/numbers.md) (DefiLlama, dated). Spiko next to BENJI as the anchor issuers.
 - [x] **T** Spiko as asset #2 on testnet: tSAFO (USD SAFO) at 3000 bps, Spiko-style mock token (allowlist, no approve, pause), full contract flow tested, deploy/keeper/app wired (issue #20, DECISIONS #28, #29). Launch haircuts are #26 (SAFO not enabled for launch). Still open: USTBL, eurSAFO (needs EUR/USD feed), Spiko allowlisting the contract and liquidators for production.
 
 ## G2 · Full contract — 16:00–19:30
