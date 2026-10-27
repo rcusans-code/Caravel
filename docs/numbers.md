@@ -53,6 +53,20 @@ One source per figure, **DefiLlama RWA**, read on **25 Oct 2026**. Put the date 
 - **SAFO is swap-based:** it "uses fully collateralized total return swaps with Tier 1 banking counterparties - starting with BNP Paribas". [Spiko blog, 19 Mar 2026](https://www.spiko.io/blog/spiko-amundi-safo). This is why SAFO is "after due diligence only".
 - **Spiko invites collateral use:** "Can I use my fund shares in DeFi? Yes, you can use them for example as collateral to take out on-chain loans. Please contact the Spiko team if you are interested in this use case." [spiko.io/use-cases/web3](https://www.spiko.io/use-cases/web3)
 
+## eurSAFO NAV feed (Spiko Public API, read 27 Oct 2026)
+
+Recorded in [research/spiko-nav/data/eursafo.json](research/spiko-nav/data/eursafo.json) by `fetch.py`; `python3 docs/research/spiko-nav/size.py` reproduces every figure here and checks the eurSAFO params against them.
+
+| Figure | Value | Source |
+|---|---|---|
+| Latest eurSAFO NAV | **1.015785 EUR**, NAV day 26 Oct 2026, published 17:48:20 UTC | [`/net-asset-values/eurSAFO/latest`](https://public-api.spiko.io/v0/net-asset-values/eurSAFO/latest) |
+| EUR/USD dated that day | **1.1204** (indicative), published 17:43:16 UTC, so the oracle price is **1.138085514 USD** stamped 17:43:16 | `/exchange-rates/latest?fundId=59c2c924…&baseCurrency=EUR&quoteCurrency=USD` |
+| History | 165 NAV days, 2 Mar–26 Oct 2026; the EUR NAV never fell (largest step 3 bps); 163 days with a same-day rate (SAFO fund 85, USTBL 78; none on 14 May and 19 Jun) | `/net-asset-values/eurSAFO?startDay=`, `/exchange-rates/latest?latestUpdateDate=` |
+| Publication time (older of NAV and rate) | 10:21–21:45 UTC, median 14:39 | same |
+| USD price moves | largest one print **117 bps** (8 Jun); largest spread inside a 20-print band window **369 bps** (10 Sep–7 Oct, EUR/USD 1.1592 → 1.1176); worst 7 days −218 bps | same |
+| Gaps between publications | longest **117.4 h** (Easter, 2 → 7 Apr); then 98.0 h (19 Jun, no rate) and 96.1 h (Whit Monday); every other weekend ≤ 95.6 h | same |
+| Stress proxy for trigger / haircut | S&P 500 × EUR/USD, 2016–2026: worst 7 days **−1,885 bps** (from 5 Mar 2020), 1st percentile −745 bps | FRED SP500 × DEXUSEU ([config-tuning data](research/config-tuning/data)) |
+
 ## Demand (slide 9)
 
 - Binance × Franklin Templeton, 11 Feb 2026: Benji tokenized MMFs as off-exchange collateral on Binance. [Franklin Templeton press release](https://www.franklintempleton.com/press-releases/news-room/2026/franklin-templeton-and-binance-advance-strategic-collaboration-with-institutional-off-exchange-collateral-program)

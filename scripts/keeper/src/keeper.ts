@@ -71,8 +71,12 @@ const ORACLE_ID = env("ORACLE_ID");
 const USDC_SAC = env("USDC_SAC");
 // Collateral tokens the keeper prices and labels (decimals and per-asset NAV
 // max age, DECISIONS.md #25, read on-chain at start).
-/** `triggerBps`: the asset's margin trigger (DECISIONS.md #26), read from `asset()` at start. */
-type Collateral = { label: string; id: string; decimals: number; maxAge: bigint; triggerBps: bigint };
+/**
+ * `triggerBps`: the asset's margin trigger (DECISIONS.md #26), read from `asset()` at start.
+ * `sourceTimed`: the oracle stamps this asset with the source's publication time
+ * (`source_timed`, the Spiko feed, spiko-nav.ts); --refresh-nav never re-posts it.
+ */
+type Collateral = { label: string; id: string; decimals: number; maxAge: bigint; triggerBps: bigint; sourceTimed?: boolean };
 const ASSETS: Collateral[] = [
   { label: "tBENJI", id: env("TBENJI_SAC"), decimals: 7, maxAge: 0n, triggerBps: 0n },
   ...(process.env.TSAFO_ID ? [{ label: "tSAFO", id: env("TSAFO_ID"), decimals: 5, maxAge: 0n, triggerBps: 0n }] : []),
@@ -369,7 +373,9 @@ async function tick(cfg: Cfg) {
     const last = await view<PriceData | null>(ORACLE_ID, "lastprice", [stellarAsset(a.id)]).catch(() => null);
     navs.set(a.id, last);
     const age = last ? t - last.timestamp : null;
-    const due = REFRESH_NAV && last && age !== null && age >= BigInt(REFRESH_SECS);
+    // A source-timed asset (the Spiko feed) is never re-posted: the oracle
+    // refuses set_price on it, and re-stamping would void DECISIONS #39.
+    const due = REFRESH_NAV && !a.sourceTimed && last && age !== null && age >= BigInt(REFRESH_SECS);
     const g = guards.get(a.id);
     if (due && g?.needsHuman) {
       // Re-posting would launder it: 20 re-posts fill the contract's band
@@ -621,6 +627,8 @@ async function main() {
     a.maxAge = BigInt(ac?.max_nav_age_secs ?? config.max_nav_age_secs ?? 0n);
     // A contract deployed before #26 triggers on the liquidation discount.
     a.triggerBps = BigInt(ac?.margin_trigger_bps ?? config.liquidation_discount_bps);
+    // An oracle deployed before source-timed assets has no `source_timed`: false.
+    a.sourceTimed = await view<boolean>(ORACLE_ID, "source_timed", [stellarAsset(a.id)]).catch(() => false);
   }
   const cfg = {
     discountBps: BigInt(config.liquidation_discount_bps),
@@ -643,6 +651,7 @@ async function main() {
   log(
     `keeper ${signer.publicKey()} liquidator ${liquidator.publicKey()}${whitelisted ? "" : " (NOT whitelisted: liquidate will fail)"} repo ${REPO_ID} env ${ENV_FILE} ${ONCE ? "once" : `every ${INTERVAL_MS / 1000}s`}${DRY ? " DRY-RUN (no tx sent)" : ""}, assets ${ASSETS.map((a) => a.label).join(", ")}` +
       (REFRESH_NAV ? `, refresh-nav every ${REFRESH_SECS}s` : "") +
+      (ASSETS.some((a) => a.sourceTimed) ? `, source-timed (never re-posted): ${ASSETS.filter((a) => a.sourceTimed).map((a) => a.label).join(", ")}` : "") +
       ` (margin window ${config.margin_window_secs}s, grace ${config.grace_secs}s, max NAV age ${ASSETS.map((a) => `${a.label} ${a.maxAge}s`).join(", ")}, margin trigger ${ASSETS.map((a) => `${a.label} ${a.triggerBps}bps`).join(", ")})` +
       `, nav-jump hold ${NAV_JUMP_BPS}bps/${cfg.holdSecs}s, ack >${NAV_JUMP_ACK_BPS}bps` +
       `, nav state ${NAV_STATE_FILE}${latched.length ? ` (latched: ${latched.join(", ")})` : ""}` +

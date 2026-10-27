@@ -5,6 +5,7 @@
 #   scripts/deploy.sh --fresh    # force new oracle + repo contracts
 #   NAV=0.97 scripts/deploy.sh   # also push a tBENJI price (default: 1.00, only if none set)
 #   SAFO_NAV=1.02 scripts/deploy.sh   # same for tSAFO
+#   SPIKO_FEED=1 scripts/deploy.sh    # tSAFO = eurSAFO mirror, priced from Spiko (see below)
 #   scripts/deploy.sh --preflight     # run the .env guards only, no build, no tx
 #   scripts/deploy.sh --no-winddown   # keep a superseded repo contract open
 #   PREBUILT_WASM_DIR=dir scripts/deploy.sh  # deploy attested wasm (attest.yml), no build
@@ -36,6 +37,16 @@
 # liquidator and the demo wallets (+ TSAFO_HOLDERS), mints demo tSAFO to the
 # borrower (+ TSAFO_HOLDER_MINT to each holder), prices it and registers it with
 # set_asset at SAFO_HAIRCUT_BPS.
+#
+# SPIKO_FEED=1 (command line or .env) makes tSAFO the testnet mirror of
+# eurSAFO with a production-shaped feed (DECISIONS #39 draft): the oracle
+# stamps it with Spiko's publication time (`set_source_timed`, then only
+# `set_price_at`), the first price is Spiko's latest eurSAFO NAV x the
+# same-day EUR/USD rate (`npm run spiko-nav -- eurSAFO --once`, needs
+# `npm ci` in scripts/keeper), and its defaults follow
+# docs/research/spiko-nav/size.py: NAV age 96 h, band 500, settle 1 day,
+# trigger 2,050 (haircut 3,000 unchanged). nav-keeper.sh and
+# `keeper --refresh-nav` skip it; caravel-spiko-nav.service feeds it.
 #
 # Reads keys and IDs from <repo>/.env; writes ORACLE_ID, REPO_ID, TSAFO_ID,
 # DEPLOYED_AT back to it, writes the public deployments/testnet.json for the app
@@ -93,6 +104,14 @@ fi
 FEE_BPS="${FEE_BPS:-1000}"                       # 10% of interest (#3)
 LIQ_DISCOUNT_BPS="${LIQ_DISCOUNT_BPS:-100}"      # 1% liquidator discount, production value (#35, docs/config-tuning.md §4)
 HAIRCUT_BPS="${HAIRCUT_BPS:-300}"                # 3% tBENJI haircut, > discount (#18)
+# SPIKO_FEED is read from the .env too (it is sourced only after these defaults).
+SPIKO_FEED="${SPIKO_FEED:-$(sed -n 's/^SPIKO_FEED=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)}"
+if [[ "$SPIKO_FEED" == 1 ]]; then # eurSAFO params, docs/research/spiko-nav/size.py
+  SAFO_MAX_NAV_AGE_SECS="${SAFO_MAX_NAV_AGE_SECS:-345600}" # 96 h of Spiko publication time (#25)
+  SAFO_NAV_MOVE_BPS="${SAFO_NAV_MOVE_BPS:-500}"            # > 369 bps 20-print spread, > 473 bps EUR/USD day (#31)
+  SAFO_BAND_SETTLE_SECS="${SAFO_BAND_SETTLE_SECS:-86400}"  # one NAV day (#41)
+  SAFO_MARGIN_TRIGGER_BPS="${SAFO_MARGIN_TRIGGER_BPS:-2050}" # 100 + 1,885 worst week (S&P x EUR/USD) + 50
+fi
 SAFO_HAIRCUT_BPS="${SAFO_HAIRCUT_BPS:-3000}"     # 30% tSAFO, Tier 5 (testnet only, DECISIONS #29)
 MARGIN_TRIGGER_BPS="${MARGIN_TRIGGER_BPS:-200}"  # tBENJI margin call at debt > value × 98%; discount ≤ trigger < haircut (#35)
 SAFO_MARGIN_TRIGGER_BPS="${SAFO_MARGIN_TRIGGER_BPS:-2000}" # tSAFO margin call at debt > value × 80%: own value, not tBENJI's (#35)
@@ -318,7 +337,25 @@ set_env TSAFO_ID "$TSAFO_ID"
 
 TSAFO_ORACLE_ASSET="{\"Stellar\":\"$TSAFO_ID\"}"
 LAST=$(view --id "$ORACLE_ID" -- lastprice --asset "$TSAFO_ORACLE_ASSET")
-if [[ -n "${SAFO_NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
+if [[ "$SPIKO_FEED" == 1 ]]; then
+  [[ -z "${SAFO_NAV:-}" ]] || die "SAFO_NAV cannot pin tSAFO under SPIKO_FEED=1: its price is Spiko's published NAV"
+  if [[ "$(view --id "$ORACLE_ID" -- source_timed --asset "$TSAFO_ORACLE_ASSET" 2>/dev/null)" != true ]]; then
+    log "tSAFO: source-timed on the oracle (Spiko eurSAFO feed, set_price_at only)"
+    as_feeder --id "$ORACLE_ID" -- set_source_timed --asset "$TSAFO_ORACLE_ASSET" --source_timed true >/dev/null
+  fi
+  if [[ "$LAST" != "null" && -n "$LAST" ]]; then
+    log "tSAFO price already set: $LAST"
+  elif (( PLAN )); then
+    plan "feeder  spiko-nav eurSAFO --once (set_price_at at Spiko's NAV x EUR/USD and publication time)"
+  elif [[ -d "$ROOT/scripts/keeper/node_modules" ]]; then
+    log "first tSAFO price from Spiko: npm run spiko-nav -- eurSAFO --once"
+    ( cd "$ROOT/scripts/keeper" && ENV_FILE="$ENV_FILE" ORACLE_ID="$ORACLE_ID" TSAFO_ID="$TSAFO_ID" \
+        SPIKO_NAV_ASSET="Stellar:$TSAFO_ID" FEEDER_SECRET="$FEEDER_SECRET" npm run -s spiko-nav -- eurSAFO --once ) \
+      || log "WARN: first Spiko post failed; tSAFO has no price until caravel-spiko-nav posts one"
+  else
+    log "WARN: tSAFO has no price: run npm ci in scripts/keeper, then npm run spiko-nav -- eurSAFO --once"
+  fi
+elif [[ -n "${SAFO_NAV:-}" || "$LAST" == "null" || -z "$LAST" ]]; then
   NAV_VALUE="${SAFO_NAV:-1.00}"
   PRICE=$(python3 -c "from decimal import Decimal as D; print(int(D('$NAV_VALUE') * 10**$ORACLE_DECIMALS))")
   log "set_price tSAFO = $NAV_VALUE ($PRICE)"
@@ -563,7 +600,8 @@ out = {
   "config": json.loads('''$CONFIG_JSON'''),
   "tbenjiAsset": json.loads('''$ASSET_JSON'''),
   "tsafoAsset": json.loads('''$TSAFO_ASSET_JSON'''),
-  "tsafo": {"symbol": "tSAFO", "decimals": $TSAFO_DECIMALS, "kind": "spiko-mock"},
+  "tsafo": {"symbol": "tSAFO", "decimals": $TSAFO_DECIMALS, "kind": "spiko-mock",
+            "feed": "$( [[ "$SPIKO_FEED" == 1 ]] && echo "spiko:eurSAFO" || echo "mock" )"},
   "oracle": {"base": json.loads('''$ORACLE_BASE'''), "decimals": $ORACLE_DECIMALS, "resolution": $ORACLE_RESOLUTION},
   "superseded": superseded,
 }

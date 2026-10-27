@@ -1,0 +1,30 @@
+# systemd --user unit for the Spiko eurSAFO NAV feed (scripts/keeper/src/spiko-nav.ts,
+# DECISIONS #39 draft). It runs from the keeper's copy, like caravel-keeper
+# (install it first, scripts/README.md "Keeper"), then:
+#   install -Dm644 scripts/caravel-spiko-nav.service ~/.config/systemd/user/caravel-spiko-nav.service
+#   systemctl --user daemon-reload && systemctl --user enable --now caravel-spiko-nav
+# Needs a deploy with SPIKO_FEED=1 (tSAFO source-timed on the oracle); on any
+# other oracle it ALERTs and exits 1 every start, and the start limit fires
+# OnFailure. It polls Spiko every 5 min and sends one set_price_at per NAV
+# day (Paris business days, published ~10:00-22:00 UTC); a redeploy that
+# changes ORACLE_ID makes it exit 0 and systemd restarts it on the new one.
+[Unit]
+Description=Caravel Spiko NAV feed (eurSAFO NAV x EUR/USD at Spiko's publication time -> tSAFO, once per NAV day)
+After=network-online.target
+Wants=network-online.target
+OnFailure=caravel-alert@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=ENV_FILE=%h/.local/lib/caravel/.env
+Environment=ALERT_CMD=%h/.local/lib/caravel/caravel-alert.sh
+WorkingDirectory=%h/.local/lib/caravel/keeper
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/spiko-nav.ts eurSAFO --interval 300
+Restart=always
+RestartSec=30
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target

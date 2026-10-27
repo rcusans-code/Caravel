@@ -29,7 +29,7 @@ import {
   TransactionBuilder,
   nativeToScVal,
 } from "@stellar/stellar-sdk";
-import { ContractError, Err, NETWORK, PASSPHRASE, ROOT, env, i128, invoke, keypair, reloadEnv, txLink, u64, view } from "./chain.js";
+import { ContractError, Err, NETWORK, PASSPHRASE, ROOT, env, i128, invoke, keypair, reloadEnv, stellarAsset, txLink, u64, view } from "./chain.js";
 import { type Exposure, FLOOR_STATUSES, liquidatorFloor, marginFromEnv } from "./funding.js";
 import { setNav, toUnits } from "./set-nav.js";
 
@@ -289,8 +289,15 @@ async function main() {
   // already allowlisted the borrower and minted it tSAFO.
   const tsafoId = process.env.TSAFO_ID;
   if (tsafoId) {
-    const { hash } = await setNav(toUnits("1.00", decimals), tsafoId);
-    say(`tSAFO NAV 1.00 posted  ${txLink(hash)}`);
+    // A Spiko-fed tSAFO (deploy.sh SPIKO_FEED=1) is source-timed: the oracle
+    // refuses set_price, and its price is Spiko's published NAV (spiko-nav.ts).
+    const sourceTimed = await view<boolean>(ORACLE_ID, "source_timed", [stellarAsset(tsafoId)]).catch(() => false);
+    if (sourceTimed) {
+      say("tSAFO NAV left to the Spiko feed (source-timed)");
+    } else {
+      const { hash } = await setNav(toUnits("1.00", decimals), tsafoId);
+      say(`tSAFO NAV 1.00 posted  ${txLink(hash)}`);
+    }
     open.push(await createOffer(REPO_ID, 7, 650, daySecs, tsafoId));
   }
   const take = await takeP;

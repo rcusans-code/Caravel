@@ -7,14 +7,28 @@
 //! this mock or at a live Reflector/RedStone feed by changing only the
 //! contract ID (DECISIONS.md #2, #22).
 //!
-//! Prices are pushed by the admin with `set_price`, always stamped with the
-//! ledger time: the history cannot be backdated, future-dated or rewritten.
-//! One record per `resolution` slot (`timestamp / resolution`, like
-//! Reflector's periods): a second push in the same slot replaces only the
-//! newest record, so the last [`MAX_HISTORY`] records always span more than
-//! `(MAX_HISTORY - 2) × resolution` seconds of ledger time. That is what makes
-//! the repo's NAV band window (DECISIONS.md #31) a time window the feeder key
-//! cannot flush faster (nav-review 2026-10-26, side feed-rewrite).
+//! Two ways to record a price, chosen per asset by the admin
+//! (`set_source_timed`):
+//!
+//! - **Ledger-timed** (default, testnet demo feed): `set_price` stamps the
+//!   ledger time, so the history cannot be backdated, future-dated or
+//!   rewritten. One record per `resolution` slot (`timestamp / resolution`,
+//!   like Reflector's periods): a second push in the same slot replaces only
+//!   the newest record, so the last [`MAX_HISTORY`] records always span more
+//!   than `(MAX_HISTORY - 2) × resolution` seconds of ledger time. That is
+//!   what makes the repo's NAV band window (DECISIONS.md #31) a time window
+//!   the feeder key cannot flush faster (nav-review 2026-10-26, side
+//!   feed-rewrite).
+//! - **Source-timed** (a production-shaped NAV feed, DECISIONS.md #39):
+//!   `set_price_at` stamps the issuer's publication time, so the repo's
+//!   staleness rules measure the NAV's age, not the feeder's liveness. It
+//!   never rewrites: the timestamp must be no later than the ledger time,
+//!   strictly newer than the newest record and on a later UTC day (one
+//!   record per NAV day), and each write must land in a later `resolution`
+//!   slot of ledger time than the one before. So the window cannot be
+//!   flushed faster than the ledger-timed one either, and only as fast as
+//!   real days pass once it is current. `set_price` is refused on such an
+//!   asset, so a re-posting keeper cannot overwrite the source time.
 //!
 //! Decimals are set in the constructor. The deploy script uses 14, the same
 //! as Reflector, so NAV math is identical against the mock and a live feed.
@@ -30,6 +44,9 @@ mod test;
 /// Records kept per asset for `prices()` / `price()`.
 pub const MAX_HISTORY: u32 = 20;
 
+/// One source-timed record per UTC day of source time.
+pub const SOURCE_DAY_SECS: u64 = 86_400;
+
 const DAY_LEDGERS: u32 = 17_280; // ~5 s ledgers
 const TTL_THRESHOLD: u32 = 7 * DAY_LEDGERS;
 const TTL_EXTEND_TO: u32 = 30 * DAY_LEDGERS;
@@ -44,7 +61,8 @@ pub enum Asset {
 }
 
 /// SEP-40 price record. `price` is scaled by `decimals()`; `timestamp` is
-/// unix seconds.
+/// unix seconds: ledger time for a ledger-timed asset, the source's
+/// publication time for a source-timed one.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceData {
@@ -60,10 +78,24 @@ pub enum Error {
     InvalidConfig = 2,
     /// `accept_admin` with no handover pending (Raven R6, UA-06).
     NoPendingAdmin = 3,
+    /// `set_price` on a source-timed asset: use `set_price_at`.
+    SourceTimed = 4,
+    /// `set_price_at` on a ledger-timed asset: use `set_price`.
+    NotSourceTimed = 5,
+    /// `set_price_at` with a timestamp after the ledger time.
+    FutureTimestamp = 6,
+    /// `set_price_at` with a timestamp not after the newest record's.
+    NotNewer = 7,
+    /// `set_price_at` on the same UTC day as the newest record.
+    SameDay = 8,
+    /// `set_price_at` in the same ledger `resolution` slot as the previous
+    /// source-timed write.
+    TooSoon = 9,
 }
 
-/// A price record was written (Raven R6): every `set_price`, so indexers
-/// and the repo's monitors see each push, including in-slot replacements.
+/// A price record was written (Raven R6): every `set_price` and
+/// `set_price_at`, so indexers and the repo's monitors see each push,
+/// including in-slot replacements. `timestamp` is the record's.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceSet {
@@ -71,6 +103,16 @@ pub struct PriceSet {
     pub asset: Asset,
     pub price: i128,
     pub timestamp: u64,
+}
+
+/// The admin switched how `asset`'s records are stamped
+/// (`set_source_timed`).
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceTimedSet {
+    #[topic]
+    pub asset: Asset,
+    pub source_timed: bool,
 }
 
 /// The current admin named `pending` as its successor (`set_admin`); it
@@ -103,6 +145,10 @@ enum DataKey {
     History(Asset),
     /// Admin named by `set_admin`, waiting for `accept_admin`.
     PendingAdmin,
+    /// Instance: present (`true`) when the asset is source-timed.
+    SourceTimed(Asset),
+    /// Persistent: ledger time of the asset's last `set_price_at`.
+    Written(Asset),
 }
 
 #[contract]
@@ -195,9 +241,93 @@ impl MockOracle {
     /// newest record's `resolution` slot it replaces that record (price and
     /// timestamp); in a later slot it appends a record. Older records are
     /// never touched, so re-posting cannot flush the history faster than one
-    /// record per `resolution` seconds.
+    /// record per `resolution` seconds. `SourceTimed` if the asset is
+    /// source-timed.
     pub fn set_price(env: Env, asset: Asset, price: i128) -> Result<(), Error> {
-        write_price(&env, asset, price)
+        read_admin(&env).require_auth();
+        if is_source_timed(&env, &asset) {
+            return Err(Error::SourceTimed);
+        }
+        let mut history = load_for_write(&env, &asset, price)?;
+        let timestamp = env.ledger().timestamp();
+        let resolution = u64::from(read_resolution(&env));
+        let rec = PriceData { price, timestamp };
+        match history.last() {
+            Some(newest) if newest.timestamp / resolution >= timestamp / resolution => {
+                history.set(history.len() - 1, rec);
+            }
+            _ => history.push_back(rec),
+        }
+        store(&env, &asset, history, price, timestamp);
+        Ok(())
+    }
+
+    /// Record `price` for a source-timed `asset`, stamped with `timestamp`,
+    /// the source's publication time (unix seconds; DECISIONS.md #39).
+    /// Always appends, never replaces. Errors, in this order:
+    /// `NotSourceTimed` (use `set_price`), `InvalidPrice` (`<= 0`),
+    /// `FutureTimestamp` (after the ledger time), `NotNewer` (not after the
+    /// newest record), `SameDay` (same UTC day as the newest record: one
+    /// record per NAV day), `TooSoon` (same ledger `resolution` slot as the
+    /// previous `set_price_at`).
+    pub fn set_price_at(env: Env, asset: Asset, price: i128, timestamp: u64) -> Result<(), Error> {
+        read_admin(&env).require_auth();
+        if !is_source_timed(&env, &asset) {
+            return Err(Error::NotSourceTimed);
+        }
+        let mut history = load_for_write(&env, &asset, price)?;
+        let now = env.ledger().timestamp();
+        if timestamp > now {
+            return Err(Error::FutureTimestamp);
+        }
+        if let Some(newest) = history.last() {
+            if timestamp <= newest.timestamp {
+                return Err(Error::NotNewer);
+            }
+            if timestamp / SOURCE_DAY_SECS <= newest.timestamp / SOURCE_DAY_SECS {
+                return Err(Error::SameDay);
+            }
+        }
+        let resolution = u64::from(read_resolution(&env));
+        let p = env.storage().persistent();
+        let written_key = DataKey::Written(asset.clone());
+        if let Some(written) = p.get::<_, u64>(&written_key) {
+            if written / resolution >= now / resolution {
+                return Err(Error::TooSoon);
+            }
+        }
+        p.set(&written_key, &now);
+        p.extend_ttl(&written_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        history.push_back(PriceData { price, timestamp });
+        store(&env, &asset, history, price, timestamp);
+        Ok(())
+    }
+
+    /// Admin: make `asset` source-timed (`true`: only `set_price_at`) or
+    /// ledger-timed (`false`: only `set_price`, the default). Existing
+    /// records stay. Emits `SourceTimedSet`.
+    pub fn set_source_timed(env: Env, asset: Asset, source_timed: bool) {
+        read_admin(&env).require_auth();
+        let s = env.storage().instance();
+        let key = DataKey::SourceTimed(asset.clone());
+        if source_timed {
+            s.set(&key, &true);
+        } else {
+            s.remove(&key);
+        }
+        extend_instance(&env);
+        SourceTimedSet {
+            asset,
+            source_timed,
+        }
+        .publish(&env);
+    }
+
+    /// True when `asset`'s records carry the source's publication time
+    /// (`set_price_at`), false when they carry ledger time (`set_price`).
+    pub fn source_timed(env: Env, asset: Asset) -> bool {
+        extend_instance(&env);
+        is_source_timed(&env, &asset)
     }
 
     pub fn admin(env: Env) -> Address {
@@ -261,6 +391,12 @@ fn read_resolution(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::Resolution).unwrap()
 }
 
+fn is_source_timed(env: &Env, asset: &Asset) -> bool {
+    env.storage()
+        .instance()
+        .has(&DataKey::SourceTimed(asset.clone()))
+}
+
 fn read_assets(env: &Env) -> Vec<Asset> {
     env.storage()
         .instance()
@@ -276,15 +412,15 @@ fn read_history(env: &Env, asset: &Asset) -> Option<Vec<PriceData>> {
     Some(history)
 }
 
-fn write_price(env: &Env, asset: Asset, price: i128) -> Result<(), Error> {
-    read_admin(env).require_auth();
+/// Shared write checks (the caller already required admin auth): a
+/// positive price, then the asset's history, empty for a first price (the
+/// asset is then listed in `assets()`).
+fn load_for_write(env: &Env, asset: &Asset, price: i128) -> Result<Vec<PriceData>, Error> {
     if price <= 0 {
         return Err(Error::InvalidPrice);
     }
-
     let key = DataKey::History(asset.clone());
-    let p = env.storage().persistent();
-    let mut history: Vec<PriceData> = match p.get(&key) {
+    Ok(match env.storage().persistent().get(&key) {
         Some(h) => h,
         None => {
             let mut assets = read_assets(env);
@@ -292,30 +428,23 @@ fn write_price(env: &Env, asset: Asset, price: i128) -> Result<(), Error> {
             env.storage().instance().set(&DataKey::Assets, &assets);
             Vec::new(env)
         }
-    };
+    })
+}
 
-    // Ledger time only: oldest first, one record per resolution slot.
-    let timestamp = env.ledger().timestamp();
-    let resolution = u64::from(read_resolution(env));
-    let rec = PriceData { price, timestamp };
+/// Trims to [`MAX_HISTORY`], stores, bumps TTLs and emits `PriceSet`.
+fn store(env: &Env, asset: &Asset, mut history: Vec<PriceData>, price: i128, timestamp: u64) {
+    while history.len() > MAX_HISTORY {
+        history.pop_front();
+    }
+    let key = DataKey::History(asset.clone());
+    let p = env.storage().persistent();
+    p.set(&key, &history);
+    p.extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+    extend_instance(env);
     PriceSet {
         asset: asset.clone(),
         price,
         timestamp,
     }
     .publish(env);
-    match history.last() {
-        Some(newest) if newest.timestamp / resolution >= timestamp / resolution => {
-            history.set(history.len() - 1, rec);
-        }
-        _ => history.push_back(rec),
-    }
-    while history.len() > MAX_HISTORY {
-        history.pop_front();
-    }
-
-    p.set(&key, &history);
-    p.extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-    extend_instance(env);
-    Ok(())
 }

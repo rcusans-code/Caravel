@@ -403,3 +403,285 @@ fn r6_admin_and_price_changes_emit_events() {
         .to_xdr(&s.env, &s.client.address)]
     );
 }
+
+// --- source-timed assets (DECISIONS #39 draft: Spiko NAV publication time) ---
+
+/// Mon 26 Oct 2026 17:48:20 UTC: Spiko's eurSAFO NAV publication time.
+const MON_PUB: u64 = 1_793_036_900;
+const DAY: u64 = 86_400;
+
+/// Source-timed setup: ledger at Mon 26 Oct 2026 18:00 UTC, `tbenji` (the
+/// test asset) switched to source-timed.
+fn source_timed() -> Setup {
+    let s = setup();
+    s.env.mock_all_auths();
+    s.env.ledger().set_timestamp(MON_PUB + 700);
+    s.client.set_source_timed(&s.tbenji, &true);
+    s
+}
+
+#[test]
+fn source_timed_is_off_by_default_and_admin_switches_it() {
+    let s = setup();
+    assert!(!s.client.source_timed(&s.tbenji));
+    s.env.mock_all_auths();
+    s.client.set_source_timed(&s.tbenji, &true);
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    assert!(s.client.source_timed(&s.tbenji));
+    // Per asset: another asset stays ledger-timed.
+    assert!(!s.client.source_timed(&Asset::Other(symbol_short!("USDC"))));
+    s.client.set_source_timed(&s.tbenji, &false);
+    assert!(!s.client.source_timed(&s.tbenji));
+}
+
+#[test]
+fn set_source_timed_requires_admin_auth() {
+    let s = setup();
+    let attacker = Address::generate(&s.env);
+    s.env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &s.client.address,
+            fn_name: "set_source_timed",
+            args: (s.tbenji.clone(), true).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s.client.try_set_source_timed(&s.tbenji, &true).is_err());
+    assert!(!s.client.source_timed(&s.tbenji));
+}
+
+#[test]
+fn set_price_at_records_the_source_time_not_ledger_time() {
+    let s = source_timed();
+    s.client.set_price_at(&s.tbenji, &ONE, &MON_PUB);
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    assert_eq!(
+        s.client.lastprice(&s.tbenji),
+        Some(PriceData {
+            price: ONE,
+            timestamp: MON_PUB
+        })
+    );
+    assert_eq!(
+        s.client.assets(),
+        Vec::from_array(&s.env, [s.tbenji.clone()])
+    );
+    // Exactly the ledger time is not in the future.
+    s.env.ledger().set_timestamp(MON_PUB + DAY);
+    s.client.set_price_at(&s.tbenji, &ONE, &(MON_PUB + DAY));
+    assert_eq!(
+        s.client.lastprice(&s.tbenji).unwrap().timestamp,
+        MON_PUB + DAY
+    );
+}
+
+#[test]
+fn non_admin_set_price_at_fails() {
+    let s = source_timed();
+    let attacker = Address::generate(&s.env);
+    s.env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &s.client.address,
+            fn_name: "set_price_at",
+            args: (s.tbenji.clone(), ONE, MON_PUB).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(s
+        .client
+        .try_set_price_at(&s.tbenji, &ONE, &MON_PUB)
+        .is_err());
+    assert_eq!(s.client.lastprice(&s.tbenji), None);
+}
+
+#[test]
+fn each_asset_takes_only_its_own_write_mode() {
+    let s = source_timed();
+    // A re-posting keeper cannot stamp ledger time over the source time.
+    assert_eq!(
+        s.client.try_set_price(&s.tbenji, &ONE),
+        Err(Ok(Error::SourceTimed))
+    );
+    let usdc = Asset::Other(symbol_short!("USDC"));
+    assert_eq!(
+        s.client.try_set_price_at(&usdc, &ONE, &MON_PUB),
+        Err(Ok(Error::NotSourceTimed))
+    );
+    assert_eq!(s.client.lastprice(&s.tbenji), None);
+    assert_eq!(s.client.lastprice(&usdc), None);
+}
+
+#[test]
+fn set_price_at_rejects_bad_prices_and_future_timestamps() {
+    let s = source_timed();
+    let now = s.env.ledger().timestamp();
+    assert_eq!(
+        s.client.try_set_price_at(&s.tbenji, &0, &MON_PUB),
+        Err(Ok(Error::InvalidPrice))
+    );
+    assert_eq!(
+        s.client.try_set_price_at(&s.tbenji, &ONE, &(now + 1)),
+        Err(Ok(Error::FutureTimestamp))
+    );
+    assert_eq!(s.client.lastprice(&s.tbenji), None);
+}
+
+#[test]
+fn set_price_at_rejects_older_equal_and_same_day_records() {
+    let s = source_timed();
+    s.client.set_price_at(&s.tbenji, &ONE, &MON_PUB);
+    s.env.ledger().set_timestamp(MON_PUB + 2 * DAY);
+    for ts in [MON_PUB - DAY, MON_PUB - 1, MON_PUB] {
+        assert_eq!(
+            s.client.try_set_price_at(&s.tbenji, &(ONE + 1), &ts),
+            Err(Ok(Error::NotNewer))
+        );
+    }
+    // A correction later the same UTC day (Spiko republishes Monday's NAV
+    // at 23:59:59) cannot replace Monday's record: one record per NAV day.
+    let monday_end = (MON_PUB / DAY + 1) * DAY - 1;
+    assert_eq!(
+        s.client
+            .try_set_price_at(&s.tbenji, &(ONE + 1), &monday_end),
+        Err(Ok(Error::SameDay))
+    );
+    let all = s.client.prices(&s.tbenji, &10).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(
+        all.get_unchecked(0),
+        PriceData {
+            price: ONE,
+            timestamp: MON_PUB
+        }
+    );
+    // Tuesday's NAV appends.
+    s.client
+        .set_price_at(&s.tbenji, &(ONE + 1), &(monday_end + 1));
+    assert_eq!(s.client.prices(&s.tbenji, &10).unwrap().len(), 2);
+}
+
+#[test]
+fn weekend_keeps_fridays_record_and_its_source_time() {
+    let s = source_timed();
+    let fri = MON_PUB - 3 * DAY - 7_200; // Fri 23 Oct 15:48 UTC
+    s.env.ledger().set_timestamp(fri + 600);
+    s.client.set_price_at(&s.tbenji, &ONE, &fri);
+    // Saturday and Sunday nothing is published, so nothing is posted: the
+    // record keeps Friday's time and its age grows with the ledger.
+    s.env.ledger().set_timestamp(MON_PUB);
+    let last = s.client.lastprice(&s.tbenji).unwrap();
+    assert_eq!(last.timestamp, fri);
+    assert_eq!(s.env.ledger().timestamp() - last.timestamp, 3 * DAY + 7_200);
+    // Monday's print appends.
+    s.env.ledger().set_timestamp(MON_PUB + 300);
+    s.client.set_price_at(&s.tbenji, &(ONE + 7), &MON_PUB);
+    let all = s.client.prices(&s.tbenji, &10).unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all.get_unchecked(0).timestamp, MON_PUB);
+    assert_eq!(all.get_unchecked(1).timestamp, fri);
+}
+
+#[test]
+fn set_price_at_takes_one_write_per_ledger_slot() {
+    // A feed back from an outage posts its backlog: one record per ledger
+    // resolution slot (300 s here), so it cannot flush the band window in
+    // one ledger.
+    let s = source_timed();
+    let now = s.env.ledger().timestamp();
+    s.client.set_price_at(&s.tbenji, &ONE, &(now - 3 * DAY));
+    assert_eq!(
+        s.client.try_set_price_at(&s.tbenji, &ONE, &(now - 2 * DAY)),
+        Err(Ok(Error::TooSoon))
+    );
+    s.env.ledger().set_timestamp((now / 300 + 1) * 300);
+    s.client.set_price_at(&s.tbenji, &ONE, &(now - 2 * DAY));
+    assert_eq!(s.client.prices(&s.tbenji, &10).unwrap().len(), 2);
+}
+
+/// side feed-rewrite, source-timed: even with a 20-day-old history, a
+/// feeder key needs 19 more ledger resolution slots to replace the whole
+/// 20-record window, and every record sits on its own UTC day.
+#[test]
+fn source_timed_window_cannot_be_flushed_faster_than_ledger_timed() {
+    let s = setup_in(Env::new_with_config(
+        soroban_sdk::testutils::EnvTestConfig {
+            capture_snapshot_at_drop: false,
+        },
+    ));
+    s.env.mock_all_auths();
+    let start_day = MON_PUB / DAY - 40;
+    s.env.ledger().set_timestamp(MON_PUB);
+    s.client.set_source_timed(&s.tbenji, &true);
+    for i in 0..u64::from(MAX_HISTORY) {
+        s.client
+            .set_price_at(&s.tbenji, &ONE, &((start_day + i) * DAY));
+        s.env
+            .ledger()
+            .set_timestamp(s.env.ledger().timestamp() + 300);
+    }
+    let start = s.env.ledger().timestamp();
+    let mut day = start_day + u64::from(MAX_HISTORY);
+    loop {
+        match s
+            .client
+            .try_set_price_at(&s.tbenji, &(ONE / 2), &(day * DAY))
+        {
+            Ok(_) => day += 1,
+            Err(Ok(Error::TooSoon)) => {}
+            other => panic!("unexpected {other:?}"),
+        }
+        let window = s.client.prices(&s.tbenji, &MAX_HISTORY).unwrap();
+        if window.iter().all(|r| r.price == ONE / 2) {
+            break;
+        }
+        s.env.ledger().set_timestamp(s.env.ledger().timestamp() + 5);
+    }
+    // 20 writes in 20 distinct slots: more than 18 × resolution, the same
+    // bound #40 gives the ledger-timed feed.
+    assert!(s.env.ledger().timestamp() - start > u64::from(MAX_HISTORY - 2) * 300);
+    let window = s.client.prices(&s.tbenji, &MAX_HISTORY).unwrap();
+    for (a, b) in window.iter().zip(window.iter().skip(1)) {
+        assert!(a.timestamp / DAY > b.timestamp / DAY);
+    }
+}
+
+#[test]
+fn source_timed_switch_and_price_emit_events() {
+    use soroban_sdk::{testutils::Events as _, Event as _};
+    let s = setup();
+    s.env.mock_all_auths();
+    s.env.ledger().set_timestamp(MON_PUB + 700);
+    s.client.set_source_timed(&s.tbenji, &true);
+    assert_eq!(
+        s.env.events().all().filter_by_contract(&s.client.address),
+        [SourceTimedSet {
+            asset: s.tbenji.clone(),
+            source_timed: true,
+        }
+        .to_xdr(&s.env, &s.client.address)]
+    );
+    s.client.set_price_at(&s.tbenji, &ONE, &MON_PUB);
+    assert_eq!(
+        s.env.events().all().filter_by_contract(&s.client.address),
+        [PriceSet {
+            asset: s.tbenji.clone(),
+            price: ONE,
+            timestamp: MON_PUB,
+        }
+        .to_xdr(&s.env, &s.client.address)]
+    );
+}
+
+#[test]
+fn switching_back_to_ledger_time_appends_after_source_records() {
+    let s = source_timed();
+    s.client.set_price_at(&s.tbenji, &ONE, &MON_PUB);
+    s.client.set_source_timed(&s.tbenji, &false);
+    s.client.set_price(&s.tbenji, &(ONE * 2));
+    let all = s.client.prices(&s.tbenji, &10).unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all.get_unchecked(0).timestamp, MON_PUB + 700);
+    assert_eq!(all.get_unchecked(1).timestamp, MON_PUB);
+}

@@ -52,6 +52,8 @@ mod test_raven_guards;
 #[cfg(test)]
 mod test_requests;
 #[cfg(test)]
+mod test_source_timed;
+#[cfg(test)]
 mod test_spiko;
 
 use soroban_sdk::{
