@@ -71,4 +71,4 @@ Caravel is in mainnet beta when all of these hold:
 7. **Exposure is capped at the launch cap**, $2M for a Tier 1 asset (`DECISIONS.md:38`, #32), until liquidator depth is shown.
 8. **Keepers run on independent hosts with alerting**, and the listed asset's dividends are handled (C4, C5).
 
-Outside beta scope: a loss reserve (C9), more assets (EUTBL and eurSAFO need an FX feed, `DECISIONS.md:32`, `:35`), SAFO (disabled until due diligence), and the roadmap features (C11).
+Outside beta scope: a loss reserve (C9), more assets (EUTBL and eurSAFO need an FX feed against a USDC loan, `DECISIONS.md:32`, `:35`, and none against a EURC loan, DECISIONS #51), SAFO (disabled until due diligence), and the roadmap features (C11).
