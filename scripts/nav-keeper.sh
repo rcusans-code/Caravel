@@ -33,6 +33,10 @@
 # logs an ALERT line and runs ALERT_CMD (caravel-alert.sh in the unit).
 # Cost: ~8 XLM per push at today's testnet fees; tops ADMIN up from friendbot
 # when it drops below MIN_ADMIN_XLM (see scripts/README.md).
+# An asset the oracle stamps with the source's publication time
+# (`source_timed`, tSAFO under deploy.sh SPIKO_FEED=1, fed by
+# `npm run spiko-nav`) is never re-posted: the oracle refuses set_price on it
+# and re-stamping would void DECISIONS #39.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -73,9 +77,15 @@ push() { # one round: every collateral asset in .env, attempts interleaved
     labels+=(tSAFO); assets+=("{\"Stellar\":\"$TSAFO_ID\"}"); pins+=("${SAFO_NAV:-}")
   fi
   local i try left rc=0 n
-  local -a refused=()
+  local -a refused=() skipped=()
   load_refs
   for i in "${!labels[@]}"; do
+    if is_source_timed "${assets[i]}"; then
+      prices[i]=""; skipped[i]=1
+      [[ -n "${SRC_LOGGED[${labels[i]}]:-}" ]] || log "${labels[i]} is source-timed on oracle ${ORACLE_ID:0:8}… (Spiko feed): not re-posted"
+      SRC_LOGGED[${labels[i]}]=1
+      continue
+    fi
     prices[i]=$(price_for "${labels[i]}" "${assets[i]}" "${pins[i]}") || { prices[i]=""; continue; }
     if ! guard_price "${labels[i]}" "${prices[i]}" "${pins[i]}"; then prices[i]=""; refused[i]=1; fi
   done
@@ -90,7 +100,7 @@ push() { # one round: every collateral asset in .env, attempts interleaved
     sleep 3
   done
   for i in "${!labels[@]}"; do
-    [[ -n "${refused[i]:-}" ]] && continue   # refused on purpose: guard_price logged and alerted
+    [[ -n "${refused[i]:-}" || -n "${skipped[i]:-}" ]] && continue   # refused on purpose (guard_price alerted) or source-timed
     if [[ -n "${ok[i]:-}" ]]; then FAILS[${labels[i]}]=0; continue; fi
     rc=1; n=$(( ${FAILS[${labels[i]}]:-0} + 1 )); FAILS[${labels[i]}]=$n
     if (( n == ALERT_AFTER || (n > ALERT_AFTER && (n - ALERT_AFTER) % 20 == 0) )); then
@@ -98,6 +108,22 @@ push() { # one round: every collateral asset in .env, attempts interleaved
     fi
   done
   return $rc
+}
+
+# source_timed per asset, cached per ORACLE_ID (a redeploy starts a new cache).
+# A failed call (an oracle from before source-timed feeds, an RPC blip) reads
+# as ledger-timed and is not cached.
+declare -A SRC_TIMED=() SRC_LOGGED=(); SRC_ORACLE=""
+is_source_timed() { # is_source_timed ASSET_JSON: 0 when the oracle stamps it with source time
+  local out
+  [[ "$SRC_ORACLE" == "$ORACLE_ID" ]] || { SRC_TIMED=(); SRC_LOGGED=(); SRC_ORACLE="$ORACLE_ID"; }
+  if [[ -z "${SRC_TIMED[$1]:-}" ]]; then
+    out=$(cli contract invoke -q --source-account "$ADMIN_ADDRESS" --send=no \
+            --id "$ORACLE_ID" -- source_timed --asset "$1" 2>/dev/null) || return 1
+    [[ "$out" == true || "$out" == false ]] || return 1
+    SRC_TIMED[$1]=$out
+  fi
+  [[ "${SRC_TIMED[$1]}" == true ]]
 }
 
 price_for() { # price_for LABEL ASSET_JSON PINNED_NAV -> price to post (stdout)

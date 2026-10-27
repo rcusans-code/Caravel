@@ -154,6 +154,29 @@ It reads keys and `ORACLE_ID` from `~/.local/lib/caravel/.env` (the unit's `ENV_
 
 **Cost:** each `set_price` costs ~9 XLM per asset in fees at today's testnet rates (the oracle rewrites its 20-entry price history). At one push per ~70 s that is ~11,000 XLM/day. The keeper merges a friendbot-funded account into ADMIN (+~10,000 XLM) whenever ADMIN drops below `MIN_ADMIN_XLM` (3,000). The balance read is capped at `HORIZON_TIMEOUT` (10 s, `curl --max-time`) and each friendbot / merge CLI call at `TOPUP_TIMEOUT` (60 s), so a hung Horizon or friendbot skips the top-up and the next push still runs (Raven D-02: an uncapped `curl` used to stop every push after the first one).
 
+A source-timed asset (tSAFO under `SPIKO_FEED=1`, next section) is never re-posted: `nav-keeper.sh` reads the oracle's `source_timed` per asset (cached per `ORACLE_ID`), logs `tSAFO is source-timed on oracle … (Spiko feed): not re-posted` once and skips it; `keeper --refresh-nav` skips it too.
+
+## `spiko-nav`: eurSAFO's NAV at Spiko's publication time (DECISIONS #39 draft)
+
+The production-shaped feed: `scripts/keeper/src/spiko-nav.ts` reads the Spiko Public API (`public-api.spiko.io/v0`, no auth), multiplies eurSAFO's latest NAV by the EUR/USD rate Spiko dated the same day (the SAFO fund's own rate; if it has none for that day, another Spiko fund's, e.g. USTBL's; if none, it waits) and sends `set_price_at(asset, price, timestamp)` with `timestamp` = the older of the two `updatedAt` publication times, once per NAV day. It never re-posts: on a weekend or a Paris holiday Spiko publishes nothing, so nothing is sent and the on-chain age keeps growing, which is what `max_nav_age_secs` (96 h of Spiko time) is meant to measure. The oracle side: `set_source_timed(asset, true)` (admin) switches an asset to `set_price_at` only, which refuses a stamp after ledger time (`FutureTimestamp` #6), not after the newest record (`NotNewer` #7), on the same UTC day (`SameDay` #8) or twice in one ledger `resolution` slot (`TooSoon` #9); `set_price` on it fails `SourceTimed` (#4).
+
+```sh
+cd scripts/keeper
+npm run spiko-nav -- eurSAFO --once --dry-run   # what it would post now: price, timestamp, why
+npm run spiko-nav -- eurSAFO --once             # one tick (exit 1 on an error or a held jump)
+SPIKO_FEED=1 ../deploy.sh                       # tSAFO = eurSAFO mirror: source-timed, first price from Spiko, eurSAFO params
+```
+
+`.env`: `SPIKO_NAV_ASSET` (default `Stellar:$TSAFO_ID`), signer `FEEDER_SECRET` else `ADMIN_SECRET`, `SPIKO_MAX_AGE_SECS` (345,600), `NAV_JUMP_ACK_BPS` / `NAV_JUMP_ACK` (a print more than 10% from the last record is held for a human, as in nav-keeper). Logs per tick: `Spiko eurSAFO NAV 1.015785 EUR day 2026-10-26 (2026-10-26T17:48:20Z) x EUR/USD 1.1204 (indicative, 2026-10-26T17:43:16Z) -> 1.13808551400000 USD (113808551400000) @ 1793036596 (2026-10-26T17:43:16Z): up to date, …`. On the server, next to the keepers (after the keeper copy in the next section):
+
+```sh
+install -Dm644 scripts/caravel-spiko-nav.service ~/.config/systemd/user/caravel-spiko-nav.service
+systemctl --user daemon-reload && systemctl --user enable --now caravel-spiko-nav
+journalctl --user -u caravel-spiko-nav -f
+```
+
+It refuses to start (ALERT, exit 1) unless the asset is source-timed on the oracle, so run it only after a `SPIKO_FEED=1` deploy. A redeploy that changes `ORACLE_ID` in its `.env` makes it exit 0 and systemd restarts it on the new oracle. The app's Admin NAV slider cannot move a source-timed tSAFO (the oracle refuses `set_price`, error #4).
+
 The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `auto_repay`, `default` and `liquidate`; on the team's server it runs as `caravel-keeper.service`. The live testnet contracts are the ones in [`deployments/testnet.json`](../deployments/testnet.json) (`deployedAt` gives the time), and they run every method in the [README's Methods table](../README.md#methods). Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
 
@@ -246,6 +269,8 @@ Both keepers write an `ALERT …` line to their journal and run `ALERT_CMD "<mes
 | keeper | tSAFO `paused()` while the repo's `no_seize` is off; the repo contract or the liquidator off the tSAFO allowlist / tBENJI authorization (> 2 ticks) | every `ALERT_REPEAT_SECS` |
 | nav-keeper | an asset's `set_price` fails 2 rounds in a row | every 20 failed rounds |
 | nav-keeper | it refuses to re-post a price that jumped > `NAV_JUMP_ACK_BPS` (jump refusal, above) | first round, then every 20 |
+| spiko-nav | the Spiko API or the RPC fails 2 ticks in a row (HTTP error, 10 s timeout, unexpected body; nothing is posted), or `set_price_at` fails | every `ALERT_REPEAT_SECS` (1800) |
+| spiko-nav | the on-chain record is older than `SPIKO_MAX_AGE_SECS` (Spiko silent past 96 h: takes, margin calls, liquidations wait); a new print > 10% from the last record (not posted); the asset is not source-timed at start (exit 1) | every `ALERT_REPEAT_SECS`; each start |
 | keeper | `--refresh-nav` refuses to re-post a price held for an ack (> 2 ticks); the NAV jump state file is unreadable at start | every `ALERT_REPEAT_SECS`; once |
 | keeper | `keeper blind`: 2 ticks in a row fail (RPC down or answering errors) | every `ALERT_REPEAT_SECS` |
 | keeper | `keeper hung`: no RPC answer for `TICK_WATCHDOG_SECS` (90) inside a tick; the keeper then exits 1 and systemd restarts it | each time |

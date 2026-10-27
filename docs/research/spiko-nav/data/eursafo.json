@@ -1,0 +1,1677 @@
+{
+ "source": "https://public-api.spiko.io/v0",
+ "symbol": "eurSAFO",
+ "isin": "FR0014015LD3",
+ "fund": {
+  "slug": "SAFO",
+  "id": "59c2c924-ebf8-492d-a4b0-72d72ebf61e6",
+  "timezone": "Europe/Paris"
+ },
+ "non_operating_days": [
+  "2026-01-01",
+  "2026-04-03",
+  "2026-04-06",
+  "2026-05-01",
+  "2026-05-08",
+  "2026-05-25",
+  "2026-07-14",
+  "2026-08-15",
+  "2026-11-01",
+  "2026-11-11",
+  "2026-12-25",
+  "2026-12-26"
+ ],
+ "fetched_at": "2026-10-27T10:34:42+00:00",
+ "rows": [
+  {
+   "day": "2026-03-02",
+   "nav": "1",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-02T17:00:00.000Z",
+   "fx": "1.1736",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-02T16:18:06.362Z"
+  },
+  {
+   "day": "2026-03-03",
+   "nav": "1",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-03T12:34:46.330Z",
+   "fx": "1.1616",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-03T18:39:11.223Z"
+  },
+  {
+   "day": "2026-03-04",
+   "nav": "1.000059",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-04T13:00:00.000Z",
+   "fx": "1.1635",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-04T17:07:19.429Z"
+  },
+  {
+   "day": "2026-03-05",
+   "nav": "1.000118",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-05T17:25:16.874Z",
+   "fx": "1.162",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-05T18:13:17.561Z"
+  },
+  {
+   "day": "2026-03-06",
+   "nav": "1.000296",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-06T16:10:54.985Z",
+   "fx": "1.1578",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-06T17:24:13.084Z"
+  },
+  {
+   "day": "2026-03-09",
+   "nav": "1.000355",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-09T20:56:36.118Z",
+   "fx": "1.1555",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-09T16:57:09.628Z"
+  },
+  {
+   "day": "2026-03-10",
+   "nav": "1.000415",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-10T18:27:59.913Z",
+   "fx": "1.1645",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-10T16:51:13.655Z"
+  },
+  {
+   "day": "2026-03-11",
+   "nav": "1.000474",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-11T19:32:07.029Z",
+   "fx": "1.1604",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-11T16:59:33.799Z"
+  },
+  {
+   "day": "2026-03-12",
+   "nav": "1.000533",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-12T15:00:41.284Z",
+   "fx": "1.155",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-12T18:04:07.860Z"
+  },
+  {
+   "day": "2026-03-13",
+   "nav": "1.00071",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-13T17:18:09.040Z",
+   "fx": "1.1454",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-13T16:48:34.804Z"
+  },
+  {
+   "day": "2026-03-16",
+   "nav": "1.00077",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-16T16:40:45.393Z",
+   "fx": "1.1475",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-16T17:00:18.787Z"
+  },
+  {
+   "day": "2026-03-17",
+   "nav": "1.000829",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-17T15:24:43.457Z",
+   "fx": "1.1509",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-17T18:40:04.104Z"
+  },
+  {
+   "day": "2026-03-18",
+   "nav": "1.000888",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-18T15:52:26.976Z",
+   "fx": "1.1538",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-18T16:43:25.804Z"
+  },
+  {
+   "day": "2026-03-19",
+   "nav": "1.000948",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-19T16:56:26.535Z",
+   "fx": "1.1469",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-19T17:50:37.174Z"
+  },
+  {
+   "day": "2026-03-20",
+   "nav": "1.001127",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-20T14:43:49.324Z",
+   "fx": "1.1544",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-20T17:27:10.056Z"
+  },
+  {
+   "day": "2026-03-23",
+   "nav": "1.001187",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-23T15:58:48.662Z",
+   "fx": "1.1489",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-23T17:02:32.303Z"
+  },
+  {
+   "day": "2026-03-24",
+   "nav": "1.001247",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-24T17:50:46.451Z",
+   "fx": "1.159",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-24T16:46:16.074Z"
+  },
+  {
+   "day": "2026-03-25",
+   "nav": "1.001306",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-25T17:50:11.112Z",
+   "fx": "1.1599",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-25T16:45:36.073Z"
+  },
+  {
+   "day": "2026-03-26",
+   "nav": "1.001366",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-26T15:21:06.611Z",
+   "fx": "1.1563",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-26T17:43:41.180Z"
+  },
+  {
+   "day": "2026-03-27",
+   "nav": "1.001545",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-27T12:52:43.542Z",
+   "fx": "1.1523",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-27T14:38:03.846Z"
+  },
+  {
+   "day": "2026-03-30",
+   "nav": "1.001605",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-30T15:40:02.732Z",
+   "fx": "1.1492",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-30T15:05:43.266Z"
+  },
+  {
+   "day": "2026-03-31",
+   "nav": "1.001665",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-03-31T16:19:04.433Z",
+   "fx": "1.1472",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-03-31T15:59:38.466Z"
+  },
+  {
+   "day": "2026-04-01",
+   "nav": "1.001725",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-01T16:38:55.263Z",
+   "fx": "1.1585",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-01T16:00:42.816Z"
+  },
+  {
+   "day": "2026-04-02",
+   "nav": "1.002024",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-02T16:20:32.776Z",
+   "fx": "1.1527",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-02T17:43:55.465Z"
+  },
+  {
+   "day": "2026-04-07",
+   "nav": "1.002084",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-07T13:44:10.341Z",
+   "fx": "1.157",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-07T16:32:05.375Z"
+  },
+  {
+   "day": "2026-04-08",
+   "nav": "1.002144",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-08T13:55:18.396Z",
+   "fx": "1.1681",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-08T15:00:17.953Z"
+  },
+  {
+   "day": "2026-04-09",
+   "nav": "1.002203",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-09T13:59:41.538Z",
+   "fx": "1.1677",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-09T14:27:16.670Z"
+  },
+  {
+   "day": "2026-04-10",
+   "nav": "1.002383",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-10T13:11:44.697Z",
+   "fx": "1.1698",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-10T16:29:40.448Z"
+  },
+  {
+   "day": "2026-04-13",
+   "nav": "1.002443",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-13T15:31:31.996Z",
+   "fx": "1.1686",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-13T14:43:21.816Z"
+  },
+  {
+   "day": "2026-04-14",
+   "nav": "1.002503",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-14T13:26:43.223Z",
+   "fx": "1.1786",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-14T16:48:54.537Z"
+  },
+  {
+   "day": "2026-04-15",
+   "nav": "1.002563",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-15T13:55:09.582Z",
+   "fx": "1.1785",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-15T15:21:46.273Z"
+  },
+  {
+   "day": "2026-04-16",
+   "nav": "1.002623",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-16T13:54:28.475Z",
+   "fx": "1.1779",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-16T14:32:38.387Z"
+  },
+  {
+   "day": "2026-04-17",
+   "nav": "1.002802",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-17T12:29:04.986Z",
+   "fx": "1.1798",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-17T15:02:33.439Z"
+  },
+  {
+   "day": "2026-04-20",
+   "nav": "1.002862",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-20T13:59:31.546Z",
+   "fx": "1.1758",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-20T15:10:16.577Z"
+  },
+  {
+   "day": "2026-04-21",
+   "nav": "1.002922",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-21T12:09:44.625Z",
+   "fx": "1.1758",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-21T14:40:40.407Z"
+  },
+  {
+   "day": "2026-04-22",
+   "nav": "1.002982",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-22T11:10:01.292Z",
+   "fx": "1.1752",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-22T15:21:19.431Z"
+  },
+  {
+   "day": "2026-04-23",
+   "nav": "1.003042",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-23T20:30:17.756Z",
+   "fx": "1.1696",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-23T13:59:21.335Z"
+  },
+  {
+   "day": "2026-04-24",
+   "nav": "1.003222",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-24T13:06:35.085Z",
+   "fx": "1.1686",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-24T14:26:16.338Z"
+  },
+  {
+   "day": "2026-04-27",
+   "nav": "1.003282",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-27T13:35:32.678Z",
+   "fx": "1.1745",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-27T14:35:53.611Z"
+  },
+  {
+   "day": "2026-04-28",
+   "nav": "1.003342",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-28T13:07:20.516Z",
+   "fx": "1.1695",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-28T15:23:32.209Z"
+  },
+  {
+   "day": "2026-04-29",
+   "nav": "1.003402",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-29T12:36:49.637Z",
+   "fx": "1.17",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-29T14:41:43.634Z"
+  },
+  {
+   "day": "2026-04-30",
+   "nav": "1.003642",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-04-30T16:38:12.064Z",
+   "fx": "1.1682",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-04-30T15:02:09.522Z"
+  },
+  {
+   "day": "2026-05-04",
+   "nav": "1.003702",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-04T16:54:27.387Z",
+   "fx": "1.1717",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-04T14:40:42.303Z"
+  },
+  {
+   "day": "2026-05-05",
+   "nav": "1.003762",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-05T13:59:42.297Z",
+   "fx": "1.1685",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-05T14:39:12.375Z"
+  },
+  {
+   "day": "2026-05-06",
+   "nav": "1.003822",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-06T18:10:40.345Z",
+   "fx": "1.1767",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-06T16:22:57.174Z"
+  },
+  {
+   "day": "2026-05-07",
+   "nav": "1.004062",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-07T17:50:46.142Z",
+   "fx": "1.1768",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-07T14:41:20.305Z"
+  },
+  {
+   "day": "2026-05-11",
+   "nav": "1.004122",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-11T13:05:19.529Z",
+   "fx": "1.1771",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-11T15:32:58.051Z"
+  },
+  {
+   "day": "2026-05-12",
+   "nav": "1.004182",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-12T11:03:24.099Z",
+   "fx": "1.1746",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-12T15:37:36.160Z"
+  },
+  {
+   "day": "2026-05-13",
+   "nav": "1.004242",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-13T14:13:27.272Z",
+   "fx": "1.1697",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-13T15:07:07.910Z"
+  },
+  {
+   "day": "2026-05-14",
+   "nav": "1.004302",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-14T12:01:43.203Z",
+   "fx": null,
+   "fx_kind": null,
+   "fx_fund": null,
+   "fx_updated_at": null
+  },
+  {
+   "day": "2026-05-15",
+   "nav": "1.004482",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-15T13:50:07.882Z",
+   "fx": "1.1625",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-15T14:12:37.015Z"
+  },
+  {
+   "day": "2026-05-18",
+   "nav": "1.004542",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-18T12:14:05.798Z",
+   "fx": "1.1638",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-18T14:53:33.633Z"
+  },
+  {
+   "day": "2026-05-19",
+   "nav": "1.004602",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-19T15:09:39.500Z",
+   "fx": "1.1618",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-19T15:49:44.177Z"
+  },
+  {
+   "day": "2026-05-20",
+   "nav": "1.004662",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-20T15:15:28.065Z",
+   "fx": "1.1591",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-20T16:05:47.234Z"
+  },
+  {
+   "day": "2026-05-21",
+   "nav": "1.004722",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-21T12:42:36.656Z",
+   "fx": "1.163",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-21T14:56:57.703Z"
+  },
+  {
+   "day": "2026-05-22",
+   "nav": "1.004962",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-22T14:38:57.094Z",
+   "fx": "1.16",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-22T14:58:36.746Z"
+  },
+  {
+   "day": "2026-05-26",
+   "nav": "1.005022",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-26T14:46:29.789Z",
+   "fx": "1.164",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-26T15:18:21.577Z"
+  },
+  {
+   "day": "2026-05-27",
+   "nav": "1.005082",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-27T13:11:23.234Z",
+   "fx": "1.1645",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-27T15:23:01.554Z"
+  },
+  {
+   "day": "2026-05-28",
+   "nav": "1.005142",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-28T12:57:53.394Z",
+   "fx": "1.1618",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-28T15:25:02.215Z"
+  },
+  {
+   "day": "2026-05-29",
+   "nav": "1.005323",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-05-29T13:12:55.030Z",
+   "fx": "1.1636",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-05-29T14:53:44.085Z"
+  },
+  {
+   "day": "2026-06-01",
+   "nav": "1.005383",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-01T12:57:07.511Z",
+   "fx": "1.1649",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-01T15:11:51.118Z"
+  },
+  {
+   "day": "2026-06-02",
+   "nav": "1.005443",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-02T12:21:40.638Z",
+   "fx": "1.1643",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-02T16:43:16.228Z"
+  },
+  {
+   "day": "2026-06-03",
+   "nav": "1.005503",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-03T13:18:47.157Z",
+   "fx": "1.1614",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-03T15:58:12.624Z"
+  },
+  {
+   "day": "2026-06-04",
+   "nav": "1.005563",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-04T16:05:15.160Z",
+   "fx": "1.1621",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-04T15:12:59.422Z"
+  },
+  {
+   "day": "2026-06-05",
+   "nav": "1.005744",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-05T13:00:35.905Z",
+   "fx": "1.1641",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-05T13:21:54.413Z"
+  },
+  {
+   "day": "2026-06-08",
+   "nav": "1.005804",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-08T13:55:15.729Z",
+   "fx": "1.1504",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-08T16:06:49.299Z"
+  },
+  {
+   "day": "2026-06-09",
+   "nav": "1.005864",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-09T13:10:13.479Z",
+   "fx": "1.1557",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-09T16:10:59.006Z"
+  },
+  {
+   "day": "2026-06-10",
+   "nav": "1.005924",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-10T13:47:58.875Z",
+   "fx": "1.1553",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-10T16:15:03.369Z"
+  },
+  {
+   "day": "2026-06-11",
+   "nav": "1.005984",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-11T14:13:23.984Z",
+   "fx": "1.1533",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-11T15:48:28.107Z"
+  },
+  {
+   "day": "2026-06-12",
+   "nav": "1.006164",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-12T12:58:40.839Z",
+   "fx": "1.1587",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-06-12T13:46:33.032Z"
+  },
+  {
+   "day": "2026-06-15",
+   "nav": "1.006225",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-15T15:19:14.634Z",
+   "fx": "1.1574",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-06-15T15:19:14.634Z"
+  },
+  {
+   "day": "2026-06-16",
+   "nav": "1.006285",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-16T13:11:00.840Z",
+   "fx": "1.1602",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-16T15:05:38.599Z"
+  },
+  {
+   "day": "2026-06-17",
+   "nav": "1.006345",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-17T12:36:05.799Z",
+   "fx": "1.1605",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-17T13:45:16.647Z"
+  },
+  {
+   "day": "2026-06-18",
+   "nav": "1.006412",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-18T12:39:27.848Z",
+   "fx": "1.1477",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-18T15:58:24.340Z"
+  },
+  {
+   "day": "2026-06-19",
+   "nav": "1.006613",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-19T12:48:52.265Z",
+   "fx": null,
+   "fx_kind": null,
+   "fx_fund": null,
+   "fx_updated_at": null
+  },
+  {
+   "day": "2026-06-22",
+   "nav": "1.006681",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-22T15:43:09.736Z",
+   "fx": "1.1458",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-22T14:41:46.284Z"
+  },
+  {
+   "day": "2026-06-23",
+   "nav": "1.00675",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-23T14:44:50.617Z",
+   "fx": "1.1409",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-23T15:22:58.763Z"
+  },
+  {
+   "day": "2026-06-24",
+   "nav": "1.006818",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-24T16:23:18.491Z",
+   "fx": "1.1347",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-24T14:21:13.587Z"
+  },
+  {
+   "day": "2026-06-25",
+   "nav": "1.006887",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-25T13:30:43.060Z",
+   "fx": "1.1367",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-25T15:07:37.576Z"
+  },
+  {
+   "day": "2026-06-26",
+   "nav": "1.007092",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-26T11:31:05.867Z",
+   "fx": "1.1401",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-26T16:44:47.683Z"
+  },
+  {
+   "day": "2026-06-29",
+   "nav": "1.00716",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-29T12:27:13.246Z",
+   "fx": "1.14",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-29T16:07:35.572Z"
+  },
+  {
+   "day": "2026-06-30",
+   "nav": "1.007229",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-06-30T12:58:49.554Z",
+   "fx": "1.1393",
+   "fx_kind": "execution",
+   "fx_fund": "3133596a-3e13-4a7f-ba6e-34d3744a9a7f",
+   "fx_updated_at": "2026-06-30T15:47:03.355Z"
+  },
+  {
+   "day": "2026-07-01",
+   "nav": "1.007297",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-01T14:12:45.236Z",
+   "fx": "1.1433",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-01T14:12:45.202Z"
+  },
+  {
+   "day": "2026-07-02",
+   "nav": "1.007366",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-02T16:22:32.537Z",
+   "fx": "1.13935",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-02T16:22:32.442Z"
+  },
+  {
+   "day": "2026-07-03",
+   "nav": "1.007571",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-03T11:34:04.566Z",
+   "fx": "1.1443",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-03T11:34:04.498Z"
+  },
+  {
+   "day": "2026-07-06",
+   "nav": "1.007639",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-06T16:21:01.031Z",
+   "fx": "1.14425",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-06T16:21:00.997Z"
+  },
+  {
+   "day": "2026-07-07",
+   "nav": "1.007708",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-07T14:12:52.454Z",
+   "fx": "1.14175",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-07T14:12:52.323Z"
+  },
+  {
+   "day": "2026-07-08",
+   "nav": "1.007776",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-08T18:00:39.137Z",
+   "fx": "1.14335",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-08T18:00:39.103Z"
+  },
+  {
+   "day": "2026-07-09",
+   "nav": "1.007845",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-09T13:40:41.205Z",
+   "fx": "1.1407",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-09T13:40:41.129Z"
+  },
+  {
+   "day": "2026-07-10",
+   "nav": "1.00805",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-10T13:35:12.164Z",
+   "fx": "1.14325",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-10T13:35:12.124Z"
+  },
+  {
+   "day": "2026-07-13",
+   "nav": "1.008187",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-13T12:37:22.882Z",
+   "fx": "1.1423",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-13T12:37:22.786Z"
+  },
+  {
+   "day": "2026-07-15",
+   "nav": "1.008256",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-15T12:49:49.100Z",
+   "fx": "1.14445",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-15T12:49:48.917Z"
+  },
+  {
+   "day": "2026-07-16",
+   "nav": "1.008324",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-16T14:34:24.425Z",
+   "fx": "1.14365",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-16T14:34:24.382Z"
+  },
+  {
+   "day": "2026-07-17",
+   "nav": "1.00853",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-17T15:41:32.131Z",
+   "fx": "1.1443",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-17T15:41:32.092Z"
+  },
+  {
+   "day": "2026-07-20",
+   "nav": "1.008599",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-20T14:30:02.170Z",
+   "fx": "1.144",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-20T14:30:01.867Z"
+  },
+  {
+   "day": "2026-07-21",
+   "nav": "1.008667",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-21T18:03:52.586Z",
+   "fx": "1.1407",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-21T18:03:52.384Z"
+  },
+  {
+   "day": "2026-07-22",
+   "nav": "1.008736",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-22T13:39:27.275Z",
+   "fx": "1.14055",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-22T13:39:27.241Z"
+  },
+  {
+   "day": "2026-07-23",
+   "nav": "1.008804",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-23T15:58:37.540Z",
+   "fx": "1.141",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-23T15:58:37.433Z"
+  },
+  {
+   "day": "2026-07-24",
+   "nav": "1.00901",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-24T15:59:02.120Z",
+   "fx": "1.1371",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-24T15:59:01.585Z"
+  },
+  {
+   "day": "2026-07-27",
+   "nav": "1.009078",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-27T14:00:59.423Z",
+   "fx": "1.1379",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-27T14:00:59.383Z"
+  },
+  {
+   "day": "2026-07-28",
+   "nav": "1.009147",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-28T18:08:50.264Z",
+   "fx": "1.13715",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-28T18:08:50.128Z"
+  },
+  {
+   "day": "2026-07-29",
+   "nav": "1.009215",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-29T14:02:45.007Z",
+   "fx": "1.1386",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-29T14:02:44.910Z"
+  },
+  {
+   "day": "2026-07-30",
+   "nav": "1.009284",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-30T14:15:30.475Z",
+   "fx": "1.13815",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-30T14:15:30.412Z"
+  },
+  {
+   "day": "2026-07-31",
+   "nav": "1.009497",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-07-31T15:10:24.957Z",
+   "fx": "1.15035",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-07-31T15:10:24.859Z"
+  },
+  {
+   "day": "2026-08-03",
+   "nav": "1.009567",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-03T14:00:13.642Z",
+   "fx": "1.15055",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-03T14:00:13.605Z"
+  },
+  {
+   "day": "2026-08-04",
+   "nav": "1.009638",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-04T14:10:25.423Z",
+   "fx": "1.1514",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-04T14:10:25.316Z"
+  },
+  {
+   "day": "2026-08-05",
+   "nav": "1.009708",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-05T12:37:48.388Z",
+   "fx": "1.15235",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-05T12:37:48.283Z"
+  },
+  {
+   "day": "2026-08-06",
+   "nav": "1.009779",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-06T13:07:46.895Z",
+   "fx": "1.1553",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-06T13:07:46.813Z"
+  },
+  {
+   "day": "2026-08-07",
+   "nav": "1.009991",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-07T14:34:16.208Z",
+   "fx": "1.1535",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-07T14:34:16.174Z"
+  },
+  {
+   "day": "2026-08-10",
+   "nav": "1.010062",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-10T13:30:03.741Z",
+   "fx": "1.15535",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-10T13:30:03.019Z"
+  },
+  {
+   "day": "2026-08-11",
+   "nav": "1.010133",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-11T14:19:37.981Z",
+   "fx": "1.1551",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-11T14:19:37.944Z"
+  },
+  {
+   "day": "2026-08-12",
+   "nav": "1.010203",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-12T14:17:20.804Z",
+   "fx": "1.15425",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-12T14:17:20.197Z"
+  },
+  {
+   "day": "2026-08-13",
+   "nav": "1.010274",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-13T10:57:17.280Z",
+   "fx": "1.1542",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-13T10:57:17.243Z"
+  },
+  {
+   "day": "2026-08-14",
+   "nav": "1.010487",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-14T17:04:31.645Z",
+   "fx": "1.15445",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-14T17:04:31.567Z"
+  },
+  {
+   "day": "2026-08-17",
+   "nav": "1.010557",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-17T12:02:35.008Z",
+   "fx": "1.1581",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-17T12:02:34.974Z"
+  },
+  {
+   "day": "2026-08-18",
+   "nav": "1.010628",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-18T10:21:52.192Z",
+   "fx": "1.1587",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-18T10:21:52.147Z"
+  },
+  {
+   "day": "2026-08-19",
+   "nav": "1.010699",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-19T13:35:52.142Z",
+   "fx": "1.1582",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-19T13:35:52.095Z"
+  },
+  {
+   "day": "2026-08-20",
+   "nav": "1.01077",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-20T10:32:41.498Z",
+   "fx": "1.1663",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-20T10:32:41.465Z"
+  },
+  {
+   "day": "2026-08-21",
+   "nav": "1.010983",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-21T10:39:51.514Z",
+   "fx": "1.16835",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-21T10:39:51.478Z"
+  },
+  {
+   "day": "2026-08-24",
+   "nav": "1.011054",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-24T13:13:39.446Z",
+   "fx": "1.1673",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-24T13:13:39.406Z"
+  },
+  {
+   "day": "2026-08-25",
+   "nav": "1.011124",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-25T10:45:18.571Z",
+   "fx": "1.1666",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-25T10:45:18.522Z"
+  },
+  {
+   "day": "2026-08-26",
+   "nav": "1.011195",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-26T11:32:34.200Z",
+   "fx": "1.16695",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-26T11:32:33.985Z"
+  },
+  {
+   "day": "2026-08-27",
+   "nav": "1.011266",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-27T14:39:43.266Z",
+   "fx": "1.16455",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-27T14:39:43.223Z"
+  },
+  {
+   "day": "2026-08-28",
+   "nav": "1.011479",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-28T14:34:02.259Z",
+   "fx": "1.1646",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-28T14:34:02.150Z"
+  },
+  {
+   "day": "2026-08-31",
+   "nav": "1.01155",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-08-31T16:37:49.788Z",
+   "fx": "1.1621",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-08-31T16:37:49.701Z"
+  },
+  {
+   "day": "2026-09-01",
+   "nav": "1.011622",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-01T15:39:47.671Z",
+   "fx": "1.1616",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-01T15:39:47.643Z"
+  },
+  {
+   "day": "2026-09-02",
+   "nav": "1.011692",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-02T14:35:27.546Z",
+   "fx": "1.1596",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-02T14:35:27.500Z"
+  },
+  {
+   "day": "2026-09-03",
+   "nav": "1.011763",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-03T15:07:44.732Z",
+   "fx": "1.15935",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-03T14:47:17.141Z"
+  },
+  {
+   "day": "2026-09-04",
+   "nav": "1.011976",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-04T14:56:47.043Z",
+   "fx": "1.16195",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-04T14:56:46.996Z"
+  },
+  {
+   "day": "2026-09-07",
+   "nav": "1.01205",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-07T16:33:32.623Z",
+   "fx": "1.1616",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-07T16:33:32.525Z"
+  },
+  {
+   "day": "2026-09-08",
+   "nav": "1.012117",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-08T21:45:00.000Z",
+   "fx": "1.16315",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-08T21:45:00.000Z"
+  },
+  {
+   "day": "2026-09-09",
+   "nav": "1.012187",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-09T16:38:35.242Z",
+   "fx": "1.16305",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-09T16:38:35.178Z"
+  },
+  {
+   "day": "2026-09-10",
+   "nav": "1.012258",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-10T16:44:19.158Z",
+   "fx": "1.1647",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-10T16:44:19.049Z"
+  },
+  {
+   "day": "2026-09-11",
+   "nav": "1.01247",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-11T14:52:59.371Z",
+   "fx": "1.1628",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-11T14:52:59.311Z"
+  },
+  {
+   "day": "2026-09-14",
+   "nav": "1.01254",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-14T16:19:39.846Z",
+   "fx": "1.16145",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-14T16:19:39.768Z"
+  },
+  {
+   "day": "2026-09-15",
+   "nav": "1.012611",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-15T16:58:42.166Z",
+   "fx": "1.15435",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-15T15:27:52.269Z"
+  },
+  {
+   "day": "2026-09-16",
+   "nav": "1.012681",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-16T14:26:59.946Z",
+   "fx": "1.15435",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-16T14:26:59.842Z"
+  },
+  {
+   "day": "2026-09-17",
+   "nav": "1.012759",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-17T16:46:01.164Z",
+   "fx": "1.1538",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-17T13:18:52.345Z"
+  },
+  {
+   "day": "2026-09-18",
+   "nav": "1.012991",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-18T17:14:07.479Z",
+   "fx": "1.1462",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-18T16:53:56.828Z"
+  },
+  {
+   "day": "2026-09-21",
+   "nav": "1.013069",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-21T17:23:20.866Z",
+   "fx": "1.1473",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-21T15:54:23.521Z"
+  },
+  {
+   "day": "2026-09-22",
+   "nav": "1.013146",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-22T16:27:46.578Z",
+   "fx": "1.14425",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-22T17:14:41.318Z"
+  },
+  {
+   "day": "2026-09-23",
+   "nav": "1.013223",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-23T19:26:14.173Z",
+   "fx": "1.14015",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-23T19:28:54.087Z"
+  },
+  {
+   "day": "2026-09-24",
+   "nav": "1.0133",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-24T16:37:39.114Z",
+   "fx": "1.1374",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-24T16:40:44.845Z"
+  },
+  {
+   "day": "2026-09-25",
+   "nav": "1.013533",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-25T15:58:10.759Z",
+   "fx": "1.14015",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-25T15:57:55.013Z"
+  },
+  {
+   "day": "2026-09-28",
+   "nav": "1.013611",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-28T15:12:22.246Z",
+   "fx": "1.1364",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-28T15:14:29.779Z"
+  },
+  {
+   "day": "2026-09-29",
+   "nav": "1.013688",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-29T18:59:15.812Z",
+   "fx": "1.1364",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-29T18:50:31.666Z"
+  },
+  {
+   "day": "2026-09-30",
+   "nav": "1.013766",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-09-30T14:43:55.622Z",
+   "fx": "1.13585",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-09-30T15:53:03.447Z"
+  },
+  {
+   "day": "2026-10-01",
+   "nav": "1.013843",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-01T16:15:47.251Z",
+   "fx": "1.1265",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-01T16:18:18.191Z"
+  },
+  {
+   "day": "2026-10-02",
+   "nav": "1.014076",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-02T15:20:09.492Z",
+   "fx": "1.1279",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-02T15:23:41.683Z"
+  },
+  {
+   "day": "2026-10-05",
+   "nav": "1.014154",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-05T16:30:22.429Z",
+   "fx": "1.1209",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-05T16:58:02.145Z"
+  },
+  {
+   "day": "2026-10-06",
+   "nav": "1.014231",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-06T16:07:40.716Z",
+   "fx": "1.12565",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-06T16:07:07.881Z"
+  },
+  {
+   "day": "2026-10-07",
+   "nav": "1.014308",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-07T15:17:03.241Z",
+   "fx": "1.1194",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-07T15:29:34.008Z"
+  },
+  {
+   "day": "2026-10-08",
+   "nav": "1.014386",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-08T16:48:30.831Z",
+   "fx": "1.1208",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-08T16:49:40.600Z"
+  },
+  {
+   "day": "2026-10-09",
+   "nav": "1.014619",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-09T15:58:29.434Z",
+   "fx": "1.1196",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-09T15:56:51.630Z"
+  },
+  {
+   "day": "2026-10-12",
+   "nav": "1.014697",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-12T15:47:56.571Z",
+   "fx": "1.1173",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-12T17:13:10.757Z"
+  },
+  {
+   "day": "2026-10-13",
+   "nav": "1.014774",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-13T16:47:20.078Z",
+   "fx": "1.1194",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-13T16:47:58.384Z"
+  },
+  {
+   "day": "2026-10-14",
+   "nav": "1.014852",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-14T16:23:43.002Z",
+   "fx": "1.11215",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-14T16:22:59.646Z"
+  },
+  {
+   "day": "2026-10-15",
+   "nav": "1.01493",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-15T15:07:32.828Z",
+   "fx": "1.1201",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-15T16:03:43.025Z"
+  },
+  {
+   "day": "2026-10-16",
+   "nav": "1.015162",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-16T15:47:27.708Z",
+   "fx": "1.1253",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-16T15:46:38.437Z"
+  },
+  {
+   "day": "2026-10-19",
+   "nav": "1.01524",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-19T16:48:32.915Z",
+   "fx": "1.1217",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-19T16:48:13.719Z"
+  },
+  {
+   "day": "2026-10-20",
+   "nav": "1.015318",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-20T17:28:27.072Z",
+   "fx": "1.1217",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-20T17:27:20.630Z"
+  },
+  {
+   "day": "2026-10-21",
+   "nav": "1.015396",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-21T16:07:06.684Z",
+   "fx": "1.1224",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-21T16:25:24.618Z"
+  },
+  {
+   "day": "2026-10-22",
+   "nav": "1.015474",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-22T16:05:48.554Z",
+   "fx": "1.11975",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-22T16:05:48.554Z"
+  },
+  {
+   "day": "2026-10-23",
+   "nav": "1.015707",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-23T15:45:57.833Z",
+   "fx": "1.1204",
+   "fx_kind": "execution",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-23T15:45:57.833Z"
+  },
+  {
+   "day": "2026-10-26",
+   "nav": "1.015785",
+   "nav_currency": "EUR",
+   "nav_updated_at": "2026-10-26T17:48:20.045Z",
+   "fx": "1.1204",
+   "fx_kind": "indicative",
+   "fx_fund": "own",
+   "fx_updated_at": "2026-10-26T17:43:16.865Z"
+  }
+ ]
+}

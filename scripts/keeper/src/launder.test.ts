@@ -128,6 +128,7 @@ f="$FAKE_DIR/$(printf %s "$asset" | md5sum | cut -c1-8)"
 case "$fn" in
   lastprice) if [[ -f $f ]]; then read -r p t <"$f"; printf '{"price":"%s","timestamp":%s}\\n' "$p" "$t"; else echo null; fi ;;
   set_price) echo "$price $(date +%s)" >"$f"; echo "$price" >>"$FAKE_DIR/pushes.log" ;;
+  source_timed) if [[ -f $f.src ]]; then echo true; else echo false; fi ;;
 esac
 `;
 const BAD = 50_000_000_000_000n; // 0.50 at 14 decimals
@@ -155,6 +156,12 @@ function harness() {
       return { status: r.status, out: r.stdout + r.stderr };
     },
     env: (extra: string) => writeFileSync(envFile, baseEnv + extra),
+    /** The oracle stamps `assetJson` with source time (set_source_timed). */
+    sourceTimed: (assetJson: string) => {
+      const k = spawnSync("bash", ["-c", `printf %s '${assetJson}' | md5sum | cut -c1-8`], { encoding: "utf8" }).stdout.trim();
+      writeFileSync(path.join(dir, `${k}.src`), "");
+      return path.join(dir, k);
+    },
     pushes,
     state,
   };
@@ -203,4 +210,18 @@ test("N2 nav-keeper.sh re-posts a jump once acked (NAV_JUMP_ACK) or pinned (NAV=
   assert.deepEqual(k.pushes().slice(-1), [String(BAD)]);
   k.round({ NAV: "1.00" });
   assert.deepEqual(k.pushes().slice(-1), [String(ONE)]);
+});
+
+test("N3 nav-keeper.sh never re-posts a source-timed asset (the Spiko-fed tSAFO), and still posts tBENJI", () => {
+  const k = harness();
+  k.env("TSAFO_ID=CSAFO\n");
+  const tsafoRecord = k.sourceTimed('{"Stellar":"CSAFO"}');
+  for (let i = 0; i < 3; i++) {
+    const r = k.round();
+    assert.equal(r.status, 0);
+    if (i === 0) assert.match(r.out, /tSAFO is source-timed on oracle CORACLE.*not re-posted/);
+    assert.doesNotMatch(r.out, /tSAFO set_price|ALERT/);
+  }
+  assert.equal(existsSync(tsafoRecord), false); // no set_price ever reached tSAFO
+  assert.deepEqual(k.pushes(), [String(ONE), String(ONE), String(ONE)]); // tBENJI only
 });
