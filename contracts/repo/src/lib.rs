@@ -40,6 +40,8 @@ mod test_attack_a8;
 #[cfg(test)]
 mod test_band_real_move;
 #[cfg(test)]
+mod test_eur_market;
+#[cfg(test)]
 mod test_feed_rewrite;
 #[cfg(test)]
 mod test_governance;
@@ -74,7 +76,8 @@ pub struct CaravelRepo;
 #[contractimpl]
 impl CaravelRepo {
     /// Stores `config` once. `InvalidConfig` unless `validate_config` holds,
-    /// the feed quotes in USD (`base() == Other("USD")`, Raven STD-01) and
+    /// `quote` is `USD` or `EUR` and the feed quotes in it
+    /// (`base() == Other(quote)`, Raven STD-01, DECISIONS.md #52) and
     /// `usdc.decimals() == 7`, the scale all value math assumes (CS-07).
     pub fn __constructor(env: Env, config: Config) -> Result<(), Error> {
         validate_config(&config)?;

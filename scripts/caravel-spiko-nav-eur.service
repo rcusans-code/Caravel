@@ -1,0 +1,29 @@
+# systemd --user unit for the EUR market's Spiko eurSAFO NAV feed (DECISIONS
+# #52): spiko-nav.ts on the EUR oracle, whose base() is EUR, so it posts the
+# EUR NAV unconverted at Spiko's NAV publication time (no EUR/USD rate). Runs
+# from the keeper's copy with the EUR env file, like caravel-keeper-eur
+# (install that first), then:
+#   install -Dm644 scripts/caravel-spiko-nav-eur.service ~/.config/systemd/user/caravel-spiko-nav-eur.service
+#   systemctl --user daemon-reload && systemctl --user enable --now caravel-spiko-nav-eur
+# A EUR redeploy that changes ORACLE_ID in ~/.local/lib/caravel/.env.eur makes
+# it exit 0 and systemd restarts it on the new oracle.
+[Unit]
+Description=Caravel EUR-market Spiko NAV feed (eurSAFO NAV in EUR at Spiko's publication time -> tSAFO, once per NAV day)
+After=network-online.target
+Wants=network-online.target
+OnFailure=caravel-alert@%n.service
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=ENV_FILE=%h/.local/lib/caravel/.env.eur
+Environment=ALERT_CMD=%h/.local/lib/caravel/caravel-alert.sh
+WorkingDirectory=%h/.local/lib/caravel/keeper
+ExecStart=/usr/bin/node node_modules/tsx/dist/cli.mjs src/spiko-nav.ts eurSAFO --interval 300
+Restart=always
+RestartSec=30
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target

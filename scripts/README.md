@@ -14,7 +14,9 @@ scripts/deploy.sh --preflight    # guards only: .env complete, *_ASSET derive to
 scripts/deploy.sh --no-winddown  # leave the repo contract this run replaces open
 PREBUILT_WASM_DIR=/tmp/wasm scripts/deploy.sh   # deploy attested wasm from attest.yml instead of building
 scripts/test/deploy-guards.test.sh              # offline tests for the guards below (22 checks)
-scripts/test/deploy-resume.test.sh              # offline: a run that dies after replacing REPO_ID, then a re-run (17 checks, fake CLI)
+scripts/test/deploy-resume.test.sh              # offline: a run that dies after replacing REPO_ID, then a re-run, plus the EUR market (36 checks, fake CLI)
+LOAN_ASSET=EURC scripts/deploy.sh               # the EUR market: tEURC loans against tSAFO (EUR market, below)
+LOAN_ASSET=EURC scripts/deploy.sh --plan        # what that would send; writes nothing
 scripts/deploy.sh --plan         # print every tx this run would send against the live state; send nothing, write nothing
 NETWORK=mainnet scripts/deploy.sh --plan        # mainnet profile, plan only (Mainnet runbook, below)
 scripts/test/mainnet-profile.test.sh            # key loader + mainnet refusals (25 checks; OFFLINE=1 skips the Horizon reads)
@@ -179,6 +181,30 @@ It refuses to start (ALERT, exit 1) unless the asset is source-timed on the orac
 
 The TypeScript keeper (`scripts/keeper`, below) sends `check_margin`, `auto_repay`, `default` and `liquidate`; on the team's server it runs as `caravel-keeper.service`. The live testnet contracts are the ones in [`deployments/testnet.json`](../deployments/testnet.json) (`deployedAt` gives the time), and they run every method in the [README's Methods table](../README.md#methods). Against an older deployment `check_margin` may return `NotImplemented`; the keeper logs that once per repo and skips it.
 
+
+## EUR market: `LOAN_ASSET=EURC scripts/deploy.sh` (DECISIONS #52)
+
+One loan token per deployment: the EUR market is a second repo contract from the same wasm, with `Config.quote` = `EUR`, a EUR-quoted oracle and tEURC as `Config.usdc` (the field keeps its name; it is the loan token). The USD market is untouched. The run reads keys, accounts, `GUARDIAN_ADDRESS` and `TSAFO_ID` from `.env` and writes only `.env.eur` (untracked, mode 600: it holds the tEURC issuer key; override with `EUR_ENV_FILE`) and `deployments/testnet-eur.json` (testnet.json's schema without the tBENJI keys; `contracts.usdc` / `assets.usdc` are tEURC, `oracle.base` is EUR). Never `.env`, `testnet.json`, the README table or the bindings (the USD bindings serve both: same wasm).
+
+What it does: a new oracle with base `Other("EUR")`, tSAFO source-timed on it and first priced by `spiko-nav -- eurSAFO --once` (on a EUR oracle that posts Spiko's EUR NAV as-is at its publication time, no EUR/USD rate); tEURC, a classic asset from its own friendbot-funded issuer (7 decimals, no auth flags, like Circle EURC; the team ISSUER has AUTH_REQUIRED for tBENJI, which would make every tEURC holder need authorization) and its SAC; tEURC trustlines for treasury (admin), lender, liquidator and borrower, and mints up to `TEURC_LENDER_MINT` 10,000 / `TEURC_LIQUIDATOR_MINT` 5,000 / `TEURC_BORROWER_MINT` 500 (the borrower receives only the principal, so it needs tEURC for the interest; a re-run tops up); the repo; tSAFO listed with the `size.py --quote EUR` numbers (haircut 3,000, trigger 2,000, band 100, NAV age 96 h, settle 1 day, cap `SAFO_MAX_OPEN_DEBT` 50,000 tEURC) and nothing else (tBENJI is a USD fund); the liquidator whitelist; the new repo on the tSAFO allowlist. A re-run reuses what matches, like the USD run.
+
+Why tEURC, not Circle's testnet EURC (`EURC:GB3Q6QDZ…2ZTVO`): on 27 Oct 2026 Horizon's `/paths/strict-receive` found no XLM→EURC path and the XLM/EURC book had no bids, so lenders could not be funded unattended the way `buy-usdc.sh` funds USDC. Mainnet uses Circle EURC.
+
+Shared tSAFO: both markets list the same token, so an issuer pause or allowlist change hits both, and each repo has its own `max_open_debt`: total tSAFO exposure is the sum of the two caps. `.env.eur` pins `TSAFO_ID`; a USD redeploy that makes a fresh tSAFO leaves the EUR market on the old one until `LOAN_ASSET=EURC scripts/deploy.sh --fresh`.
+
+Keepers on the server, after the USD ones (`caravel-keeper`, `caravel-spiko-nav`) are installed. The EUR env file is the USD keepers' copy with `.env.eur` appended (later lines win: the EUR `REPO_ID` / `ORACLE_ID` / `TSAFO_ID`, `USDC_SAC` = tEURC, `TBENJI_SAC` empty, so the keeper watches tSAFO only):
+
+```sh
+cd ~/src/caravel   # where LOAN_ASSET=EURC scripts/deploy.sh ran (.env.eur is untracked)
+( umask 077; { cat ~/.local/lib/caravel/.env; echo; cat .env.eur; } > ~/.local/lib/caravel/.env.eur )   # re-run after every EUR redeploy
+install -Dm644 scripts/caravel-keeper-eur.service ~/.config/systemd/user/caravel-keeper-eur.service
+install -Dm644 scripts/caravel-spiko-nav-eur.service ~/.config/systemd/user/caravel-spiko-nav-eur.service
+systemctl --user daemon-reload && systemctl --user enable --now caravel-spiko-nav-eur caravel-keeper-eur
+journalctl --user -u caravel-keeper-eur -n 5   # start line: env …/.env.eur, assets tSAFO
+cd ~/.local/lib/caravel/keeper && ENV_FILE=~/.local/lib/caravel/.env.eur npm run repos
+```
+
+The app's market switch is not built yet (intake t_d94df52c); until then the EUR market is driven from the CLI.
 
 ## `keeper/`: keeper + NAV setter
 

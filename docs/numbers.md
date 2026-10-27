@@ -67,6 +67,16 @@ Recorded in [research/spiko-nav/data/eursafo.json](research/spiko-nav/data/eursa
 | Gaps between publications | longest **117.4 h** (Easter, 2 → 7 Apr); then 98.0 h (19 Jun, no rate) and 96.1 h (Whit Monday); every other weekend ≤ 95.6 h | same |
 | Stress proxy for trigger / haircut | S&P 500 × EUR/USD, 2016–2026: worst 7 days **−1,885 bps** (from 5 Mar 2020), 1st percentile −745 bps | FRED SP500 × DEXUSEU ([config-tuning data](research/config-tuning/data)) |
 
+EUR market (tEURC loans, DECISIONS #52), `python3 docs/research/spiko-nav/size.py --quote EUR`: the oracle quotes in EUR, so the feed posts the EUR NAV unconverted at its own publication time (1.015785 EUR stamped 17:48:20 on 26 Oct) and there is no FX leg. Testnet: contract and scripts built, app pending (t_d94df52c).
+
+| Figure | EUR market | USD market (above) | Source |
+|---|---|---|---|
+| Price moves (EUR NAV) | largest one print **3 bps**; largest 20-print spread **21 bps** (29 Sep–26 Oct) | 117 / 369 bps | same Spiko history |
+| Band `max_nav_move_bps` | **100** (> 4 × 21; no EUR/USD floor) | 500 | `CHOSEN_EUR` |
+| Stress proxy | S&P 500 alone, 2016–2026: worst 7 days **−1,797 bps**, 1st percentile −691 bps | S&P 500 × EUR/USD: −1,885 / −745 | FRED SP500 |
+| Trigger / haircut | **2,000** (≥ 1,947) / **3,000** (≥ 2,691) | 2,050 / 3,000 | `CHOSEN_EUR` |
+| NAV age / settle / cap | 96 h / 1 day / **50,000 tEURC** | 96 h / 1 day / 50,000 USDC | `scripts/deploy.sh LOAN_ASSET=EURC` |
+
 ## Demand (slide 9)
 
 - Binance × Franklin Templeton, 11 Feb 2026: Benji tokenized MMFs as off-exchange collateral on Binance. [Franklin Templeton press release](https://www.franklintempleton.com/press-releases/news-room/2026/franklin-templeton-and-binance-advance-strategic-collaboration-with-institutional-off-exchange-collateral-program)

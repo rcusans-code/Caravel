@@ -2,6 +2,7 @@
 """Size eurSAFO's NAV-feed settings from Spiko's real published history.
 
 Run from the repo root:  python3 docs/research/spiko-nav/size.py
+                         python3 docs/research/spiko-nav/size.py --quote EUR
 
 Stdlib only, offline: reads data/eursafo.json (written by fetch.py) and the
 FRED series in ../config-tuning/data. Prints the measured numbers behind each
@@ -27,6 +28,14 @@ of real moves:
                stress proxy S&P 500 x EUR/USD (SAFO's swap basket priced in
                dollars; config-tuning.md 3.4 uses the S&P alone for SAFO)
   haircut   >= trigger + the 1st-percentile 7-day fall of the same proxy
+
+--quote EUR sizes the EUR market (DECISIONS #52: a EUR oracle, EURC loans,
+CHOSEN_EUR = scripts/deploy.sh LOAN_ASSET=EURC defaults). There is no FX leg:
+the feed posts the EUR NAV as-is at its own publication time, so
+  band      >= the largest 20-record spread of the EUR NAV (no EUR/USD floor)
+  max age   :  the gaps between NAV publications alone
+  trigger, haircut on the stress proxy S&P 500 alone (the swap basket,
+               config-tuning.md 3.4)
 """
 import bisect
 import csv
@@ -55,14 +64,27 @@ CHOSEN = dict(
     haircut_bps=3_000,
 )
 
+# EUR market (DECISIONS #52). Band: > 4x the EUR NAV's largest 20-record
+# spread (accrual only, it never fell), not the USD feed's EUR/USD floor.
+# Trigger and haircut are config-tuning.md 3.4's S&P-alone numbers.
+CHOSEN_EUR = dict(
+    max_nav_move_bps=100,
+    max_nav_age_secs=345_600,  # 96 h (DECISIONS #25)
+    band_settle_secs=86_400,   # 1 day (DECISIONS #41 production)
+    margin_trigger_bps=2_000,
+    haircut_bps=3_000,
+)
+
 
 def ts(s):
     return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def load_points():
+def load_points(quote="USD"):
     data = json.loads((HERE / "data" / "eursafo.json").read_text())
     rows = data["rows"]
+    if quote == "EUR":  # the NAV as published, at its own time: no rate needed
+        return data, rows, [(r["day"], D(r["nav"]), ts(r["nav_updated_at"])) for r in rows], []
     pts = [
         (r["day"], D(r["nav"]) * D(r["fx"]), min(ts(r["nav_updated_at"]), ts(r["fx_updated_at"])))
         for r in rows
@@ -121,40 +143,52 @@ def horizon_returns(series, days):
     return out
 
 
-def main():
-    data, rows, pts, no_fx = load_points()
+def main(quote="USD"):
+    eur = quote == "EUR"
+    CHOSEN = CHOSEN_EUR if eur else globals()["CHOSEN"]
+    data, rows, pts, no_fx = load_points(quote)
     end = dt.date.fromisoformat(pts[-1][0])
     recent = [p for p in pts if p[0] >= (end - dt.timedelta(days=RECENT_DAYS)).isoformat()]
     fails = []
 
-    print(f"eurSAFO (Spiko Public API, fetched {data['fetched_at']}): {len(rows)} NAV days "
-          f"{rows[0]['day']} .. {rows[-1]['day']}, {len(pts)} with a same-day EUR/USD rate")
-    print(f"  NAV days with no same-day rate anywhere (feeder waits a day): {', '.join(no_fx) or 'none'}")
-    own = sum(1 for r in rows if r["fx_fund"] == "own")
-    print(f"  rate from the SAFO fund itself: {own}; from another Spiko fund (USTBL): {len(pts) - own}")
+    if eur:
+        print(f"eurSAFO (Spiko Public API, fetched {data['fetched_at']}): {len(rows)} NAV days "
+              f"{rows[0]['day']} .. {rows[-1]['day']}, EUR market (--quote EUR): NAV posted in EUR, no rate")
+    else:
+        print(f"eurSAFO (Spiko Public API, fetched {data['fetched_at']}): {len(rows)} NAV days "
+              f"{rows[0]['day']} .. {rows[-1]['day']}, {len(pts)} with a same-day EUR/USD rate")
+        print(f"  NAV days with no same-day rate anywhere (feeder waits a day): {', '.join(no_fx) or 'none'}")
+        own = sum(1 for r in rows if r["fx_fund"] == "own")
+        print(f"  rate from the SAFO fund itself: {own}; from another Spiko fund (USTBL): {len(pts) - own}")
     navs = [D(r["nav"]) for r in rows]
     falls = [n1 for n0, n1 in zip(navs, navs[1:]) if n1 < n0]
     print(f"  EUR NAV fell on {len(falls)} of {len(navs) - 1} prints; largest EUR NAV step "
           f"{max(bps(b, a) for a, b in zip(navs, navs[1:])):.2f} bps (weekend accrual)")
     hours = sorted(p[2].hour + p[2].minute / 60 for p in pts)
-    print(f"  publication time (older of NAV/FX updatedAt), UTC: earliest {hours[0]:.2f} h, "
+    print(f"  publication time ({'NAV updatedAt' if eur else 'older of NAV/FX updatedAt'}), UTC: earliest {hours[0]:.2f} h, "
           f"median {hours[len(hours) // 2]:.2f} h, latest {hours[-1]:.2f} h")
 
     # Band
-    print("\nNAV band (max_nav_move_bps, #31), USD price = NAV x FX:")
+    print(f"\nNAV band (max_nav_move_bps, #31), {'EUR price = NAV' if eur else 'USD price = NAV x FX'}:")
     for label, s in (("all", pts), (f"last {RECENT_DAYS} days", recent)):
         o, od = one_print(s)
         w, w0, w1 = window_spread(s)
         print(f"  {label:<13} n={len(s):>3}  largest one-print move {o:6.1f} bps ({od}); "
               f"largest 20-record window spread {w:6.1f} bps ({w0} -> {w1})")
-    for band in (150, 200, 300, 400, CHOSEN["max_nav_move_bps"]):
+    for band in ((25, 50, 75, CHOSEN["max_nav_move_bps"]) if eur else (150, 200, 300, 400, CHOSEN["max_nav_move_bps"])):
         f_all, f_recent = window_freezes(pts, band), window_freezes(recent, band)
         print(f"  band {band:>4}: window path out of band on {len(f_all):>3} prints (last {RECENT_DAYS} d: {len(f_recent)})")
     w_all = window_spread(pts)[0]
-    need_band = max(w_all, EURUSD_ONE_DAY_BPS)
-    ok = CHOSEN["max_nav_move_bps"] > need_band
-    print(f"  chosen {CHOSEN['max_nav_move_bps']} > max(window spread {w_all:.0f}, EUR/USD one day since 2006 "
-          f"{EURUSD_ONE_DAY_BPS}) = {need_band:.0f}: {'OK' if ok else 'FAIL'}")
+    if eur:
+        need_band = 4 * w_all
+        ok = CHOSEN["max_nav_move_bps"] > need_band
+        print(f"  chosen {CHOSEN['max_nav_move_bps']} > 4 x window spread {w_all:.1f} = {need_band:.0f} "
+              f"(no EUR/USD floor: no FX leg): {'OK' if ok else 'FAIL'}")
+    else:
+        need_band = max(w_all, EURUSD_ONE_DAY_BPS)
+        ok = CHOSEN["max_nav_move_bps"] > need_band
+        print(f"  chosen {CHOSEN['max_nav_move_bps']} > max(window spread {w_all:.0f}, EUR/USD one day since 2006 "
+              f"{EURUSD_ONE_DAY_BPS}) = {need_band:.0f}: {'OK' if ok else 'FAIL'}")
     if not ok:
         fails.append("band")
 
@@ -177,8 +211,12 @@ def main():
 
     # Trigger / haircut on the stress proxy
     sp, eu = load_fred("SP500"), load_fred("DEXUSEU")
-    days = sorted(set(sp) & set(eu))
-    proxy = [(x, sp[x] * eu[x]) for x in days]
+    if eur:  # the swap basket alone: a EUR loan has no EUR/USD leg
+        days = sorted(sp)
+        proxy = [(x, sp[x]) for x in days]
+    else:
+        days = sorted(set(sp) & set(eu))
+        proxy = [(x, sp[x] * eu[x]) for x in days]
     r7 = horizon_returns(proxy, H_DAYS)
     worst, worst_day = min(r7)
     q = sorted(r for r, _ in r7)[int(HEADROOM_Q * len(r7))]
@@ -186,9 +224,12 @@ def main():
     spiko_w7 = min(horizon_returns([(dt.date.fromisoformat(p[0]), float(p[1])) for p in pts], H_DAYS))
     min_trigger = DISCOUNT_BPS + w7 + BUFFER_BPS
     min_haircut = CHOSEN["margin_trigger_bps"] + head
-    print(f"\nTrigger and haircut, stress proxy S&P 500 x EUR/USD (FRED SP500 x DEXUSEU, {days[0]} .. {days[-1]}):")
+    if eur:
+        print(f"\nTrigger and haircut, stress proxy S&P 500 alone (FRED SP500, {days[0]} .. {days[-1]}):")
+    else:
+        print(f"\nTrigger and haircut, stress proxy S&P 500 x EUR/USD (FRED SP500 x DEXUSEU, {days[0]} .. {days[-1]}):")
     print(f"  worst 7-day fall {w7:.0f} bps (from {worst_day}); 1st-percentile 7-day fall {head:.0f} bps")
-    print(f"  Spiko's own USD price: worst 7-day fall {-spiko_w7[0] * 1e4:.0f} bps (from {spiko_w7[1]})")
+    print(f"  Spiko's own {'EUR' if eur else 'USD'} price: worst 7-day fall {-spiko_w7[0] * 1e4:.0f} bps (from {spiko_w7[1]})")
     t_ok = CHOSEN["margin_trigger_bps"] >= min_trigger
     h_ok = min_haircut <= CHOSEN["haircut_bps"] < 10_000
     print(f"  trigger {CHOSEN['margin_trigger_bps']} >= {DISCOUNT_BPS} + {w7:.0f} + {BUFFER_BPS} = {min_trigger:.0f}: "
@@ -202,9 +243,15 @@ def main():
     if not h_ok:
         fails.append("haircut")
 
+    if eur:
+        print(f"\nCHOSEN_EUR (scripts/deploy.sh LOAN_ASSET=EURC): {CHOSEN}")
     print("\nchecks:", "all OK" if not fails else "FAILED: " + ", ".join(fails))
     return 1 if fails else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    args = sys.argv[1:]
+    quote = args[args.index("--quote") + 1].upper() if "--quote" in args else "USD"
+    if quote not in ("USD", "EUR"):
+        sys.exit(f"--quote USD or EUR, not {quote}")
+    sys.exit(main(quote))

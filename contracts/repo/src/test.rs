@@ -3,7 +3,7 @@ extern crate std;
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, Event as _, IntoVal,
+    Address, Env, Event as _, IntoVal, Symbol,
 };
 
 use crate::{
@@ -60,6 +60,7 @@ pub(crate) fn demo_config(env: &Env) -> Config {
         grace_secs: 60,
         guardian: Address::generate(env),
         timelock_secs: TIMELOCK,
+        quote: Symbol::new(env, "USD"),
     }
 }
 

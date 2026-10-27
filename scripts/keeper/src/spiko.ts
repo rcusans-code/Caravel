@@ -10,6 +10,9 @@
 //               oracle's decimals (a USD share class needs no rate)
 //   timestamp = the older of the two `updatedAt` publication times, so the
 //               repo's staleness rules measure the older input's age
+// On an oracle quoting in the NAV's own currency (the EUR market's EUR feed,
+// DECISIONS #52) the NAV is posted unconverted at its own publication time
+// and no rate is fetched.
 // The rate is the fund's own when it is dated the NAV's day, else another
 // Spiko fund's rate dated that day (the SAFO fund published none from 16 to
 // 30 Jun 2026, USTBL did), else nothing is posted until one appears.
@@ -42,7 +45,7 @@ export interface SpikoReading {
   symbol: string;
   fundId: string;
   nav: SpikoNav;
-  /** Null for a USD share class (no conversion). */
+  /** Null when the NAV is already in the oracle's quote currency (no conversion). */
   fx: SpikoFx | null;
   /** True when `fx` came from another Spiko fund (the share class's own fund had no rate dated the NAV day). */
   fxFallback: boolean;
@@ -160,6 +163,8 @@ export interface PlanOpts {
   jumpAckBps: bigint;
   /** Exact oracle prices a human acknowledged (NAV_JUMP_ACK). */
   acks: Set<bigint>;
+  /** Currency the oracle quotes in (its `base()`): "USD" (default) or "EUR" (#52). */
+  quote?: string;
 }
 
 /**
@@ -169,12 +174,13 @@ export interface PlanOpts {
  */
 export function planPost(r: SpikoReading, last: OnChainRecord | null, o: PlanOpts): Plan {
   const day = r.nav.day;
+  const quote = o.quote ?? "USD";
   let rate: string | null = null;
   let timestamp = r.nav.updatedAt;
-  if (r.nav.currency !== "USD") {
+  if (r.nav.currency !== quote) {
     const fx = r.fx;
-    if (!fx || fx.base !== r.nav.currency || fx.quote !== "USD") {
-      return { kind: "wait", day, why: `no ${r.nav.currency}/USD rate from Spiko` };
+    if (quote !== "USD" || !fx || fx.base !== r.nav.currency || fx.quote !== "USD") {
+      return { kind: "wait", day, why: `no ${r.nav.currency}/${quote} rate from Spiko` };
     }
     if (fx.day !== day) {
       return { kind: "wait", day, why: `no ${r.nav.currency}/USD rate dated the NAV day ${day} yet (newest rate is dated ${fx.day})` };
@@ -208,6 +214,8 @@ export interface SpikoClientOpts {
   api?: string;
   timeoutMs?: number;
   fetch?: FetchLike;
+  /** The oracle's quote currency (default "USD"): a NAV already in it needs no rate (#52). */
+  quote?: string;
 }
 
 const HEADERS = { Accept: "application/json", "User-Agent": "caravel-spiko-nav/1.0 (+https://github.com/rcusans-code/Caravel)" };
@@ -238,7 +246,8 @@ function parsed<T>(path: string, fn: () => T): T {
 }
 
 /**
- * Latest NAV of `symbol` and, for a non-USD class, the rate dated the same
+ * Latest NAV of `symbol` and, for a class not in the oracle's quote currency
+ * (`o.quote`, default USD), the EUR/USD-style rate to USD dated the same
  * day: its own fund's first, else each other Spiko fund's. Any HTTP error,
  * timeout or unexpected body throws SpikoApiError; a missing rate (404) on
  * a fallback fund is skipped.
@@ -253,7 +262,7 @@ export async function fetchSpiko(symbol: string, o: SpikoClientOpts = {}): Promi
   const navPath = `/net-asset-values/${encodeURIComponent(symbol)}/latest`;
   const navJson = await getJson(navPath, o);
   const nav = parsed(navPath, () => parseNav(navJson));
-  if (nav.currency === "USD") return { symbol, fundId, nav, fx: null, fxFallback: false };
+  if (nav.currency === (o.quote ?? "USD")) return { symbol, fundId, nav, fx: null, fxFallback: false };
 
   const fxPath = (fid: string) => `/exchange-rates/latest?fundId=${fid}&baseCurrency=${nav.currency}&quoteCurrency=USD`;
   const ownPath = fxPath(fundId);
@@ -330,7 +339,7 @@ export async function feederTick(d: TickDeps): Promise<TickResult> {
     ? ` x ${reading.fx.base}/USD ${reading.fx.rate} (${reading.fx.kind}${reading.fxFallback ? `, fund ${reading.fx.fundId.slice(0, 8)}` : ""}, ${isoAt(reading.fx.updatedAt)})`
     : "";
   const src = `Spiko ${d.symbol} NAV ${reading.nav.value} ${reading.nav.currency} day ${reading.nav.day} (${isoAt(reading.nav.updatedAt)})${fx}`;
-  const priced = "price" in plan && plan.price !== undefined ? ` -> ${fmtPrice(plan.price, d.opts.decimals)} USD (${plan.price})` : "";
+  const priced = "price" in plan && plan.price !== undefined ? ` -> ${fmtPrice(plan.price, d.opts.decimals)} ${d.opts.quote ?? "USD"} (${plan.price})` : "";
   const at = "timestamp" in plan && plan.timestamp !== undefined ? ` @ ${plan.timestamp} (${isoAt(plan.timestamp)})` : "";
   if (last) {
     const age = BigInt(d.opts.now) - last.timestamp;

@@ -9,7 +9,7 @@ use caravel_spiko_mock::{SpikoError, SpikoMock, SpikoMockClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke},
     token::{StellarAssetClient, TokenClient},
-    Address, Env, IntoVal, InvokeError, String,
+    Address, Env, IntoVal, InvokeError, String, Symbol,
 };
 
 use crate::{
@@ -64,6 +64,7 @@ fn config(env: &Env, usdc: &Address, oracle: &Address) -> Config {
         grace_secs: GRACE_SECS,
         guardian: Address::generate(env),
         timelock_secs: 120,
+        quote: Symbol::new(env, "USD"),
     }
 }
 
