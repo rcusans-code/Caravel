@@ -135,6 +135,23 @@ body {
   /* Take is the row's action: a full 40 px thumb target. */
   .app-offers td:nth-child(9) .cv-btn--sm { height: 40px; min-width: 64px; }
   .app-phone { display: inline; }
+  /* Borrow requests on phones, same pattern: amount · APR, term · collateral, LTV, then Fund with its reason. Borrower drops out. */
+  .app-requests thead { display: none; }
+  .app-requests, .app-requests tbody { display: block; }
+  .app-requests tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "id amt apr" "term coll coll" "ltv ltv ltv" "act act act"; align-items: center; gap: 2px var(--space-3); padding: var(--space-3); border-bottom: 1px solid var(--line); }
+  .app-requests tbody tr:last-child { border-bottom: 0; }
+  .app-requests td { padding: 0; border: 0; text-align: left; }
+  .app-requests td:nth-child(1) { grid-area: id; }
+  .app-requests td:nth-child(2) { grid-area: amt; font-size: 15px; font-weight: 500; }
+  .app-requests td:nth-child(3) { grid-area: apr; justify-self: end; }
+  .app-requests td:nth-child(4) { grid-area: term; color: var(--ink-muted); }
+  .app-requests td:nth-child(5) { grid-area: coll; }
+  .app-requests td:nth-child(6) { grid-area: ltv; }
+  .app-requests td:nth-child(7) { display: none; }
+  .app-requests td:nth-child(8) { grid-area: act; justify-self: end; text-align: right; margin-top: var(--space-2); }
+  .app-requests td:nth-child(8) .cv-btn--sm { height: 40px; min-width: 64px; }
+  .app-requests tr.app-requests__note { display: block; }
+  .app-requests tr.app-requests__note td { display: block; padding: var(--space-4) var(--space-3); }
 }
 
 .app-check { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); align-items: start; cursor: pointer; }
