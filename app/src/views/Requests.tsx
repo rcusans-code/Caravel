@@ -100,7 +100,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
       {receipt && <DvpReceipt {...receipt} onDismiss={() => setReceipt(null)} />}
 
       <div className="cv-table-wrap">
-        <table className="cv-table" data-testid="requests-table" aria-busy={loaded ? undefined : "true"}>
+        <table className="cv-table app-requests" data-testid="requests-table" aria-busy={loaded ? undefined : "true"}>
           <thead>
             <tr>
               <th>Request</th>
@@ -131,7 +131,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
                 </tr>
               ))}
             {loaded && requests.length === 0 && (
-              <tr>
+              <tr className="app-requests__note">
                 <td colSpan={8} className="app-empty">
                   No open borrow requests right now.
                   {mayBorrow && (
@@ -150,16 +150,18 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
               return (
                 <tr key={String(q.id)} data-request={String(q.id)}>
                   <td className="cv-num">{idRef(q.id)}</td>
-                  <td className="r cv-num">{fmtAmount(q.principal)}</td>
+                  <td className="r cv-num">
+                    {fmtAmount(q.principal)} <span className="cv-unit app-phone">USDC</span>
+                  </td>
                   <td className="r cv-num" style={{ color: "var(--brand)" }}>
-                    {fmtPct(q.apr_bps)}
+                    {fmtPct(q.apr_bps)} <span className="cv-unit app-phone">APR</span>
                   </td>
                   <td className="r cv-num">{config ? fmtTerm(q.term_secs, config.day_secs) : "…"}</td>
                   <td className="r cv-num">
                     {fmtAmount(q.collateral_amount, 2, t.token.decimals)} <span className="cv-unit">{t.token.code}</span>
                   </td>
                   <td className="r cv-num" style={short ? { color: "var(--defaulted)" } : undefined} data-testid="request-ltv">
-                    {ltvText(t)}
+                    <span className="cv-unit app-phone">LTV</span> {ltvText(t)}
                   </td>
                   <td>
                     <TxHash kind="ACCOUNT" value={q.borrower} />
@@ -180,7 +182,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
                       {busy === `fund-${q.id}` ? "Funding…" : "Fund"}
                     </button>
                     {block && signer && (
-                      <span className="small app-muted" style={{ display: "block", maxWidth: 240, marginLeft: "auto" }} data-testid="fund-block">
+                      <span className="small app-muted" style={{ display: "block", maxWidth: 240, marginLeft: "auto", whiteSpace: "normal" }} data-testid="fund-block">
                         {block}
                       </span>
                     )}
@@ -248,6 +250,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
   const post = async () => {
     if (!signer || !valid || principal === null || coll === null) return;
     setDone(null);
+    setCancelled(null);
     const out = await ctx.run("request", "Request not posted", () =>
       chain.createRequest(signer, { collateral, collateralAmount: coll, principal, aprBps, termSecs }),
     );
@@ -405,6 +408,8 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
                           disabled={!!busy}
                           aria-busy={busy === `cancel-req-${q.id}` ? "true" : undefined}
                           onClick={async () => {
+                            setDone(null);
+                            setCancelled(null);
                             const out = await ctx.run(`cancel-req-${q.id}`, `Request ${idRef(q.id)} not cancelled`, () => chain.cancelRequest(signer!, q.id));
                             if (out) setCancelled({ id: q.id, hash: out.hash });
                           }}
