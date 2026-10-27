@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { COLLATERAL, assetBySac, roleOf } from "../config";
+import { COLLATERAL, LOAN, QUOTE_SIGN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { Offer } from "../chain";
 import { BPS, collateralDecimals, fmtAmount, fmtNav, fmtPct, fmtTerm, idRef, interest as calcInterest, requiredCollateral } from "../format";
@@ -42,8 +42,8 @@ export function OffersView({
       <div className="app-section__head">
         <h1 className="title">Offers board</h1>
         <span className="small app-muted">
-          Open USDC loan offers. Each one is taken in full.
-          <Tip>The lender&apos;s USDC is already locked in the contract, so taking an offer pays you out right away.</Tip>
+          Open {LOAN.code} loan offers. Each one is taken in full.
+          <Tip>The lender&apos;s {LOAN.code} is already locked in the contract, so taking an offer pays you out right away.</Tip>
         </span>
         {caps.length > 0 && (
           <span className="small app-muted" data-testid="exposure-caps">
@@ -51,10 +51,10 @@ export function OffersView({
             {caps.map((a, i) => (
               <span key={a.sac} data-testid={`cap-${a.code}`} className="app-nowrap">
                 {i > 0 ? " · " : ""}
-                {a.code} <span className="cv-num">{fmtAmount(a.used, 0)} / {fmtAmount(a.cap, 0)}</span> USDC
+                {a.code} <span className="cv-num">{fmtAmount(a.used, 0)} / {fmtAmount(a.cap, 0)}</span> {LOAN.code}
               </span>
             ))}
-            <Tip>The most USDC that can be owed (principal + interest) on live loans against each collateral. At the cap new loans pause; repaying, topping up and liquidating always work.</Tip>
+            <Tip>The most {LOAN.code} that can be owed (principal + interest) on live loans against each collateral. At the cap new loans pause; repaying, topping up and liquidating always work.</Tip>
           </span>
         )}
       </div>
@@ -152,7 +152,7 @@ export function OffersView({
                 </td>
                 <td className="r cv-num">
                   {fmtAmount(o.principal)}
-                  <span className="cv-unit app-phone">USDC</span>
+                  <span className="cv-unit app-phone">{LOAN.code}</span>
                 </td>
                 <td className="r cv-num" style={{ color: "var(--brand)" }}>
                   {fmtPct(o.apr_bps)}
@@ -220,16 +220,17 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
     block =
       cap === 0n
         ? `New ${token.code} loans are paused: its exposure cap is 0.`
-        : `This loan would take ${token.code} past its exposure cap: ${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} USDC used, this loan adds ${fmtAmount(debt)}.`;
+        : `This loan would take ${token.code} past its exposure cap: ${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} ${LOAN.code} used, this loan adds ${fmtAmount(debt)}.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
-  else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
-  else if (usdcBlock(balances)) block = usdcBlock(balances);
+  else if (balances && balances.usdc === null) block = `Add a ${LOAN.code} trustline to receive the loan.`;
+  else if (usdcBlock(balances, LOAN.code)) block = usdcBlock(balances, LOAN.code);
   else if (held && collateral !== null && (held.amount ?? 0n) < collateral)
     block = `You need ${amt(collateral)} ${token.code} and hold ${amt(held.amount ?? 0n)} ${token.code}.`;
 
   const terms = {
     on: autoRepay,
     debt: fmtAmount(debt),
+    loan: LOAN.code,
     code: token.code,
     graceSecs: config.grace_secs,
     discount: fmtPct(config.liquidation_discount_bps, 1),
@@ -241,7 +242,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
     if (out)
       onDone({
         left: { eyebrow: "Borrower delivers", amount: amt(collateral), unit: token.code, hint: "into escrow" },
-        right: { eyebrow: "Borrower receives", amount: fmtAmount(offer.principal), unit: "USDC", hint: `from Offer ${idRef(offer.id)}` },
+        right: { eyebrow: "Borrower receives", amount: fmtAmount(offer.principal), unit: LOAN.code, hint: `from Offer ${idRef(offer.id)}` },
         sentence: `Agreement ${idRef(out.value)} opened. Settled atomically in one transaction`,
         hash: out.hash,
         stamp: { word: "Settled", sub: `Agreement ${idRef(out.value)}` },
@@ -262,7 +263,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
           <div className="app-take__head">
             <div>
               <span className="cv-figure-xl">{fmtAmount(offer.principal)}</span>
-              <span className="cv-unit">USDC</span>
+              <span className="cv-unit">{LOAN.code}</span>
             </div>
             <div className="cv-apr">
               {fmtPct(offer.apr_bps)} APR<span className="cv-unit">fixed</span>
@@ -281,7 +282,7 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
               <dt>Repay</dt>
               <dd>
                 {fmtAmount(debt)}
-                <span className="cv-unit">USDC</span>
+                <span className="cv-unit">{LOAN.code}</span>
               </dd>
             </div>
           </dl>
@@ -298,10 +299,11 @@ function TakePanel({ ctx, offer, onClose, onDone }: { ctx: Ctx; offer: Offer; on
             <span className="cv-field__hint">
               {nav ? (
                 <>
-                  Locked as security for {fmtAmount(debt)} USDC.
+                  Locked as security for {fmtAmount(debt)} {LOAN.code}.
                   <Tip>
                     You can borrow up to {fmtPct(BPS - asset.haircut_bps, 1)} of your collateral&apos;s value; the{" "}
-                    {fmtPct(asset.haircut_bps, 1)} haircut is a safety buffer. Amount = debt ÷ (NAV {fmtNav(nav.price, nav.decimals)} ×{" "}
+                    {fmtPct(asset.haircut_bps, 1)} haircut is a safety buffer. Amount = debt ÷ (NAV {QUOTE_SIGN}
+                    {fmtNav(nav.price, nav.decimals)} ×{" "}
                     {fmtPct(BPS - asset.haircut_bps, 1)}), rounded up. The final figure uses the price when the transaction lands.
                   </Tip>
                 </>

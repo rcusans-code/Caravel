@@ -5,12 +5,17 @@ import assert from "node:assert/strict";
 import {
   WalletSignError,
   addTrustlinesWithRetry,
+  missingTrustlines,
   signOnce,
   trustlineUi,
   type TrustCode,
 } from "../src/trustline.ts";
 
 type Balances = Parameters<typeof trustlineUi>[1] & object;
+
+// Each market's trustline codes, [loan token, classic collateral?] (config TRUST_CODES).
+const USD = ["USDC", "tBENJI"];
+const EUR = ["tEURC"];
 
 const fresh = (): Balances => ({
   exists: true,
@@ -30,10 +35,11 @@ const FREIGHTER_DECLINE = { code: -4, message: "User declined access" };
  * A fake account + wallet. `answers` scripts each signature request: "reject" or
  * "sign". A signed tx adds its lines to the account, like chain.addTrustlines does.
  */
-function harness(answers: ("reject" | "sign")[], start: Balances = fresh()) {
+function harness(answers: ("reject" | "sign")[], start: Balances = fresh(), codes: TrustCode[] = USD) {
   const account = { ...start };
   const signRequests: TrustCode[][] = [];
   const deps = {
+    codes,
     balances: async () => ({ ...account }),
     add: async (which: TrustCode[]) => {
       signRequests.push([...which]);
@@ -43,7 +49,7 @@ function harness(answers: ("reject" | "sign")[], start: Balances = fresh()) {
         return "signed-xdr";
       });
       for (const c of which) {
-        if (c === "USDC") account.usdc = 0n;
+        if (c === codes[0]) account.usdc = 0n;
         else account.tbenji = 0n;
       }
       return `hash-${signRequests.length}`;
@@ -63,16 +69,16 @@ test("reject -> retry -> success: a declined sign triggers a second sign request
   assert.equal(h.account.usdc, 0n);
   assert.equal(h.account.tbenji, 0n);
   // Lines are in place, so the gate shows no button any more (issuer authorization is next).
-  assert.equal(trustlineUi("wallet", h.account, null).button, null);
+  assert.equal(trustlineUi("wallet", h.account, null, USD).button, null);
 });
 
 test("two declines: error surfaces after exactly two requests and the button stays clickable", async () => {
   const h = harness(["reject", "reject", "sign"]);
-  const before = trustlineUi("wallet", h.account, null).button;
+  const before = trustlineUi("wallet", h.account, null, USD).button;
   assert.ok(before);
 
   // While the request is in flight (run() sets busy = "trust") the button waits.
-  const inFlight = trustlineUi("wallet", h.account, "trust").button;
+  const inFlight = trustlineUi("wallet", h.account, "trust", USD).button;
   assert.deepEqual(inFlight && { label: inFlight.label, disabled: inFlight.disabled }, {
     label: "Waiting for wallet…",
     disabled: true,
@@ -86,7 +92,7 @@ test("two declines: error surfaces after exactly two requests and the button sta
   assert.equal(h.signRequests.length, 2, "one automatic re-prompt, no loop");
 
   // After the failure run() clears busy: same button, enabled, same missing lines.
-  const after = trustlineUi("wallet", h.account, null);
+  const after = trustlineUi("wallet", h.account, null, USD);
   assert.equal(after.gated, true);
   assert.deepEqual(after.button, { missing: ["USDC", "tBENJI"], label: "Add USDC + tBENJI trustlines", disabled: false });
 
@@ -118,6 +124,7 @@ test("non-wallet failures (submit error) are not re-prompted", async () => {
   await assert.rejects(
     addTrustlinesWithRetry(
       {
+        codes: USD,
         balances: async () => fresh(),
         add: async () => {
           calls++;
@@ -147,6 +154,7 @@ test("a wallet that never answers times out with a plain Error (no auto re-promp
   await assert.rejects(
     addTrustlinesWithRetry(
       {
+        codes: USD,
         balances: async () => fresh(),
         add: async () => {
           calls++;
@@ -162,42 +170,69 @@ test("a wallet that never answers times out with a plain Error (no auto re-promp
 test("trustlineUi: which alert and button show", () => {
   const b = fresh();
   // Lender demo with only tBENJI missing: no alert, no button (figure only).
-  assert.deepEqual(trustlineUi("demo", { ...b, usdc: 0n }, null), { gated: false, tbenjiPending: false, showInfo: false, button: null });
+  assert.deepEqual(trustlineUi("demo", { ...b, usdc: 0n }, null, USD), { gated: false, tbenjiPending: false, showInfo: false, button: null });
   // Demo missing USDC: info alert with the button.
-  assert.equal(trustlineUi("demo", b, null).button?.label, "Add USDC + tBENJI trustlines");
+  assert.equal(trustlineUi("demo", b, null, USD).button?.label, "Add USDC + tBENJI trustlines");
   // Wallet missing one line: singular label.
-  assert.equal(trustlineUi("wallet", { ...b, tbenji: 0n }, null).button?.label, "Add USDC trustline");
+  assert.equal(trustlineUi("wallet", { ...b, tbenji: 0n }, null, USD).button?.label, "Add USDC trustline");
   // DW-05: any write in flight disables it (same-account sequence clash), the label stays.
-  const other = trustlineUi("wallet", b, "take").button;
+  const other = trustlineUi("wallet", b, "take", USD).button;
   assert.deepEqual(other && { label: other.label, disabled: other.disabled }, { label: "Add USDC + tBENJI trustlines", disabled: true });
   // Account not funded yet: friendbot first, no trustline button.
-  assert.equal(trustlineUi("wallet", { ...b, exists: false }, null).button, null);
+  assert.equal(trustlineUi("wallet", { ...b, exists: false }, null, USD).button, null);
   // Not loaded yet.
-  assert.equal(trustlineUi("wallet", null, null).button, null);
+  assert.equal(trustlineUi("wallet", null, null, USD).button, null);
 });
 
 test("trustlineUi: per-asset banner, tSAFO-allowlisted wallet without tBENJI authorization", () => {
   const b = fresh();
   // Lender GB44-like: USDC line, no tBENJI line, on the tSAFO allowlist. Not "borrowing
   // not approved"; the tBENJI-pending note carries the same Add trustline button.
-  const noLine = trustlineUi("wallet", { ...b, usdc: 0n, tsafo: 0n, tsafoAllowed: true }, null);
+  const noLine = trustlineUi("wallet", { ...b, usdc: 0n, tsafo: 0n, tsafoAllowed: true }, null, USD);
   assert.equal(noLine.gated, false);
   assert.equal(noLine.tbenjiPending, true);
   assert.equal(noLine.showInfo, false);
   assert.equal(noLine.button?.label, "Add tBENJI trustline");
   // tBENJI line present but unauthorized, tSAFO allowlisted: no gate, no button.
-  const unauth = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tsafo: 0n, tsafoAllowed: true }, null);
+  const unauth = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tsafo: 0n, tsafoAllowed: true }, null, USD);
   assert.deepEqual(unauth, { gated: false, tbenjiPending: true, showInfo: false, button: null });
   // Approved for neither: the access gate stays.
-  const neither = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n }, null);
+  const neither = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n }, null, USD);
   assert.equal(neither.gated, true);
   assert.equal(neither.tbenjiPending, false);
   // tBENJI authorized: neither banner, whatever the tSAFO allowlist says.
   for (const tsafoAllowed of [false, true]) {
-    const ok = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tbenjiAuthorized: true, tsafoAllowed }, null);
+    const ok = trustlineUi("wallet", { ...b, usdc: 0n, tbenji: 0n, tbenjiAuthorized: true, tsafoAllowed }, null, USD);
     assert.equal(ok.gated, false);
     assert.equal(ok.tbenjiPending, false);
   }
   // Demo keys are never gated.
-  assert.equal(trustlineUi("demo", { ...b, tsafoAllowed: true }, null).tbenjiPending, false);
+  assert.equal(trustlineUi("demo", { ...b, tsafoAllowed: true }, null, USD).tbenjiPending, false);
+});
+
+test("EURC market: tEURC is the only trustline, and no tBENJI banner", async () => {
+  const b = fresh();
+  assert.deepEqual(missingTrustlines(b, EUR), ["tEURC"]);
+  assert.deepEqual(missingTrustlines({ ...b, usdc: 0n }, EUR), []);
+  // The USDC market's codes give today's results.
+  assert.deepEqual(missingTrustlines(b, USD), ["USDC", "tBENJI"]);
+  assert.deepEqual(missingTrustlines({ ...b, usdc: 0n }, USD), ["tBENJI"]);
+
+  // A lender with no tEURC line gets the button for tEURC only.
+  assert.equal(trustlineUi("demo", b, null, EUR).button?.label, "Add tEURC trustline");
+  assert.equal(trustlineUi("demo", { ...b, usdc: 0n }, null, EUR).button, null);
+  // tSAFO-allowlisted wallet: no tBENJI to wait for, so neither gated nor tbenjiPending.
+  const allowed = trustlineUi("wallet", { ...b, usdc: 0n, tsafo: 0n, tsafoAllowed: true }, null, EUR);
+  assert.deepEqual(allowed, { gated: false, tbenjiPending: false, showInfo: false, button: null });
+  // Not allowlisted: gated (no collateral it can hold), and the tEURC button shows.
+  const gated = trustlineUi("wallet", b, null, EUR);
+  assert.equal(gated.gated, true);
+  assert.equal(gated.tbenjiPending, false);
+  assert.deepEqual(gated.button?.missing, ["tEURC"]);
+
+  // The add flow asks for tEURC and reads it back from the loan-token line.
+  const h = harness(["sign"], fresh(), EUR);
+  const r = await addTrustlinesWithRetry(h.deps, EUR);
+  assert.deepEqual(r, { added: ["tEURC"], hash: "hash-1", attempts: 1 });
+  assert.equal(h.account.usdc, 0n);
 });

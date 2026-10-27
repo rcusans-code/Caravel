@@ -297,6 +297,10 @@ a:hover { color: var(--primary-hover); }
 /* Sits on the wordmark's baseline, to the right of the logo. */
 .app-header__inner > .app-net { grid-area: net; justify-self: start; align-self: end; margin-bottom: 14px; line-height: 1; }
 .app-header__inner > .app-bal { grid-area: bal; justify-self: end; }
+/* USDC / EURC market switch, next to the network label (shown only when the EUR market is deployed). */
+.app-market { display: inline-flex; gap: 2px; margin-left: var(--space-3); text-transform: none; vertical-align: baseline; }
+.app-market a { padding: 2px 6px; border: 1px solid var(--line); color: var(--ink-muted); text-decoration: none; }
+.app-market a.is-active { border-color: var(--ink); color: var(--ink); }
 .app-header__inner > .app-notify { grid-area: bell; }
 .app-header__inner > .app-header__account { grid-area: acct; justify-self: end; }
 .app-header__inner > .app-header__demo { grid-area: demo; justify-self: end; padding-bottom: var(--space-1); }

@@ -35,12 +35,13 @@ const hits = rewritten.hits;
 
 // Live deals: one IIFE bundle (book reader + stellar-sdk) next to the landing's assets.
 // The demo signer is never part of it: __DEMO_KEYS__ is fixed to null.
+// The landing's live deals stay on the USDC market: __EUR_DEPLOYMENT__ is fixed to null.
 const bundle = await build({
   configFile: false,
   root: appDir,
   logLevel: "warn",
   publicDir: false,
-  define: { __DEMO_KEYS__: "null", global: "globalThis" },
+  define: { __DEMO_KEYS__: "null", __EUR_DEPLOYMENT__: "null", global: "globalThis" },
   build: {
     outDir: out,
     emptyOutDir: false,

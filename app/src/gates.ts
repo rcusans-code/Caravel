@@ -19,7 +19,7 @@ export function fmtDuration(secs: number | bigint): string {
 /**
  * Why this wallet cannot hold `token` as collateral, or null when it can. The
  * gate is per collateral asset: tBENJI needs an issuer-authorized trustline,
- * tSAFO needs the issuer allowlist. Lending needs neither (USDC only;
+ * tSAFO needs the issuer allowlist. Lending needs neither (loan token only;
  * a #38 in-kind claim the token refuses is parked for claim_collateral).
  */
 export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | "kind">): string | null {
@@ -30,17 +30,20 @@ export function collateralBlock(b: Balances | null, token: Pick<Token, "code" | 
   return b.tbenjiAuthorized ? null : `Your account is not authorized to hold ${token.code}. The issuer must authorize it first. ${ACCESS_LIMITED}`;
 }
 
-export const USDC_FROZEN =
-  "USDC frozen by its issuer: this account cannot send or receive USDC, so lending, borrowing, repaying and claiming are off until the issuer unfreezes it.";
+/** The frozen-line text for the market's loan token (`loan` = its code, e.g. "USDC" or "tEURC"). */
+export const loanFrozenText = (loan: string) =>
+  `${loan} frozen by its issuer: this account cannot send or receive ${loan}, so lending, borrowing, repaying and claiming are off until the issuer unfreezes it.`;
+export const USDC_FROZEN = loanFrozenText("USDC");
 
 /**
- * USDC trustline present but not authorized (Raven AS-04): Circle froze it. Every
- * write that moves USDC to or from the account (lend, take, repay, claim) would fail
- * with SAC error #11, so the buttons are disabled with this text instead. Null = fine,
- * or no line yet (the trustline prompt covers that).
+ * Loan-token trustline present but not authorized (Raven AS-04): its issuer froze it
+ * (Circle for USDC). Every write that moves the loan token to or from the account
+ * (lend, take, repay, claim) would fail with SAC error #11, so the buttons are
+ * disabled with this text instead. Null = fine, or no line yet (the trustline prompt
+ * covers that). `loan` = the loan token's code.
  */
-export function usdcBlock(b: Balances | null): string | null {
-  return b?.exists && b.usdc !== null && !b.usdcAuthorized ? USDC_FROZEN : null;
+export function usdcBlock(b: Balances | null, loan: string): string | null {
+  return b?.exists && b.usdc !== null && !b.usdcAuthorized ? loanFrozenText(loan) : null;
 }
 
 /** Contract error 9 (StaleNav), built from each asset's max_nav_age_secs. */
@@ -306,6 +309,8 @@ type AutoRepayTerms = {
   on: boolean;
   /** Formatted debt, e.g. "100.96". */
   debt: string;
+  /** The loan token's code ("USDC", "tEURC"). */
+  loan: string;
   code: string;
   graceSecs: number | bigint;
   /** Formatted liquidation discount, e.g. "2.0%". */
@@ -315,8 +320,8 @@ type AutoRepayTerms = {
 /** The auto-repay toggle hint on Take, one sentence; the approval and grace detail is in autoRepayDetail (a Tip). */
 export function autoRepayHint(o: AutoRepayTerms): string {
   const grace = fmtDuration(o.graceSecs);
-  if (!o.on) return `Repay ${o.debt} USDC yourself by maturity (plus ${grace} grace), or your ${o.code} is sold at a ${o.discount} discount.`;
-  return `At maturity we pull ${o.debt} USDC and return your ${o.code}.`;
+  if (!o.on) return `Repay ${o.debt} ${o.loan} yourself by maturity (plus ${grace} grace), or your ${o.code} is sold at a ${o.discount} discount.`;
+  return `At maturity we pull ${o.debt} ${o.loan} and return your ${o.code}.`;
 }
 
 /** What turning auto-repay on approves, until when, and that grace still applies; null when off. */
@@ -324,8 +329,8 @@ export function autoRepayDetail(o: AutoRepayTerms): string | null {
   if (!o.on) return null;
   const grace = fmtDuration(o.graceSecs);
   return (
-    `Taking the offer also approves the contract to pull ${o.debt} USDC from this wallet; the approval expires about 1 day after maturity plus grace. ` +
-    `At maturity it takes the USDC and gives your ${o.code} back. ` +
-    `If the USDC is not there, the ${grace} grace still applies: repay by hand before it ends, or the loan defaults and your ${o.code} is sold at a ${o.discount} discount.`
+    `Taking the offer also approves the contract to pull ${o.debt} ${o.loan} from this wallet; the approval expires about 1 day after maturity plus grace. ` +
+    `At maturity it takes the ${o.loan} and gives your ${o.code} back. ` +
+    `If the ${o.loan} is not there, the ${grace} grace still applies: repay by hand before it ends, or the loan defaults and your ${o.code} is sold at a ${o.discount} discount.`
   );
 }

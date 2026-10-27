@@ -4,15 +4,21 @@
 // plain `node --test` with no bundler.
 import type { Balances } from "./chain";
 
-export type TrustCode = "USDC" | "tBENJI";
+/**
+ * A classic asset code the app adds trustlines for. Each market passes its codes as
+ * `[loan token, classic collateral?]` (config TRUST_CODES): `["USDC", "tBENJI"]` in the
+ * USDC market, `["tEURC"]` in the EURC market. Position 0 is read from Balances.usdc
+ * (the loan-token line), position 1 from Balances.tbenji.
+ */
+export type TrustCode = string;
 
 /** A wallet that does not answer within this window counts as a failed sign (matches the tx timebound). */
 export const SIGN_TIMEOUT_MS = 120_000;
 
-/** Trustlines the account still lacks. Empty until the account exists on testnet. */
-export function missingTrustlines(b: Balances | null): TrustCode[] {
+/** Trustlines the account still lacks, of the market's `codes`. Empty until the account exists on testnet. */
+export function missingTrustlines(b: Balances | null, codes: readonly TrustCode[]): TrustCode[] {
   if (!b?.exists) return [];
-  return (["USDC", "tBENJI"] as const).filter((c) => (c === "USDC" ? b.usdc : b.tbenji) === null);
+  return codes.slice(0, 2).filter((_c, i) => (i === 0 ? b.usdc : b.tbenji) === null);
 }
 
 const messageOf = (e: unknown): string => {
@@ -89,6 +95,8 @@ export function boundedSign<A extends unknown[], T>(
 }
 
 export interface TrustDeps {
+  /** The market's trustline codes, `[loan token, classic collateral?]` (see TrustCode). */
+  codes: readonly TrustCode[];
   /** Fresh balances, read before every attempt so a retry only asks for what is still missing. */
   balances: () => Promise<Balances>;
   /** Builds, signs and submits one changeTrust tx for `which`; resolves to the tx hash. */
@@ -119,7 +127,7 @@ export async function addTrustlinesWithRetry(
   for (;;) {
     const b = await deps.balances();
     if (!b.exists) throw new Error("The account does not exist on testnet. Fund it with friendbot first.");
-    const missing = missingTrustlines(b);
+    const missing = missingTrustlines(b, deps.codes);
     const todo = want.filter((c) => missing.includes(c));
     if (todo.length === 0) return { added: [], hash: null, attempts };
     attempts++;
@@ -133,9 +141,9 @@ export async function addTrustlinesWithRetry(
 }
 
 export interface TrustUi {
-  /** Wallet can hold no collateral: no issuer-authorized tBENJI line and not tSAFO-allowlisted. */
+  /** Wallet can hold no collateral: no issuer-authorized tBENJI line (or no tBENJI in this market) and not tSAFO-allowlisted. */
   gated: boolean;
-  /** Wallet can borrow against tSAFO (allowlisted) but tBENJI is not authorized yet. */
+  /** Wallet can borrow against tSAFO (allowlisted) but tBENJI is not authorized yet (USDC market only). */
   tbenjiPending: boolean;
   /** Show the "No … trustline" info alert. */
   showInfo: boolean;
@@ -146,19 +154,26 @@ export interface TrustUi {
 /**
  * What the account alerts show. The button depends only on the on-chain state and
  * whether a trustline request is in flight, never on a past failure, so it stays
- * visible and clickable after any decline or error.
+ * visible and clickable after any decline or error. `codes` = the market's
+ * `[loan token, classic collateral?]`.
  */
-export function trustlineUi(kind: "wallet" | "demo", b: Balances | null, busy: string | null): TrustUi {
-  const missing = missingTrustlines(b);
+export function trustlineUi(
+  kind: "wallet" | "demo",
+  b: Balances | null,
+  busy: string | null,
+  codes: readonly TrustCode[],
+): TrustUi {
+  const missing = missingTrustlines(b, codes);
+  const hasTbenji = codes.length > 1;
   // Per asset: tBENJI needs an issuer-authorized line, tSAFO the issuer allowlist.
   // Only a wallet approved for neither is told borrowing is not approved.
-  const noTbenji = kind === "wallet" && !!b?.exists && !b.tbenjiAuthorized;
+  const noTbenji = kind === "wallet" && !!b?.exists && !(hasTbenji && b.tbenjiAuthorized);
   const gated = noTbenji && !b!.tsafoAllowed;
-  const tbenjiPending = noTbenji && b!.tsafoAllowed;
-  // Lenders only need USDC, so a missing tBENJI line alone is just shown in the
-  // figure, except for browser wallets that may want to borrow.
+  const tbenjiPending = hasTbenji && noTbenji && b!.tsafoAllowed;
+  // Lenders only need the loan token, so a missing tBENJI line alone is just shown
+  // in the figure, except for browser wallets that may want to borrow.
   const showInfo =
-    !gated && !tbenjiPending && (missing.includes("USDC") || (kind === "wallet" && missing.length > 0));
+    !gated && !tbenjiPending && (missing.includes(codes[0]) || (kind === "wallet" && missing.length > 0));
   const waiting = busy === "trust";
   // Any write in flight disables it (Raven DW-05): a second tx from the same account
   // would race the first one's sequence number and fail with txBadSeq.

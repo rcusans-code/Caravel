@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
-import { COLLATERAL, TSAFO, roleOf, type Token } from "../config";
+import { COLLATERAL, LOAN, TBENJI, TRUST_CODES, TSAFO, roleOf, type Token } from "../config";
 import * as chain from "../chain";
 import type { Balances } from "../chain";
 import { fmtAmount } from "../format";
@@ -36,7 +36,7 @@ export function AccountAlerts({
 }: {
   signer: Signer;
   balances: Balances | null;
-  /** Parked USDC payouts for this account (contract claimable()). */
+  /** Parked loan-token payouts for this account (contract claimable()). */
   claimable: bigint;
   /** Parked collateral per token id (contract claimable_collateral()). */
   parked: Record<string, bigint>;
@@ -48,7 +48,7 @@ export function AccountAlerts({
   // Per-asset access gate: a wallet approved for neither collateral is read-only;
   // a tSAFO-allowlisted wallet without tBENJI authorization can still borrow tSAFO.
   // The button depends only on chain state + in-flight request, so it survives any failure.
-  const { gated, tbenjiPending, showInfo: showTrust, button } = trustlineUi(signer.kind, balances, busy);
+  const { gated, tbenjiPending, showInfo: showTrust, button } = trustlineUi(signer.kind, balances, busy, TRUST_CODES);
   const tsafoCode = TSAFO?.code ?? "tSAFO";
   const missing = button?.missing ?? [];
   // A wallet decline re-prompts once (chain.ensureTrustlines); a second decline or any
@@ -83,24 +83,24 @@ export function AccountAlerts({
     </button>
   );
   const onClaim = () =>
-    run("claim", "USDC not claimed", async () => {
+    run("claim", `${LOAN.code} not claimed`, async () => {
       const r = await chain.claim(signer);
-      setFlash({ tone: "info", title: "USDC claimed", body: `${fmtAmount(r.value)} USDC sent to your account.`, hash: r.hash });
+      setFlash({ tone: "info", title: `${LOAN.code} claimed`, body: `${fmtAmount(r.value)} ${LOAN.code} sent to your account.`, hash: r.hash });
       return r;
     });
-  // USDC line frozen by its issuer (Raven AS-04): say so, and claim cannot land.
-  const frozen = usdcBlock(balances);
+  // Loan-token line frozen by its issuer (Raven AS-04): say so, and claim cannot land.
+  const frozen = usdcBlock(balances, LOAN.code);
   return (
     <>
       {frozen && (
-        <Alert tone="margin" title="USDC frozen by its issuer">
+        <Alert tone="margin" title={`${LOAN.code} frozen by its issuer`}>
           {frozen}
         </Alert>
       )}
       {claimable > 0n && (
         <Alert
           tone="info"
-          title={`${fmtAmount(claimable)} USDC waiting for you`}
+          title={`${fmtAmount(claimable)} ${LOAN.code} waiting for you`}
           action={
             <button
               type="button"
@@ -115,8 +115,8 @@ export function AccountAlerts({
             </button>
           }
         >
-          A repay or liquidation could not send this USDC to your account (frozen by the issuer or no USDC trustline), so
-          the contract kept it for you. Claim it once your account can receive USDC.
+          A repay or liquidation could not send this {LOAN.code} to your account (frozen by the issuer or no {LOAN.code} trustline), so
+          the contract kept it for you. Claim it once your account can receive {LOAN.code}.
         </Alert>
       )}
       {COLLATERAL.filter((t) => (parked[t.sac] ?? 0n) > 0n).map((t) => (
@@ -158,7 +158,7 @@ export function AccountAlerts({
           title="Borrowing not approved yet"
           action={trustButton || undefined}
         >
-          You can lend USDC now. Borrowing needs the collateral issuer&apos;s approval. {ACCESS_LIMITED}{" "}
+          You can lend {LOAN.code} now. Borrowing needs the collateral issuer&apos;s approval. {ACCESS_LIMITED}{" "}
           {balances.tbenji !== null
             ? `Your tBENJI trustline is in place; the issuer has not authorized ${signer.address.slice(0, 4)}…${signer.address.slice(-4)} yet.`
             : ""}
@@ -170,7 +170,7 @@ export function AccountAlerts({
           {balances.tbenji !== null
             ? `Your tBENJI trustline is in place; the issuer has not authorized ${signer.address.slice(0, 4)}…${signer.address.slice(-4)} yet.`
             : "Borrowing against tBENJI also needs a tBENJI trustline and the issuer's authorization."}
-          {balances.usdc === null ? " Add a USDC trustline to lend or receive loan proceeds." : ""}
+          {balances.usdc === null ? ` Add a ${LOAN.code} trustline to lend or receive loan proceeds.` : ""}
         </Alert>
       )}
       {showTrust && (
@@ -179,7 +179,9 @@ export function AccountAlerts({
           title={`No ${missing.join(" or ")} trustline`}
           action={trustButton || undefined}
         >
-          {`Lenders need USDC. Borrowers need USDC plus approved collateral: tBENJI is AUTH_REQUIRED, so the issuer has to authorize the trustline${TSAFO ? `; ${tsafoCode} needs no trustline, only the issuer allowlist` : ""}.`}
+          {TBENJI
+            ? `Lenders need ${LOAN.code}. Borrowers need ${LOAN.code} plus approved collateral: tBENJI is AUTH_REQUIRED, so the issuer has to authorize the trustline${TSAFO ? `; ${tsafoCode} needs no trustline, only the issuer allowlist` : ""}.`
+            : `Lenders need ${LOAN.code}. Borrowers need ${LOAN.code} plus approved collateral${TSAFO ? `: ${tsafoCode} needs no trustline, only the issuer allowlist` : ""}.`}
         </Alert>
       )}
     </>
@@ -273,12 +275,14 @@ export function BalanceFigures({ balances, failed = false }: { balances: Balance
   return (
     <div className="app-bal" aria-label="Balances">
       <Figure label="XLM" value={balances ? fmtAmount(balances.xlm) : none} />
-      <Figure label="USDC" value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : none} />
-      <Figure
-        label="tBENJI"
-        value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : none}
-        hint={balances?.tbenji !== null && balances && !balances.tbenjiAuthorized ? "Not authorized by the issuer" : undefined}
-      />
+      <Figure label={LOAN.code} value={balances ? (balances.usdc === null ? "No trustline" : fmtAmount(balances.usdc)) : none} />
+      {TBENJI && (
+        <Figure
+          label={TBENJI.code}
+          value={balances ? (balances.tbenji === null ? "No trustline" : fmtAmount(balances.tbenji)) : none}
+          hint={balances?.tbenji !== null && balances && !balances.tbenjiAuthorized ? "Not authorized by the issuer" : undefined}
+        />
+      )}
       {TSAFO && (
         <Figure
           label={TSAFO.code}

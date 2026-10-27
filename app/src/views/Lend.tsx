@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { COLLATERAL, assetBySac } from "../config";
+import { COLLATERAL, LOAN, assetBySac } from "../config";
 import * as chain from "../chain";
 import type { Offer } from "../chain";
 import { BPS, fmtAmount, fmtPct, fmtTerm, idRef, interest as calcInterest, parseAmount, protocolFee } from "../format";
@@ -27,7 +27,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   const principal = parseAmount(amount);
   const dayCount = Number(days);
   const aprNum = Number(apr);
-  const errAmount = principal === null || principal <= 0n ? "Enter an amount above 0.00 USDC." : null;
+  const errAmount = principal === null || principal <= 0n ? `Enter an amount above 0.00 ${LOAN.code}.` : null;
   const errDays = !Number.isFinite(dayCount) || dayCount <= 0 || !/^\d+(\.\d+)?$/.test(days) ? "Enter a term above 0 days." : null;
   const errApr =
     !Number.isFinite(aprNum) || aprNum < 0 || aprNum > 100 || !/^\d+(\.\d{1,2})?$/.test(apr)
@@ -42,10 +42,10 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to post an offer.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
-  else if (balances && balances.usdc === null) block = "Add a USDC trustline first.";
-  else if (usdcBlock(balances)) block = usdcBlock(balances);
+  else if (balances && balances.usdc === null) block = `Add a ${LOAN.code} trustline first.`;
+  else if (usdcBlock(balances, LOAN.code)) block = usdcBlock(balances, LOAN.code);
   else if (balances && principal && balances.usdc !== null && balances.usdc < principal)
-    block = `You hold ${fmtAmount(balances.usdc)} USDC, less than ${fmtAmount(principal)} USDC.`;
+    block = `You hold ${fmtAmount(balances.usdc)} ${LOAN.code}, less than ${fmtAmount(principal)} ${LOAN.code}.`;
   else if (config && !asset) block = `${token.code} is not registered as collateral on this deployment.`;
   else if (asset && !asset.enabled) block = `${token.code} is disabled as collateral right now.`;
   else if (pauseBlock(token.code, asset)) block = pauseBlock(token.code, asset);
@@ -64,7 +64,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
     <section className="app-section app-lend">
       <div className="app-section__head">
         <h1 className="title">Post an offer</h1>
-        <span className="small app-muted">Your USDC stays locked in the contract until someone takes the offer or you cancel it.</span>
+        <span className="small app-muted">Your {LOAN.code} stays locked in the contract until someone takes the offer or you cancel it.</span>
       </div>
       <div className="app-lend__grid">
         <form
@@ -75,7 +75,7 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
           }}
         >
           <div className="app-lend__fields">
-          <Field id="amount" label="Amount to lend" value={amount} onChange={setAmount} suffix="USDC" error={errAmount}
+          <Field id="amount" label="Amount to lend" value={amount} onChange={setAmount} suffix={LOAN.code} error={errAmount}
             hint="Held in escrow until a borrower takes it." />
           <Field id="term" label="Term" value={days} onChange={setDays} suffix="days" error={errDays}
             hint={config ? `In the demo, ${days || "0"} days run in ${Math.max(1, Math.round(((Number(days) || 0) * Number(config.day_secs)) / 60))} min.` : ""} />
@@ -105,23 +105,23 @@ export function LendView({ ctx, offers }: { ctx: Ctx; offers: Offer[] }) {
           <dl className="cv-terms">
             <div>
               <dt>Interest</dt>
-              <dd title={`${fmtExact(int)} USDC`}>
+              <dd title={`${fmtExact(int)} ${LOAN.code}`}>
                 {fmtSummary(int)}
-                <span className="cv-unit">USDC</span>
+                <span className="cv-unit">{LOAN.code}</span>
               </dd>
             </div>
             <div>
               <dt>Protocol fee</dt>
-              <dd title={`${fmtExact(fee)} USDC`}>
+              <dd title={`${fmtExact(fee)} ${LOAN.code}`}>
                 {fmtSummary(fee)}
-                <span className="cv-unit">USDC</span>
+                <span className="cv-unit">{LOAN.code}</span>
               </dd>
             </div>
             <div>
               <dt>Back at maturity</dt>
-              <dd title={principal ? `${fmtExact(principal + int - fee)} USDC: principal + interest − fee` : undefined}>
+              <dd title={principal ? `${fmtExact(principal + int - fee)} ${LOAN.code}: principal + interest − fee` : undefined}>
                 {principal ? fmtSummary(principal + int - fee) : "—"}
-                <span className="cv-unit">USDC</span>
+                <span className="cv-unit">{LOAN.code}</span>
               </dd>
             </div>
           </dl>

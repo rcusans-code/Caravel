@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ACCOUNTS, COLLATERAL, DEMO_ENABLED, assetBySac } from "../config";
+import { ACCOUNTS, COLLATERAL, DEMO_ENABLED, QUOTE_SIGN, assetBySac } from "../config";
 import * as chain from "../chain";
 import { fmtNav } from "../format";
 import { Alert, Tip, TxHash, TxSlot } from "../ui";
@@ -99,7 +99,7 @@ export function AdminView({ ctx, isAdmin }: { ctx: Ctx; isAdmin: boolean }) {
             <span className="cv-unit">USD</span>
           </span>
           <span className="cv-field__hint" id="nav-hint">
-            Last update: {nav ? fmtNav(nav.price, nav.decimals) : "—"}
+            Last update: {nav ? `${QUOTE_SIGN}${fmtNav(nav.price, nav.decimals)}` : "—"}
             {nav ? ` at ${new Date(Number(nav.timestamp) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. Push the
             same price again to keep it fresh.
           </span>

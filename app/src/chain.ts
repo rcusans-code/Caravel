@@ -11,14 +11,14 @@ import {
   DEPLOYED_AT,
   HORIZON_URL,
   LIVE_FEED,
+  LOAN,
   NETWORK_PASSPHRASE,
   ORACLE_ID,
   REPO_ID,
   RPC_URL,
   TBENJI,
-  TBENJI_SAC,
+  TRUST_CODES,
   TSAFO,
-  USDC,
 } from "./config";
 import { horizonToUnits } from "./format";
 import { NAV_BAND_RECORDS, type BandCandidate, type PricePoint } from "./gates";
@@ -45,6 +45,7 @@ export type { FeedReading } from "./sep40";
 
 export interface ProtocolConfig {
   admin: string;
+  /** The loan token's SAC (contract field `usdc`; tEURC in the EURC market). */
   usdc: string;
   oracle: string;
   treasury: string;
@@ -62,7 +63,7 @@ export interface AssetConfig {
   enabled: boolean;
   /** NAV older than this blocks take / check_margin / liquidate (per asset, DECISIONS.md #25). */
   max_nav_age_secs: bigint;
-  /** Exposure cap: max debt of live repos on this asset, USDC units (DECISIONS.md #32). 0 = no new repos; null = contract predates #32. */
+  /** Exposure cap: max debt of live repos on this asset, loan-token units (DECISIONS.md #32). 0 = no new repos; null = contract predates #32. */
   max_open_debt: bigint | null;
   /** NAV sanity band (DECISIONS.md #31): max move in bps against the feed's last 20 records; null = contract predates #31. */
   max_nav_move_bps: bigint | null;
@@ -84,9 +85,11 @@ export interface Nav {
 export interface Balances {
   exists: boolean;
   xlm: bigint;
-  usdc: bigint | null; // null = no trustline
-  /** USDC trustline authorized by its issuer; false = frozen (Raven AS-04) or no line. */
+  /** Loan-token balance (USDC, or tEURC in the EURC market); null = no trustline. */
+  usdc: bigint | null;
+  /** Loan-token trustline authorized by its issuer; false = frozen (Raven AS-04) or no line. */
   usdcAuthorized: boolean;
+  /** null = no trustline, or no tBENJI in this market. */
   tbenji: bigint | null;
   tbenjiAuthorized: boolean;
   /** tSAFO units (5 decimals); null when tSAFO is not deployed. No trustline. */
@@ -173,7 +176,7 @@ export async function getOpenDebt(sac: string): Promise<bigint | null> {
   }
 }
 
-export async function getNav(sac: string = TBENJI_SAC): Promise<Nav | null> {
+export async function getNav(sac: string = COLLATERAL[0].sac): Promise<Nav | null> {
   const [last, dec] = await Promise.all([
     readOracle.lastprice({ asset: oracleAsset(sac) }),
     readOracle.decimals(),
@@ -204,7 +207,7 @@ export async function getLiveFeed(): Promise<FeedReading | null> {
 }
 
 /** The feed's last `NAV_BAND_RECORDS` prices for `sac`, newest first: what `check_band` reads (#31). */
-export async function getNavHistory(sac: string = TBENJI_SAC): Promise<PricePoint[]> {
+export async function getNavHistory(sac: string = COLLATERAL[0].sac): Promise<PricePoint[]> {
   const r = (await readOracle.prices({ asset: oracleAsset(sac), records: NAV_BAND_RECORDS })).result;
   return (r ?? []).map((p) => ({ price: big(p.price), timestamp: big(p.timestamp) }));
 }
@@ -214,7 +217,7 @@ export async function getNavHistory(sac: string = TBENJI_SAC): Promise<PricePoin
  * band-real-move): what `check_band`'s settle path compares against. null
  * when none is stored or the contract predates the view (window roll only).
  */
-export async function getBandCandidate(sac: string = TBENJI_SAC): Promise<BandCandidate | null> {
+export async function getBandCandidate(sac: string = COLLATERAL[0].sac): Promise<BandCandidate | null> {
   try {
     const c = await simulateView<{ price: unknown; since: unknown } | null>(REPO_ID, "band_candidate", new Address(sac).toScVal());
     return c ? { price: big(c.price), since: big(c.since) } : null;
@@ -258,8 +261,8 @@ export async function getBalances(address: string): Promise<Balances> {
   const find = (code: string, issuer: string) =>
     acc.balances.find((b) => b.asset_code === code && b.asset_issuer === issuer);
   const native = acc.balances.find((b) => b.asset_type === "native");
-  const u = find(USDC.code, USDC.issuer);
-  const t = find(TBENJI.code, TBENJI.issuer);
+  const u = find(LOAN.code, LOAN.issuer);
+  const t = TBENJI ? find(TBENJI.code, TBENJI.issuer) : undefined;
   const who = new Address(address).toScVal();
   const [tsafo, tsafoAllowed] = TSAFO
     ? await Promise.all([
@@ -357,7 +360,7 @@ export async function cancelOffer(signer: Signer, offerId: bigint): Promise<TxOu
 
 // --- borrow requests: the borrower posts, a lender funds -----------------------------
 
-/** Escrows `collateralAmount` of `collateral` and asks for `principal` USDC. Returns the request id. */
+/** Escrows `collateralAmount` of `collateral` and asks for `principal` of the loan token. Returns the request id. */
 export async function createRequest(
   signer: Signer,
   args: { collateral: string; collateralAmount: bigint; principal: bigint; aprBps: number; termSecs: bigint },
@@ -607,19 +610,20 @@ export async function getInKindClaims(): Promise<Map<string, InKindClaim>> {
 }
 
 /** Admin only: mock oracle `set_price` (contracts/oracle) for collateral `sac`. */
-export async function setNav(signer: Signer, price: bigint, sac: string = TBENJI_SAC): Promise<TxOutcome<null>> {
+export async function setNav(signer: Signer, price: bigint, sac: string = COLLATERAL[0].sac): Promise<TxOutcome<null>> {
   const c = new OracleClient({ contractId: ORACLE_ID, ...clientOpts(signer) });
   const out = await submit(await c.set_price({ asset: oracleAsset(sac), price }));
   unwrapResult(out.value);
   return { hash: out.hash, value: null };
 }
 
-/** Adds the USDC and tBENJI trustlines a fresh wallet needs. A wallet decline throws WalletSignError. */
+/** Adds the loan-token (and, in the USDC market, tBENJI) trustlines a fresh wallet needs. A wallet decline throws WalletSignError. */
 export async function addTrustlines(signer: Signer, which: TrustCode[]): Promise<TxOutcome<null>> {
   const account = await server.getAccount(signer.address);
   const b = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE });
   for (const code of which) {
-    const a = code === "USDC" ? USDC : TBENJI;
+    const a = [LOAN, TBENJI].find((t) => t?.code === code);
+    if (!a) throw new Error(`No ${code} trustline in this market.`);
     b.addOperation(Operation.changeTrust({ asset: new ClassicAsset(a.code, a.issuer) }));
   }
   // The timebound starts before the prompt: leave 60 s after the longest signature so a
@@ -648,6 +652,7 @@ export function ensureTrustlines(
 ): Promise<TrustResult> {
   return addTrustlinesWithRetry(
     {
+      codes: TRUST_CODES,
       balances: () => getBalances(signer.address),
       add: async (which) => (await addTrustlines(signer, which)).hash,
     },

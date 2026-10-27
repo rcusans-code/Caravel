@@ -3,7 +3,7 @@
 //   RequestsBoard: the market board under Offers, with Fund for lenders.
 //   RequestView:   the #request tab, "Request a loan" form + the borrower's open requests.
 import { useState } from "react";
-import { COLLATERAL, assetBySac, roleOf } from "../config";
+import { COLLATERAL, LOAN, QUOTE_SIGN, assetBySac, roleOf } from "../config";
 import * as chain from "../chain";
 import type { BorrowRequest } from "../chain";
 import {
@@ -51,12 +51,12 @@ function fundBlock(ctx: Ctx, q: BorrowRequest, t: ReturnType<typeof terms>): str
   const cap = cfg.max_open_debt;
   const used = openDebt[q.collateral_asset] ?? null;
   if (debt !== null && cap !== null && used !== null && used + debt > cap)
-    return `This loan would take ${token.code} past its exposure cap (${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} USDC used).`;
+    return `This loan would take ${token.code} past its exposure cap (${fmtAmount(used, 0)} of ${fmtAmount(cap, 0)} ${LOAN.code} used).`;
   if (balances && !balances.exists) return "Your account is not on testnet yet. Fund it with friendbot.";
-  if (balances && balances.usdc === null) return "Add a USDC trustline first.";
-  if (usdcBlock(balances)) return usdcBlock(balances);
+  if (balances && balances.usdc === null) return `Add a ${LOAN.code} trustline first.`;
+  if (usdcBlock(balances, LOAN.code)) return usdcBlock(balances, LOAN.code);
   if (balances && balances.usdc !== null && balances.usdc < q.principal)
-    return `You hold ${fmtAmount(balances.usdc)} USDC, less than ${fmtAmount(q.principal)} USDC.`;
+    return `You hold ${fmtAmount(balances.usdc)} ${LOAN.code}, less than ${fmtAmount(q.principal)} ${LOAN.code}.`;
   return null;
 }
 
@@ -75,7 +75,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
     const out = await ctx.run(`fund-${q.id}`, `Request ${idRef(q.id)} not funded`, () => chain.fillRequest(signer, q.id));
     if (out)
       setReceipt({
-        left: { eyebrow: "Lender pays", amount: fmtAmount(q.principal), unit: "USDC", hint: "to the borrower" },
+        left: { eyebrow: "Lender pays", amount: fmtAmount(q.principal), unit: LOAN.code, hint: "to the borrower" },
         right: { eyebrow: "Collateral held", amount: fmtAmount(q.collateral_amount, 2, token.decimals), unit: token.code, hint: `from Request ${idRef(q.id)}` },
         sentence: `Agreement ${idRef(out.value)} opened. Settled atomically in one transaction`,
         hash: out.hash,
@@ -92,7 +92,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
           Loans borrowers asked for, at their rate. Each one is funded in full.
           <Tip>
             The borrower&apos;s collateral is already locked in the contract. Funding checks it against the current NAV and
-            haircut, then pays your USDC to the borrower and opens the agreement in one transaction.
+            haircut, then pays your {LOAN.code} to the borrower and opens the agreement in one transaction.
           </Tip>
         </span>
       </div>
@@ -151,7 +151,7 @@ export function RequestsBoard({ ctx, requests, loaded }: { ctx: Ctx; requests: B
                 <tr key={String(q.id)} data-request={String(q.id)}>
                   <td className="cv-num">{idRef(q.id)}</td>
                   <td className="r cv-num">
-                    {fmtAmount(q.principal)} <span className="cv-unit app-phone">USDC</span>
+                    {fmtAmount(q.principal)} <span className="cv-unit app-phone">{LOAN.code}</span>
                   </td>
                   <td className="r cv-num" style={{ color: "var(--brand)" }}>
                     {fmtPct(q.apr_bps)} <span className="cv-unit app-phone">APR</span>
@@ -213,7 +213,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
   const coll = parseAmount(posted, token.decimals);
   const dayCount = Number(days);
   const aprNum = Number(apr);
-  const errAmount = principal === null || principal <= 0n ? "Enter an amount above 0.00 USDC." : null;
+  const errAmount = principal === null || principal <= 0n ? `Enter an amount above 0.00 ${LOAN.code}.` : null;
   const errColl = coll === null || coll <= 0n ? `Enter a ${token.code} amount above 0.` : null;
   const errDays = !Number.isFinite(dayCount) || dayCount <= 0 || !/^\d+(\.\d+)?$/.test(days) ? "Enter a term above 0 days." : null;
   const errApr =
@@ -230,8 +230,8 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
   let block: string | null = null;
   if (!signer) block = `${CONNECT} to request a loan.`;
   else if (balances && !balances.exists) block = "Your account is not on testnet yet. Fund it with friendbot.";
-  else if (balances && balances.usdc === null) block = "Add a USDC trustline to receive the loan.";
-  else if (usdcBlock(balances)) block = usdcBlock(balances);
+  else if (balances && balances.usdc === null) block = `Add a ${LOAN.code} trustline to receive the loan.`;
+  else if (usdcBlock(balances, LOAN.code)) block = usdcBlock(balances, LOAN.code);
   else if (signer.kind !== "demo" && collateralBlock(balances, token)) block = collateralBlock(balances, token);
   else if (config && !t.cfg) block = `${token.code} is not registered as collateral on this deployment.`;
   else if (t.cfg && !t.cfg.enabled) block = `${token.code} is disabled as collateral right now.`;
@@ -293,7 +293,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
             </label>
             <Field id="req-collateral" label="Collateral to lock" value={posted} onChange={setPostedAmount} suffix={token.code} error={errColl}
               hint={held?.amount != null ? `You hold ${amt(held.amount)} ${token.code}.` : "Held in escrow until funded or cancelled."} />
-            <Field id="req-amount" label="Amount to borrow" value={amount} onChange={setAmount} suffix="USDC" error={errAmount}
+            <Field id="req-amount" label="Amount to borrow" value={amount} onChange={setAmount} suffix={LOAN.code} error={errAmount}
               hint="Paid to you in full when a lender funds it." />
             <Field id="req-term" label="Term" value={days} onChange={setDays} suffix="days" error={errDays}
               hint={config ? `In the demo, ${days || "0"} days run in ${Math.max(1, Math.round(((Number(days) || 0) * Number(config.day_secs)) / 60))} min.` : ""} />
@@ -306,7 +306,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
                 <dt>Repay</dt>
                 <dd>
                   {valid && t.debt !== null ? fmtAmount(t.debt) : "—"}
-                  <span className="cv-unit">USDC</span>
+                  <span className="cv-unit">{LOAN.code}</span>
                 </dd>
               </div>
               <div>
@@ -314,7 +314,7 @@ export function RequestView({ ctx, requests }: { ctx: Ctx; requests: BorrowReque
                   Needed now
                   <Tip>
                     {t.nav && t.cfg
-                      ? `Repay ÷ (NAV ${fmtNav(t.nav.price, t.nav.decimals)} × ${fmtPct(BPS - t.cfg.haircut_bps, 1)}), rounded up. A lender can fund the request while what you lock covers this at the NAV of that moment; if the NAV falls below it, funding fails and the request waits.`
+                      ? `Repay ÷ (NAV ${QUOTE_SIGN}${fmtNav(t.nav.price, t.nav.decimals)} × ${fmtPct(BPS - t.cfg.haircut_bps, 1)}), rounded up. A lender can fund the request while what you lock covers this at the NAV of that moment; if the NAV falls below it, funding fails and the request waits.`
                       : "Waiting for the NAV."}
                   </Tip>
                 </dt>

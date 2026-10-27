@@ -16,6 +16,8 @@ npm test                         # node --test test/*.test.ts (pure modules, no 
 
 Contract IDs come from `deployments/testnet.json`, which `scripts/deploy.sh` writes. After a redeploy, restart the dev server; nothing in `src/` is hand-copied.
 
+**EURC market (DECISIONS #52).** When `deployments/testnet-eur.json` exists (`LOAN_ASSET=EURC scripts/deploy.sh` writes it), the build carries it and the header shows a *USDC market / EURC market* switch. `/app/?market=eur` opens the EURC market: its repo, oracle, tEURC loan token and tSAFO collateral, with every amount labelled tEURC and NAV in €. The switch reloads the page and keeps the tab hash. Without the file, the app is USDC-only. `CARAVEL_EUR_DEPLOYMENT=<path>` (relative to `app/`) points the build at another file. The landing's live deals stay on the USDC market.
+
 ## Log in
 
 - **Connect wallet**: Stellar Wallets Kit (`@creit.tech/stellar-wallets-kit` 2.x; Freighter, xBull, Albedo, Lobstr, Rabet, Hana …). The wallet must be on Testnet. A fresh wallet can fund itself with friendbot and add the USDC/tBENJI trustlines from the balances card. If the wallet declines the trustline transaction, the app re-reads the account and asks once more for the lines still missing; after a second decline or any error the *Add trustline* button stays for another try (`src/trustline.ts`).
@@ -60,7 +62,7 @@ Every confirmed transaction shows a TxHash chip linked to stellar.expert.
 
 ## Files
 
-- `src/config.ts`: IDs and accounts from `deployments/testnet.json`, demo key gate, live reference feed (`LIVE_FEED`)
+- `src/config.ts`: IDs and accounts from the picked market's `deployments/testnet*.json` (`src/market.ts` picks it), demo key gate, live reference feed (`LIVE_FEED`)
 - `src/sep40.ts`: SEP-40 asset parsing and reading normalisation for the live feed (pure, unit-tested)
 - `src/chain.ts`: reads (RPC, Horizon) and writes through the generated bindings (`caravel-repo`, `caravel-oracle`)
 - `src/wallet.ts`: Wallets Kit signer and demo signer, same `Signer` shape
